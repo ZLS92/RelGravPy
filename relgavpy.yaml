@@ -1,0 +1,21 @@
+name: relgravpy
+channels:
+  - conda-forge
+dependencies:
+  - python>=3.10
+  - numpy
+  - scipy
+  - pandas
+  - matplotlib
+
+  # Geospatial (fondamentali per Bouguer & topo)
+  - gdal
+  - proj
+  - shapely
+
+  # Utility
+  - pip
+
+  # Install package via pip (editable or not)
+  - pip:
+      - -e .
