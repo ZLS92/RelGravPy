@@ -38,13 +38,16 @@ A typical processing workflow includes:
 
 4. **Geophysical corrections**
    - free-air correction
-   - Bouguer correction (simple slab, curvature corretion)
-   - topographic effect 
+   - Bouguer correction
+      (total topographic and bathymetry mass effect using DTMs and coastlines)
 
 5. **Anomaly analysis**
    - statistical analysis
    - profiles and maps
-   - data preparation for geophysical interpretation
+   - spectral decomposition and analysis
+   - gravity grid filters and field-derivatives operators 
+   - regional/local gravity field separation 
+   - data preparation for geophysical modelling and interpretation
 
 ---
 
