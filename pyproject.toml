@@ -7,7 +7,7 @@ name = "relgravpy"
 version = "0.1.0"
 description = "Relative gravimetry processing for geophysical applications"
 authors = [
-    { name = "Luigi Zampa" }
+    { name = "Luigi Sante Zampa" }
 ]
 readme = "README.md"
 requires-python = ">=3.10"

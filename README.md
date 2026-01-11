@@ -1,6 +1,6 @@
 # RelRelGravPy
 
-**RelGravPy** is a Python package for processing **relative gravimetric data** for geophysical applications.  
+**RelGravPy** is a Python package for processing **relative gravity data** for geophysical applications.  
 It is primarily designed for **land-based gravity surveys**, but its architecture is intended to be extensible to **marine** and **airborne** gravimetry in the future.
 
 The package covers the full processing chain: from **instrumental and campaign corrections**, through **gravity network adjustment**, to **Bouguer anomaly computation** and **geophysical analysis**.
