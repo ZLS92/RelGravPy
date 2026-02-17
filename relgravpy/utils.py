@@ -5680,3 +5680,45 @@ def _parse_dt64( s ):
     except Exception as e:
         raise ValueError(f"Cannot parse datetime string: {s!r}. "
                             f"Use e.g. 'YYYY-MM-DD HH:MM:SS' or ISO.") from e
+
+# -----------------------------------------------------------------------------
+def calculate_julian_century(self, timestamp):
+    """
+    Calculate the julian century and hour.
+    Take a datetime object and calculate the decimal Julian century and
+    floating point hour. This is in reference to noon on December 31,
+    1899 as stated in the Longman paper.
+    Parameters
+    ----------
+    timestamp: datetime
+        Time stamp to convert
+    Returns
+    -------
+    float, float
+        Julian century and hour
+    """
+    # --- Normalizza timestamp ---
+    if isinstance(timestamp, np.datetime64):
+        timestamp = timestamp.astype('datetime64[ns]').astype(datetime)
+
+    if isinstance(timestamp, (int, np.integer)):
+        # assume nanoseconds since epoch
+        timestamp = datetime.utcfromtimestamp(timestamp / 1e9)
+
+    if not isinstance(timestamp, datetime):
+        raise TypeError(f"timestamp must be datetime, got {type(timestamp)}")
+
+    origin_date = datetime(1899, 12, 31, 12, 0, 0)
+
+    dt = timestamp - origin_date
+    days = dt.days + dt.seconds / 86400.0
+
+    decimal_julian_century = days / 36525.0
+
+    julian_hour = (
+        timestamp.hour
+        + timestamp.minute / 60.0
+        + timestamp.second / 3600.0
+    )
+
+    return decimal_julian_century, julian_hour
