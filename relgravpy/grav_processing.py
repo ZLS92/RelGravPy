@@ -2378,7 +2378,8 @@ def grav_net_lsqadj(
 def earth_tides( lat, lon, z=0, DateTime=None, 
                  yy=None, mm=None, dd=None, 
                  h=None, m=None, s=None ,
-                 start=None, end=None, dt=None ):
+                 start=None, end=None, dt=None,
+                 plot=False, save_file=False) :
     """
     Compute the Earth tides at a given location and time using the Longman 1959 model.
     The function can operate in two modes:
@@ -2466,6 +2467,24 @@ def earth_tides( lat, lon, z=0, DateTime=None,
     for i in range(tides.size):
         tides[i] = LongmanTides(lat[i], lon[i], z[i], DateTime[i])[2]
 
+    # --------------- PLOT ----------------
+    if plot:
+        plt.figure(figsize=(10, 6))
+        plt.plot(DateTime, tides, 'o-', label='Earth Tides')
+        plt.xlabel('DateTime')
+        plt.ylabel('Tide (mGal)')
+        plt.grid(True)
+        plt.legend()
+        plt.gcf().autofmt_xdate()
+
+    # -------------- SAVE FILE ----------------
+    if save_file:
+        with open(save_file, 'w') as f:
+            f.write("Lon, Lat, DateTime, Tide_mGal\n")
+            for lon_val, lat_val, dt, tide in zip(lon, lat, DateTime, tides):
+                f.write(f"{lon_val}, {lat_val}, {dt}, {tide:.6f}\n")
+        f.close()
+        
     # ---------------- RETURN ----------------
     if range_mode:
         return np.array(DateTime, dtype="datetime64[ns]"), tides
