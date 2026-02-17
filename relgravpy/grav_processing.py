@@ -2447,13 +2447,14 @@ def earth_tides( lat, lon, z=0, datetime=None,
             )
 
     # Normalize datetime input to a python list of datetimes
+    print( datetime[0] )
     if isinstance(datetime, (np.ndarray, np.datetime64)):
         datetime = datetime.tolist()
         if not isinstance(datetime, list):
             datetime = [datetime]
         
         print( datetime[0] )
-        
+
 
     # Convert inputs to numpy arrays
     lat = np.full(np.size(datetime), lat, dtype=float)
