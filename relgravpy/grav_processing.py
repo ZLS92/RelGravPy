@@ -2447,14 +2447,11 @@ def earth_tides( lat, lon, z=0, datetime=None,
             )
 
     # Normalize datetime input to a python list of datetimes
-    # print( datetime[0] )
-    # if isinstance(datetime, (np.ndarray, np.datetime64)):
-    #     datetime = datetime.tolist()
-    #     if not isinstance(datetime, list):
-    #         datetime = [datetime]
-        
-    #     print( datetime[0] )
-
+    print( datetime[0] )
+    if isinstance(datetime, (np.ndarray, np.datetime64)):
+        datetime = datetime.tolist()
+        if not isinstance(datetime, list):
+            datetime = [datetime]
 
     # Convert inputs to numpy arrays
     lat = np.full(np.size(datetime), lat, dtype=float)
@@ -2529,6 +2526,7 @@ class TideModel():
         float, float
             Julian century and hour
         """
+        print( timestamp )
         origin_date = datetime(1899, 12, 31, 12, 00, 00)  # Noon Dec 31, 1899
         dt = timestamp - origin_date
         days = dt.days + dt.seconds / 3600. / 24.
