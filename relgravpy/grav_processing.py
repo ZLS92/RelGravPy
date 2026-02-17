@@ -2462,7 +2462,7 @@ def earth_tides( lat, lon, z=0, DateTime=None,
         if not isinstance(DateTime, list):
             DateTime = [DateTime]
 
-    # Convert inputs to numpy arrays
+    # Convert inputs to numpy arrays of the same length
     lat = np.full(np.size(DateTime), lat, dtype=float)
     lon = np.full(np.size(DateTime), lon, dtype=float)
     z   = np.full(np.size(DateTime), z,   dtype=float)
