@@ -2485,9 +2485,10 @@ def earth_tides( lat, lon, z=0, DateTime=None,
     # -------------- SAVE FILE ----------------
     if save_file:
         with open(save_file, 'w') as f:
-            f.write("Lon, Lat, DateTime, Tide_mGal\n")
+            f.write(f"{'Lon':>12} {'Lat':>12} {'DateTime':>25} {'Tide_mGal':>8}\n")
+
             for lon_val, lat_val, dt, tide in zip(lon, lat, DateTime, tides):
-                f.write(f"{lon_val}, {lat_val}, {dt}, {tide:.6f}\n")
+                f.write(f"{lon_val:12.6f} {lat_val:12.6f} {str(dt):>25} {tide:8.4f}\n")
         f.close()
 
     # ---------------- RETURN ----------------
