@@ -2547,7 +2547,7 @@ class TideModel():
             + timestamp.second / 3600.0
         )
 
-    return decimal_julian_century, julian_hour
+        return decimal_julian_century, julian_hour
 
     def solve_longman(self, lat, lon, alt, time):
         """
