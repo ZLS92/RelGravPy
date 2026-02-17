@@ -2458,11 +2458,9 @@ def earth_tides( lat, lon, z=0, DateTime=None,
     z   = np.full(np.size(DateTime), z,   dtype=float)
 
     tides = np.full(lat.shape, np.nan, dtype=float)
-    print( tides.size )
 
     for i in range(tides.size):
         model = TideModel()
-        print( DateTime[i] )
         tides[i] = model.solve_longman(lat[i], lon[i], z[i], DateTime[i])[2]
 
     # ---------------- RETURN ----------------
@@ -2525,13 +2523,31 @@ class TideModel():
         float, float
             Julian century and hour
         """
-        origin_date = datetime(1899, 12, 31, 12, 00, 00)  # Noon Dec 31, 1899
+        # --- Normalizza timestamp ---
+        if isinstance(timestamp, np.datetime64):
+            timestamp = timestamp.astype('datetime64[ns]').astype(datetime)
+
+        if isinstance(timestamp, (int, np.integer)):
+            # assume nanoseconds since epoch
+            timestamp = datetime.utcfromtimestamp(timestamp / 1e9)
+
+        if not isinstance(timestamp, datetime):
+            raise TypeError(f"timestamp must be datetime, got {type(timestamp)}")
+
+        origin_date = datetime(1899, 12, 31, 12, 0, 0)
+
         dt = timestamp - origin_date
-        days = dt.days + dt.seconds / 3600. / 24.
-        decimal_julian_century = days / 36525
-        julian_hour = (timestamp.hour + timestamp.minute / 60. +
-                       timestamp.second / 3600.)
-        return decimal_julian_century, julian_hour
+        days = dt.days + dt.seconds / 86400.0
+
+        decimal_julian_century = days / 36525.0
+
+        julian_hour = (
+            timestamp.hour
+            + timestamp.minute / 60.0
+            + timestamp.second / 3600.0
+        )
+
+    return decimal_julian_century, julian_hour
 
     def solve_longman(self, lat, lon, alt, time):
         """
