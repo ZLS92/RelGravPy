@@ -19,6 +19,8 @@ dependencies:
   - proj
   - pyproj
   - shapely
+  - pdf
+  - pdfkit
 
   # Utility
   - pip
