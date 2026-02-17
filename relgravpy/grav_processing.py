@@ -2378,7 +2378,7 @@ def grav_net_lsqadj(
 def earth_tides( lat, lon, z=0, DateTime=None, 
                  yy=None, mm=None, dd=None, 
                  h=None, m=None, s=None ,
-                 start=None, end=None, dt=None,
+                 start=None, end=None, step=None,
                  plot=False, save_file=False) :
     """
     Compute the Earth tides at a given location and time using the Longman 1959 model.
@@ -2405,7 +2405,7 @@ def earth_tides( lat, lon, z=0, DateTime=None,
         Start datetime for range mode.
     end : str or datetime, optional
         End datetime for range mode.
-    dt : float, optional
+    step : float, optional
         Time step in seconds for range mode.
     plot : bool, default=False
         If True, plot the computed tides over time.
