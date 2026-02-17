@@ -2385,7 +2385,7 @@ def earth_tides( lat, lon, z=0, DateTime=None,
     The function can operate in two modes:
     1) Single mode: compute tides for a single datetime specified by DateTime 
         or by separate date/time components (yy, mm, dd, h, m, s).
-    2) Range mode: compute tides for a range of datetimes specified by start, end, and dt 
+    2) Range mode: compute tides for a range of datetimes specified by start, end, and step 
         (time step in seconds).
 
     Parameters
