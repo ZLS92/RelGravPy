@@ -2438,6 +2438,7 @@ def earth_tides( lat, lon, z=0, datetime=None,
 
         dt64 = np.arange(t0, t1 + step, step, dtype="datetime64[ns]")
         datetime = dt64
+        print( dt64[0] )
 
     # ---------------- SINGLE MODE ----------------
     else:
