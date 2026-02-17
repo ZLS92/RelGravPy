@@ -2526,7 +2526,8 @@ class TideModel():
         float, float
             Julian century and hour
         """
-        print( timestamp )
+        if isinstance(timestamp, np.datetime64):
+            timestamp = timestamp.astype('datetime64[ns]').astype(dt_datetime)
         origin_date = datetime(1899, 12, 31, 12, 00, 00)  # Noon Dec 31, 1899
         dt = timestamp - origin_date
         days = dt.days + dt.seconds / 3600. / 24.
