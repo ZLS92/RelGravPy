@@ -2463,6 +2463,7 @@ def earth_tides( lat, lon, z=0, datetime=None,
 
     for i in range(tides.size):
         model = TideModel()
+        print( datetime[i] )
         tides[i] = model.solve_longman(lat[i], lon[i], z[i], datetime[i])[2]
 
     # ---------------- RETURN ----------------
