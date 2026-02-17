@@ -32,8 +32,6 @@ from shapely.geometry import Polygon, LineString, Point
 from shapely.geometry import MultiPolygon, MultiPoint, MultiLineString
 from scipy import signal 
 import io 
-import pdfkit
-
 
 # -----------------------------------------------------------------------------
 # Constants
@@ -5628,112 +5626,6 @@ def shrink_cmap(cmap_name, center_start=0.4, center_end=0.6, num_colors=256):
     new_cmap = LinearSegmentedColormap.from_list(f'shrink_{cmap_name}', new_colors)
     
     return new_cmap
-
-# -----------------------------------------------------------------------------
-def create_log_file( main_function, 
-                     main_args=(),
-                     file_name='log_file', 
-                     add2name='_log',
-                     convert_to_pdf=True ):
-    """"
-    Executes a given function and captures its stdout output, 
-    saving it to an HTML log file.
-    This function redirects the standard output to capture all print statements and 
-    matplotlib figures generated during the execution of the provided main_function. 
-    The captured output is then formatted into an HTML file, which includes the 
-    execution date and time, and saved with the specified file name.
-
-    Args:
-        - main_function (function): The main function to execute and capture output from.
-
-        - file_name (str, optional): The base name of the log file to create. 
-            Defaults to 'log_file'. If the provided file name 
-            does not have an '.html' extension, it will be replaced with '.html'.
-        
-        - add2name (str, optional): The string to append to the file name.
-        
-        - convert_to_pdf (bool, optional): 
-            Whether to convert the HTML log file to a PDF file.
-
-    Returns:
-        - str: The name of the created HTML log file.
-    """
-
-    base_name, ext = os.path.splitext( file_name )
-    base_name = base_name + add2name
-
-    # Replace the extension if it is different from .html
-    if ext != '.html':
-        out_file_name = base_name + '.html'
-    else:
-        out_file_name = base_name + ext
-
-    class DualOutput:
-        def __init__(self):
-            self.terminal = sys.stdout
-            self.buffer = io.StringIO()
-
-        def write(self, message):
-            self.terminal.write(message)
-            self.buffer.write(message)
-
-        def flush(self):
-            self.terminal.flush()
-
-        def add_figure(self, filename):
-            # Control image width via inline CSS
-            self.buffer.write(f'<img src="{filename}" alt="{filename}" style="max-width:640px; width:100%;">\n')
-
-    dual_output = DualOutput()
-    original_stdout = sys.stdout  # Keep track of the original stdout
-    sys.stdout = dual_output
-
-    original_savefig = plt.savefig
-    def savefig_wrapper(filename, *args, **kwargs):
-        dual_output.add_figure(filename)
-        original_savefig(filename, *args, **kwargs)
-
-    plt.savefig = savefig_wrapper
-
-    if type( main_args ) not in ( tuple, list ):
-        main_args = ( main_args, )
-    if len( main_args )== 0:
-        main_args = ()
-
-    try:
-        if main_args:
-            main_function(*main_args)  # Execute the main function with arguments
-        else:
-            main_function()  # Execute the main function without arguments
-    finally:
-        output = dual_output.buffer.getvalue()
-        sys.stdout = original_stdout  # Reset stdout
-        plt.savefig = original_savefig
-        current_datetime = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        html_content = f"""
-        <html>
-        <head><title>{file_name} Output</title></head>
-        <body>
-        <h1>{file_name} Output</h1>
-        <p>Generated on: {current_datetime}</p>
-        <pre>{output}</pre>
-        </body>
-        </html>
-        """
-        with open(out_file_name, "w") as file:
-            file.write(html_content)
-
-    if convert_to_pdf:
-        pdf_file_name = base_name + '.pdf'
-
-        try:
-            pdfkit.from_file(out_file_name, pdf_file_name)
-            out_file_name = pdf_file_name
-        
-        except Exception as e:
-            print(f"Error converting HTML to PDF: {e}")
-
-    return out_file_name
 
 # -----------------------------------------------------------------------------
 def _parse_dt64( s ):
