@@ -2450,13 +2450,13 @@ def earth_tides( lat, lon, z=0, DateTime=None,
     range_mode = (
         start is not None and
         end is not None and
-        dt is not None
+        step is not None
     )
 
     # ---------------- RANGE MODE ----------------
     if range_mode:
-        if dt <= 0:
-            raise ValueError("dt must be > 0")
+        if step <= 0:
+            raise ValueError("step must be > 0")
 
         t0 = utl._parse_dt64(start)
         t1 = utl._parse_dt64(end)
@@ -2464,7 +2464,7 @@ def earth_tides( lat, lon, z=0, DateTime=None,
         if t1 < t0:
             raise ValueError("end must be >= start")
 
-        step_ns = int(round(float(dt) * 1e9))
+        step_ns = int(round(float(step) * 1e9))
         step = np.timedelta64(step_ns, "ns")
 
         DateTime = np.arange(t0, t1 + step, step, dtype="datetime64[ns]")
