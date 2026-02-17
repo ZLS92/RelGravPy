@@ -2377,7 +2377,8 @@ def grav_net_lsqadj(
 # -----------------------------------------------------------------------------
 def earth_tides( lat, lon, z=0, datetime=None, 
                  yy=None, mm=None, dd=None, 
-                 h=None, m=None, s=None ):
+                 h=None, m=None, s=None ,
+                 start=None, end=None, dt=None ):
     """
     Calculate the Earth tides at a given location and time using Longman 1959.
 
@@ -2400,6 +2401,12 @@ def earth_tides( lat, lon, z=0, datetime=None,
         (required if datetime is not provided).
     s (float, optional): Second component of the datetime 
         (required if datetime is not provided).
+    start (str, datetime.datetime, numpy.datetime64, optional): 
+        Start time for range mode.
+    end (str, datetime.datetime, numpy.datetime64, optional): 
+        End time for range mode.
+    dt (float, optional): 
+        Time step in seconds for range mode.
 
     Returns:
     float or numpy.ndarray: Earth tides at the given location and time.
@@ -2409,30 +2416,60 @@ def earth_tides( lat, lon, z=0, datetime=None,
     gravity data reduction.
     """
 
-    if datetime is None:
-        datetime = utl.combine64( years=yy, 
-                                  months=mm, days=dd, 
-                                  hours=h, minutes=m, 
-                                  seconds=s)
+    range_mode = (
+        start is not None and
+        end is not None and
+        dt is not None
+    )
 
-    if type(datetime) in (np.ndarray, np.datetime64):
+    # ---------------- RANGE MODE ----------------
+    if range_mode:
+        if dt <= 0:
+            raise ValueError("dt must be > 0")
+
+        t0 = utl._parse_dt64(start)
+        t1 = utl._parse_dt64(end)
+
+        if t1 < t0:
+            raise ValueError("end must be >= start")
+
+        step_ns = int(round(float(dt) * 1e9))
+        step = np.timedelta64(step_ns, "ns")
+
+        dt64 = np.arange(t0, t1 + step, step, dtype="datetime64[ns]")
+        datetime = dt64
+
+    # ---------------- SINGLE MODE ----------------
+    else:
+        if datetime is None:
+            datetime = utl.combine64(
+                years=yy, months=mm, days=dd,
+                hours=h, minutes=m, seconds=s
+            )
+
+    # Normalize datetime input to a python list of datetimes
+    if isinstance(datetime, (np.ndarray, np.datetime64)):
         datetime = datetime.tolist()
-        if type(datetime) is not list:
+        if not isinstance(datetime, list):
             datetime = [datetime]
 
     # Convert inputs to numpy arrays
-    lat = np.full(np.size(datetime), lat)
-    lon = np.full(np.size(datetime), lon)
-    z = np.full(np.size(datetime), z)
+    lat = np.full(np.size(datetime), lat, dtype=float)
+    lon = np.full(np.size(datetime), lon, dtype=float)
+    z   = np.full(np.size(datetime), z,   dtype=float)
 
-    tides = np.full(lat.shape, np.nan)
+    tides = np.full(lat.shape, np.nan, dtype=float)
 
-    for i, _ in enumerate(tides):
+    for i in range(tides.size):
         model = TideModel()
         tides[i] = model.solve_longman(lat[i], lon[i], z[i], datetime[i])[2]
 
-    if np.size(tides) == 1:
-        tides = tides[0]
+    # ---------------- RETURN ----------------
+    if range_mode:
+        return np.array(datetime, dtype="datetime64[ns]"), tides
+
+    if len(tides) == 1:
+        return tides[0]
 
     return tides
 

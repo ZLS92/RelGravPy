@@ -8,7 +8,7 @@ dependencies:
   - pandas
   - matplotlib
 
-  # Geospatial (fondamentali per Bouguer & topo)
+  # Geospatial dependencies
   - gdal
   - proj
   - shapely

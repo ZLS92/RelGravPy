@@ -5734,3 +5734,57 @@ def create_log_file( main_function,
             print(f"Error converting HTML to PDF: {e}")
 
     return out_file_name
+
+# -----------------------------------------------------------------------------
+def _parse_dt64( s ):
+    """
+    Parse a string representation of a datetime into a numpy datetime64 object.
+    Parameters
+    ----------
+    s : str
+        A datetime string to parse. Accepted formats include:
+        - "YYYY-MM-DD" (date only, time defaults to 00:00:00)
+        - "YYYY-MM-DD HH:MM:SS" (ISO format with seconds)
+        - "YYYY-MM-DDTHH:MM:SS" (ISO 8601 format, T is normalized to space)
+        - "YYYY-MM-DD HH:MM" (datetime without seconds, seconds default to 00)
+    Returns
+    -------
+    numpy.datetime64
+        A numpy datetime64 object representing the parsed datetime.
+    Raises
+    ------
+    ValueError
+        If s is None, or if the string cannot be parsed as a valid datetime
+        in one of the accepted formats.
+    Notes
+    -----
+    - Input strings are stripped of leading/trailing whitespace.
+    - The "T" separator (ISO 8601 format) is automatically converted to a space.
+    - If only date is provided (10 characters), time defaults to 00:00:00.
+    - If time is provided without seconds (16 characters), seconds default to 00.
+    Examples
+    --------
+    >>> _parse_dt64("2024-01-15")
+    numpy.datetime64('2024-01-15T00:00:00')
+    >>> _parse_dt64("2024-01-15 14:30:45")
+    numpy.datetime64('2024-01-15T14:30:45')
+    >>> _parse_dt64("2024-01-15T14:30:45")
+    numpy.datetime64('2024-01-15T14:30:45')
+    """
+    
+    if s is None:
+        raise ValueError("start/end must be strings, got None.")
+    s = s.strip()
+    # allow date-only
+    if len(s) == 10:  # "YYYY-MM-DD"
+        s = s + " 00:00:00"
+    # normalize "T" to space
+    s = s.replace("T", " ")
+    # If user gave "YYYY-MM-DD HH:MM", append seconds
+    if len(s) == 16:
+        s = s + ":00"
+    try:
+        return np.datetime64(s)
+    except Exception as e:
+        raise ValueError(f"Cannot parse datetime string: {s!r}. "
+                            f"Use e.g. 'YYYY-MM-DD HH:MM:SS' or ISO.") from e
