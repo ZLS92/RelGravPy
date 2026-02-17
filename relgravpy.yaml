@@ -12,9 +12,7 @@ dependencies:
   # Jupyter / notebook integration
   - ipykernel
   - matplotlib-inline
-  # scegli UNO dei due (o entrambi se vuoi)
   - jupyterlab
-  # - notebook
 
   # Geospatial dependencies
   - gdal
