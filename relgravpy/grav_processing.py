@@ -2375,7 +2375,7 @@ def grav_net_lsqadj(
     return g_est, unique_stations, residuals, std_errors, sigma0
 
 # -----------------------------------------------------------------------------
-def earth_tides( lat, lon, z=0, datetime=None, 
+def earth_tides( lat, lon, z=0, DateTime=None, 
                  yy=None, mm=None, dd=None, 
                  h=None, m=None, s=None ,
                  start=None, end=None, dt=None ):
@@ -2386,21 +2386,21 @@ def earth_tides( lat, lon, z=0, datetime=None,
     lat (float): Latitude of the location.
     lon (float): Longitude of the location.
     z (float, optional): Elevation of the location (default is 0).
-    datetime (datetime.datetime or numpy.ndarray or numpy.datetime64, optional): 
+    DateTime (datetime.datetime or numpy.ndarray or numpy.datetime64, optional): 
         Date and time of the calculation.
         If not provided, the current date and time will be used.
     yy (float, optional): Year component of the datetime 
-        (required if datetime is not provided).
+        (required if DateTime is not provided).
     mm (float, optional): Month component of the datetime 
-        (required if datetime is not provided).
+        (required if DateTime is not provided).
     dd (float, optional): Day component of the datetime 
-        (required if datetime is not provided).
+        (required if DateTime is not provided).
     h (float, optional): Hour component of the datetime 
-        (required if datetime is not provided).
+        (required if DateTime is not provided).
     m (float, optional): Minute component of the datetime 
-        (required if datetime is not provided).
+        (required if DateTime is not provided).
     s (float, optional): Second component of the datetime 
-        (required if datetime is not provided).
+        (required if DateTime is not provided).
     start (str, datetime.datetime, numpy.datetime64, optional): 
         Start time for range mode.
     end (str, datetime.datetime, numpy.datetime64, optional): 
@@ -2436,39 +2436,38 @@ def earth_tides( lat, lon, z=0, datetime=None,
         step_ns = int(round(float(dt) * 1e9))
         step = np.timedelta64(step_ns, "ns")
 
-        datetime = np.arange(t0, t1 + step, step, dtype="datetime64[ns]")
+        DateTime = np.arange(t0, t1 + step, step, dtype="datetime64[ns]")
 
     # ---------------- SINGLE MODE ----------------
     else:
-        if datetime is None:
-            datetime = utl.combine64(
+        if DateTime is None:
+            DateTime = utl.combine64(
                 years=yy, months=mm, days=dd,
                 hours=h, minutes=m, seconds=s
             )
 
-    # Normalize datetime input to a python list of datetimes
-    print( datetime[0] )
-    # if isinstance(datetime, (np.ndarray, np.datetime64)):
-    #     datetime = datetime.tolist()
-    #     if not isinstance(datetime, list):
-    #         datetime = [datetime]
+    # Normalize DateTime input to a python list of datetimes
+    if isinstance(DateTime, (np.ndarray, np.datetime64)):
+        DateTime = DateTime.tolist()
+        if not isinstance(DateTime, list):
+            DateTime = [DateTime]
 
     # Convert inputs to numpy arrays
-    lat = np.full(np.size(datetime), lat, dtype=float)
-    lon = np.full(np.size(datetime), lon, dtype=float)
-    z   = np.full(np.size(datetime), z,   dtype=float)
+    lat = np.full(np.size(DateTime), lat, dtype=float)
+    lon = np.full(np.size(DateTime), lon, dtype=float)
+    z   = np.full(np.size(DateTime), z,   dtype=float)
 
     tides = np.full(lat.shape, np.nan, dtype=float)
     print( tides.size )
 
     for i in range(tides.size):
         model = TideModel()
-        print( datetime[i] )
-        tides[i] = model.solve_longman(lat[i], lon[i], z[i], datetime[i])[2]
+        print( DateTime[i] )
+        tides[i] = model.solve_longman(lat[i], lon[i], z[i], DateTime[i])[2]
 
     # ---------------- RETURN ----------------
     if range_mode:
-        return np.array(datetime, dtype="datetime64[ns]"), tides
+        return np.array(DateTime, dtype="datetime64[ns]"), tides
 
     if len(tides) == 1:
         return tides[0]
@@ -2526,8 +2525,6 @@ class TideModel():
         float, float
             Julian century and hour
         """
-        if isinstance(timestamp, np.datetime64):
-            timestamp = timestamp.astype('datetime64[ns]').astype(datetime)
         origin_date = datetime(1899, 12, 31, 12, 00, 00)  # Noon Dec 31, 1899
         dt = timestamp - origin_date
         days = dt.days + dt.seconds / 3600. / 24.
