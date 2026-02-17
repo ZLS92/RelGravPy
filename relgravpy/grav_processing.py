@@ -2407,6 +2407,11 @@ def earth_tides( lat, lon, z=0, DateTime=None,
         End datetime for range mode.
     dt : float, optional
         Time step in seconds for range mode.
+    plot : bool, default=False
+        If True, plot the computed tides over time.
+    save_file : str or bool, default=False
+        If a string, save the computed tides to a CSV file with this name.
+
     
     Returns
     -------
@@ -2484,7 +2489,7 @@ def earth_tides( lat, lon, z=0, DateTime=None,
             for lon_val, lat_val, dt, tide in zip(lon, lat, DateTime, tides):
                 f.write(f"{lon_val}, {lat_val}, {dt}, {tide:.6f}\n")
         f.close()
-        
+
     # ---------------- RETURN ----------------
     if range_mode:
         return np.array(DateTime, dtype="datetime64[ns]"), tides
