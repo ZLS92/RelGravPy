@@ -11,6 +11,7 @@ dependencies:
   # Geospatial dependencies
   - gdal
   - proj
+  - pyproj
   - shapely
 
   # Utility
