@@ -2398,15 +2398,18 @@ def earth_tides( lat, lon, z=0, DateTime=None,
         Altitude of the location (in meters).
     DateTime : array-like, optional
         Datetime(s) for which to compute tides. Can be a single datetime or an array of datetimes. 
+        Accepted formats: 'YYYY-MM-DD HH:MM:SS', numpy.datetime64, or python datetime objects.
+        Example: '2025-03-06 14:30:00' or numpy.datetime64('2025-03-06T14:30:00')
         If not provided, yy, mm, dd, h, m, s must be specified.
     yy, mm, dd, h, m, s : array-like, optional
-        Separate date and time components. Must be specified if DateTime is not provided.
+        Separate date and time components (integers or floats).
+        Example: yy=2025, mm=3, dd=6, h=14, m=30, s=0
     start : str or datetime, optional
-        Start datetime for range mode.
+        Start datetime for range mode (e.g., '2025-03-06T00:00:00').
     end : str or datetime, optional
-        End datetime for range mode.
+        End datetime for range mode (e.g., '2025-03-06T23:59:59').
     step : float, optional
-        Time step in seconds for range mode.
+        Time step in seconds for range mode (e.g., 3600 for hourly).
     plot : bool, default=False
         If True, plot the computed tides over time.
     save_file : str or bool, default=False
@@ -2421,6 +2424,20 @@ def earth_tides( lat, lon, z=0, DateTime=None,
     If single mode:
         float or numpy.ndarray
             Tides for the specified datetime(s).
+    
+    Examples
+    --------
+    Single datetime using string:
+        >>> tides = earth_tides(lat=45.5, lon=10.2, DateTime='2025-03-06 14:30:00')
+    
+    Single datetime using separate components:
+        >>> tides = earth_tides(lat=45.5, lon=10.2, yy=2025, mm=3, dd=6, h=14, m=30, s=0)
+    
+    Range of datetimes (hourly for one day):
+        >>> datetimes, tides = earth_tides(lat=45.5, lon=10.2, 
+        ...                                 start='2025-03-06T00:00:00', 
+        ...                                 end='2025-03-06T23:00:00', 
+        ...                                 step=3600)
     
     N.B.
     Tides are returned in units of mGal.
