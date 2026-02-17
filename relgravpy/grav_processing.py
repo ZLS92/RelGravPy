@@ -2436,9 +2436,7 @@ def earth_tides( lat, lon, z=0, datetime=None,
         step_ns = int(round(float(dt) * 1e9))
         step = np.timedelta64(step_ns, "ns")
 
-        dt64 = np.arange(t0, t1 + step, step, dtype="datetime64[ns]")
-        datetime = dt64
-        print( dt64[0] )
+        datetime = np.arange(t0, t1 + step, step, dtype="datetime64[ns]")
 
     # ---------------- SINGLE MODE ----------------
     else:
@@ -2453,6 +2451,9 @@ def earth_tides( lat, lon, z=0, datetime=None,
         datetime = datetime.tolist()
         if not isinstance(datetime, list):
             datetime = [datetime]
+        
+        print( datetime[0] )
+        
 
     # Convert inputs to numpy arrays
     lat = np.full(np.size(datetime), lat, dtype=float)
