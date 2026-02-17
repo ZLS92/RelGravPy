@@ -5682,7 +5682,7 @@ def _parse_dt64( s ):
                             f"Use e.g. 'YYYY-MM-DD HH:MM:SS' or ISO.") from e
 
 # -----------------------------------------------------------------------------
-def calculate_julian_century(self, timestamp):
+def calculate_julian_century(timestamp):
     """
     Calculate the julian century and hour.
     Take a datetime object and calculate the decimal Julian century and
