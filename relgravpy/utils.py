@@ -5699,16 +5699,16 @@ def calculate_julian_century(timestamp):
     """
     # --- Normalizza timestamp ---
     if isinstance(timestamp, np.datetime64):
-        timestamp = timestamp.astype('datetime64[ns]').astype(datetime)
+        timestamp = timestamp.astype('datetime64[ns]').astype(datetime.datetime)
 
     if isinstance(timestamp, (int, np.integer)):
         # assume nanoseconds since epoch
-        timestamp = datetime.utcfromtimestamp(timestamp / 1e9)
+        timestamp = datetime.datetime.utcfromtimestamp(timestamp / 1e9)
 
-    if not isinstance(timestamp, datetime):
+    if not isinstance(timestamp, datetime.datetime):
         raise TypeError(f"timestamp must be datetime, got {type(timestamp)}")
 
-    origin_date = datetime(1899, 12, 31, 12, 0, 0)
+    origin_date = datetime.datetime(1899, 12, 31, 12, 0, 0)
 
     dt = timestamp - origin_date
     days = dt.days + dt.seconds / 86400.0
