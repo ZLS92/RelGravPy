@@ -2432,6 +2432,10 @@ def earth_tides( lat, lon, z=0, DateTime=None,
     
     Single datetime using separate components:
         >>> tides = earth_tides(lat=45.5, lon=10.2, yy=2025, mm=3, dd=6, h=14, m=30, s=0)
+
+    Multiple stations and datetimes:
+        >>> datetimes = ['2025-03-06 14:30:00', '2025-03-06 15:30:00']
+        >>> tides = earth_tides(lat=[45.5, 46.0], lon=[10.2, 10.5], DateTime=datetimes)
     
     Range of datetimes (hourly for one day):
         >>> datetimes, tides = earth_tides(lat=45.5, lon=10.2, 
