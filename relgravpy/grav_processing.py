@@ -2459,6 +2459,7 @@ def earth_tides( lat, lon, z=0, datetime=None,
     z   = np.full(np.size(datetime), z,   dtype=float)
 
     tides = np.full(lat.shape, np.nan, dtype=float)
+    print( tides.size )
 
     for i in range(tides.size):
         model = TideModel()
