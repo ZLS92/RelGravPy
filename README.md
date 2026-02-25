@@ -72,7 +72,7 @@ Planned features:
 ## Installation (conda)
 
 ```bash
-git clone https://github.com/yourusername/RelGravPy.git
+git clone https://github.com/ZLS92/RelGravPy.git
 cd RelGravPy
 conda env create -f relgravpy.yaml
 conda activate relgravpy
