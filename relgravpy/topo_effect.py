@@ -528,7 +528,17 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
     if ( MbA[IA] < 0 ).any() or ( MtA[IA] < 0 ).any() or ( MbB1[IB] < 0 ).any() or ( MtB1[IB] < 0 ).any() or \
        ( MbB2[IB] < 0 ).any() or ( MtB2[IB] < 0 ).any() or ( MbC1[IC] < 0 ).any() or ( MtC1[IC] < 0 ).any() or ( MbC2[IC] < 0 ).any() or ( MtC2[IC] < 0 ).any() :
         print( 'Error: negative top-bottom values in mesh_sb function' )
-        sys.exit()
+        # Identify if negative values are in A, B1, B2, C1 or C2 compartments
+        if ( MbA[IA] < 0 ).any() or ( MtA[IA] < 0 ).any() :
+            print( 'Negative values in A compartment' )
+        if ( MbB1[IB] < 0 ).any() or ( MtB1[IB] < 0 ).any() :
+            print( 'Negative values in B1 compartment' )
+        if ( MbB2[IB] < 0 ).any() or ( MtB2[IB] < 0 ).any() :
+            print( 'Negative values in B2 compartment' )
+        if ( MbC1[IC] < 0 ).any() or ( MtC1[IC] < 0 ).any() :
+            print( 'Negative values in C1 compartment' )
+        if ( MbC2[IC] < 0 ).any() or ( MtC2[IC] < 0 ).any() :
+            print( 'Negative values in C2 compartment' )
     
     # desnsity array  
     DA = np.full( Zshp, dc ) 
