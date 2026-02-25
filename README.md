@@ -74,5 +74,5 @@ Planned features:
 ```bash
 git clone https://github.com/ZLS92/RelGravPy.git
 cd RelGravPy
-conda env create -f relgravpy.yaml
+conda env create --file relgravpy.yaml -n relgravpy
 conda activate relgravpy
