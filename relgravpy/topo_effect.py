@@ -907,7 +907,7 @@ def te( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
         dtm2_new = ndir + os.sep + 'dtm2' + os.sep + 'dtm2.tif' 
                 
     # Convert station attributes into iterable objects ------------------------
-    if np.size( st_type ) < 2 :
+    if np.size( st_type ) == 1 :
        st_type = np.repeat( int( st_type ), np.size( xg ) )
     if ( np.size( xg ) > 1 ) and ( np.size( z ) == 1 ) and ( type( z ) in [float,int] ) :
        z = np.repeat( z, np.size( xg ) ) # if z is only one constant variable
