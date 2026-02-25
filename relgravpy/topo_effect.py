@@ -523,6 +523,12 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
     MbB2[IB], MtB2[IB] = Zc[IB], 0  
     MbC1[IC], MtC1[IC] = Zc[IC], hst 
     MbC2[IC], MtC2[IC] = hst, 0 
+
+    # Check if top-bottom are all positive
+    if ( MbA[IA] < 0 ).any() or ( MtA[IA] < 0 ).any() or ( MbB1[IB] < 0 ).any() or ( MtB1[IB] < 0 ).any() or \
+       ( MbB2[IB] < 0 ).any() or ( MtB2[IB] < 0 ).any() or ( MbC1[IC] < 0 ).any() or ( MtC1[IC] < 0 ).any() or ( MbC2[IC] < 0 ).any() or ( MtC2[IC] < 0 ).any() :
+        print( 'Error: negative top-bottom values in mesh_sb function' )
+        sys.exit()
     
     # desnsity array  
     DA = np.full( Zshp, dc ) 
