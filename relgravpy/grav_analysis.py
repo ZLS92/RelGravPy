@@ -15,11 +15,8 @@ from . import raster_tools as rt
 from . import shp_tools as shp
 
 # import lszpy.te_harmonica as te_hm
-from numba import jit, njit 
 import numpy as np, scipy as scy, os
 from scipy import signal
-
-
 
 # -----------------------------------------------------------------------------
 # Set the aliases for some libraries from the utils module
@@ -1650,7 +1647,6 @@ def DeTrend_filt( array,
     return ar_filt, trend
 
 # -----------------------------------------------------------------------------
-@njit( parallel=True )
 def winfun( array, radius=4, pmode='linear_ramp', sx=1.0, sy=1.0, n=1,
             plot=False, vmin=None, vmax=None, ftype='mean', function='dz',
             iter=1, factor=2, filt=False, nodata=True, mask=None, method_dz='fft' ) :
