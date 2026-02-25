@@ -527,6 +527,17 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
     # Check if top-bottom are all positive
     if ( MtA[IA]-MbA[IA] < 0 ).any() or ( MtB1[IB]-MbB1[IB] < 0 ).any() or ( MtB2[IB]-MbB2[IB] < 0 ).any() or ( MtC1[IC]-MbC1[IC] < 0 ).any() or ( MtC2[IC]-MbC2[IC] < 0 ).any() :
         print( 'Error: top-bottom are not all positive' )
+        # Check if negative differernces are in compartment A, B1, B2, C1 or C2
+        if ( MtA[IA]-MbA[IA] < 0 ).any():
+            print( 'Error: negative top-bottom differences in compartment A' )
+        if ( MtB1[IB]-MbB1[IB] < 0 ).any():
+            print( 'Error: negative top-bottom differences in compartment B1' )
+        if ( MtB2[IB]-MbB2[IB] < 0 ).any():
+            print( 'Error: negative top-bottom differences in compartment B2' )
+        if ( MtC1[IC]-MbC1[IC] < 0 ).any():
+            print( 'Error: negative top-bottom differences in compartment C1' )
+        if ( MtC2[IC]-MbC2[IC] < 0 ).any():
+            print( 'Error: negative top-bottom differences in compartment C2' )
     
         # sys.exit()
     
