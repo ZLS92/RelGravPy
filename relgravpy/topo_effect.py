@@ -511,21 +511,24 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
         IA = ( Zc > 0 ) & Indx
         IB = ( Zc > hst ) & ( Zc < 0 ) & Indx
         IC = ( Zc < hst ) & ( Zc < 0 ) & Indx          
-    # Bottom 
-    MbA1, MbA2, MbB1, MbC1 = np.copy(Zc), np.copy(Zc), np.copy(Zc), np.copy(Zc)
-    # Top
-    MtA1, MtA2, MtB1, MtC1 = np.copy(Zc), np.copy(Zc), np.copy(Zc), np.copy(Zc)
     
-    MbA1[IA],  MtA1[IA] = hst, 0    # compartment A (from hst to hdtm, where hdtm > 0)
-    MbA2[IA],  MtA2[IA] = 0, MtA2[IA]
-    MbB1[IB], MtB1[IB] = hst, MtB1[IB]  # compartment B1 (from hst to hdtm, where hst < hdtm < 0)
-    MbC1[IC], MtC1[IC] = MbC1[IC], hst  # compartment C1 (from hdtm to hst, where hdtm < hst < 0)
+    # Bottom 
+    MbA, MbB1, MbB2, MbC1, MbC2 = np.copy(Zc), np.copy(Zc), np.copy(Zc), np.copy(Zc), np.copy(Zc)
+    # Top
+    MtA, MtB1, MtB2, MtC1, MtC2 = np.copy(Zc), np.copy(Zc), np.copy(Zc), np.copy(Zc), np.copy(Zc)
+    
+    MbA[IA],  MtA[IA] = hst, MtA[IA]    # compartment A (from hst to hdtm, where hdtm > 0)
+    MbB1[IB],  MtB1[IB] = hst, MtB1[IB]
+    MbB2[IB], MtB2[IB] = MbB2[IB], 0  # compartment B1 (from hst to hdtm, where hst < hdtm < 0)
+    MbC1[IC], MtC1[IC] = MbC1[IC], hst
+    MbC2[IC], MtC2[IC] = MbC2[IC], 0  # compartment C1 (from hdtm to hst, where hdtm < hst < 0)
     
     # desnsity array  
-    DA1 = np.full( Zc.shape, dc-dw ) 
-    DA2 = np.full( Zc.shape, dc ) 
-    DB1 = np.full( Zc.shape, dc )
+    DA = np.full( Zc.shape, dc ) 
+    DB1 = np.full( Zc.shape, dc ) 
+    DB2 = np.full( Zc.shape, dw )
     DC1 = np.full( Zc.shape, -dc + dw )
+    DC2 = np.full( Zc.shape, dw )
     
     # z_shift (curvature correction of prisms) --------------------------------
     if z_shift==True:
@@ -534,44 +537,44 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
         Mxb[Mxb>0], Myb[Myb>0] = Mxb[Mxb>0] + dhx, Myb[Myb>0] + dhy
         Mxy2 = Mxb**2 + Myb**2
         Zsh = Mxy2 / ( 2 * R )
-        MbA1, MtA1 = MbA1 - Zsh, MtA1 - Zsh
-        MbA2, MtA2 = MbA2 - Zsh, MtA2 - Zsh
+        MbA, MtA = MbA - Zsh, MtA - Zsh
         MbB1, MtB1 = MbB1 - Zsh, MtB1 - Zsh
+        MbB2, MtB2 = MbB2 - Zsh, MtB2 - Zsh
         MbC1, MtC1 = MbC1 - Zsh, MtC1 - Zsh
+        MbC2, MtC2 = MbC2 - Zsh, MtC2 - Zsh
         
-    ma1 = np.column_stack(( Me[IA].ravel(),  Mw[IA].ravel(),
+    ma = np.column_stack(( Me[IA].ravel(),  Mw[IA].ravel(),
                            Ms[IA].ravel(),  Mn[IA].ravel(),
-                          MbA1[IA].ravel(), MtA1[IA].ravel() ))
-
-    ma2 = np.column_stack(( Me[IA].ravel(),  Mw[IA].ravel(),
-                           Ms[IA].ravel(),  Mn[IA].ravel(),
-                          MbA2[IA].ravel(), MtA2[IA].ravel() ))
+                          MbA[IA].ravel(), MtA[IA].ravel() ))
     
     mb1 = np.column_stack((  Me[IB].ravel(),   Mw[IB].ravel(),
                              Ms[IB].ravel(),   Mn[IB].ravel(),
-                           MbB1[IB].ravel(), MtB1[IB].ravel() )) 
+                           MbB1[IB].ravel(), MtB1[IB].ravel() ))
+    
+    mb2 = np.column_stack((  Me[IB].ravel(),   Mw[IB].ravel(),
+                             Ms[IB].ravel(),   Mn[IB].ravel(),
+                           MbB2[IB].ravel(), MtB2[IB].ravel() ))
     
     mc1 = np.column_stack((  Me[IC].ravel(),   Mw[IC].ravel(),
                              Ms[IC].ravel(),   Mn[IC].ravel(),
                            MbC1[IC].ravel(), MtC1[IC].ravel() ))
     
-    m = np.vstack( ( ma1, ma2, mb1, mc1 ) )
-    d = np.hstack( ( DA1[IA].ravel(),
-                     DA2[IA].ravel(),
-                     DB1[IB].ravel(),
-                     DC1[IC].ravel() ) )
+    mc2 = np.column_stack((  Me[IC].ravel(),   Mw[IC].ravel(),
+                             Ms[IC].ravel(),   Mn[IC].ravel(),
+                           MbC2[IC].ravel(), MtC2[IC].ravel() ))
     
-    m = np.vstack( ( ma1, ma2, mb1, mc1 ) )
-    d = np.hstack( ( DA1[IA].ravel(),
-                     DA2[IA].ravel(),
+    m = np.vstack( ( ma, mb1, mb2, mc1, mc2 ) )
+    d = np.hstack( ( DA[IA].ravel(),
                      DB1[IB].ravel(),
-                     DC1[IC].ravel() ) )
+                     DB2[IB].ravel(),
+                     DC1[IC].ravel(),
+                     DC2[IC].ravel() ) )
     
     # Delete far field thin elements
     if R1 is not None :
         zero_h = np.abs( m[:,5] - m[:,4] ) < 0.5
         m = m[ ~zero_h ]
-        d = d[ ~zero_h ]    
+        d = d[ ~zero_h ]
     
     return m, d 
 
