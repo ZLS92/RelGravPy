@@ -1316,7 +1316,7 @@ def upcont( array, h, sx=1, sy=1, padw=0, pmode='gdal', alpha=None, remove=None,
         arraym = np.copy(arrayr)
         arraym[mask] = np.nan
         
-    diff = up - array
+    diff = up - arrayr
 
     if plot == True:
         utl.plta(arraym, vmin, vmax, sbplt=[1, 3, 1], tit='original')
