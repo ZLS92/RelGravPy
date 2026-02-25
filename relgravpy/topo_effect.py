@@ -690,8 +690,8 @@ def st_loop( constant_arg, iterable_arg ) :
     with open(output_file, 'a+') as f:
         
         line = "% 10d % 10f % 10f % 10.2f % 10.2f % 10.5f % 10.5f % 10.5f % 10d\n" % ( 
-               st_num, np.round(xg, 6), np.round(yg, 6), np.round(z, 3), np.round(zdtm, 3),
-               np.round(te_near, 6), np.round(te_far, 6), np.round(te, 6), st_type)
+               st_num, np.round(xg[0], 6), np.round(yg[0], 6), np.round(z[0], 3), np.round(zdtm[0], 3),
+               np.round(te_near, 6), np.round(te_far, 6), np.round(te, 6), st_type[0] )
         
         f.write( line )
         
