@@ -518,11 +518,11 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
     # Top
     MtA, MtB1, MtB2, MtC1, MtC2 = np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp)
     
-    MbA[IA],  MtA[IA] = hst, Zc[IA]    # compartment A (from hst to hdtm, where hdtm > 0)
+    MbA[IA],  MtA[IA] = hst, Zc[IA] 
     MbB1[IB],  MtB1[IB] = hst, Zc[IB]
-    MbB2[IB], MtB2[IB] = Zc[IB], 0  # compartment B1 (from hst to hdtm, where hst < hdtm < 0)
-    MbC1[IC], MtC1[IC] = Zc[IC], hst
-    MbC2[IC], MtC2[IC] = hst, 0  # compartment C1 (from hdtm to hst, where hdtm < hst < 0)
+    MbB2[IB], MtB2[IB] = Zc[IB], 0  
+    MbC1[IC], MtC1[IC] = Zc[IC], hst 
+    MbC2[IC], MtC2[IC] = hst, 0 
     
     # desnsity array  
     DA = np.full( Zshp, dc ) 

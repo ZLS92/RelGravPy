@@ -1263,7 +1263,7 @@ def xyz2grid( x, y, z, lim=None, extend=None, extend_method='percentage',
         
     if filt is not None :
         zz = utl.filt2d( zz, ftype=filt, iter=iter, radius=filt_radius, 
-                         factor=filt_factor, sigma=filt_sigma, padw=padw, pmode=pmode )        
+                         factor=filt_factor, sigma=filt_sigma, padw=padw, pmode=pmode )
     
     if msk_radius is not None:
         zz = utl.mask2D( ( xl, yl, msk_radius ), (xx, yy, zz) )[0]
@@ -1272,30 +1272,30 @@ def xyz2grid( x, y, z, lim=None, extend=None, extend_method='percentage',
         zz = rt.mask_array( xx, yy, zz, msk_shp, prjcode=prjcode_out )
 
     if msk_arr is not None:
-        zz[np.isnan( msk_arr ) ] = np.nan         
+        zz[np.isnan( msk_arr ) ] = np.nan
 
     if plot == True:
         if pltxy == False:
             utl.plta( zz, vmin=vmin, vmax=vmax, cmap='rainbow' )
         if pltxy == True:
             limp = utl.xy2lim( xx, yy ) 
-            utl.plta( zz, vmin=vmin, vmax=vmax, cmap='rainbow', lim=limp, points=[ xl, yl ] )
+            utl.plta( zz, vmin=vmin, vmax=vmax, cmap='rainbow', 
+            lim=limp, points=[ xl, yl ] )
             
     return [ xx, yy, zz ], [ x, y, z ]
 
-
 # -----------------------------------------------------------------------------
 def upcont( array, h, sx=1, sy=1, padw=0, pmode='gdal', alpha=None, remove=None,
-            nanfill='gdal', order=[1], mask=None, nodata=True, 
-            plot=False, vmin=None, vmax=None):
-    
+        nanfill='gdal', order=[1], mask=None, nodata=True, plot=False, 
+        vmin=None, vmax=None ) :
+
     nan = np.isnan( array )
     if remove is None: 
         arrayr = array
     if remove == 'mean': 
-        arrayr = array - np.nanmean(array)        
+        arrayr = array - np.nanmean(array)
     if remove == 'trend': 
-        arrayr = polyfit2d(array=array, order=order)[0]        
+        arrayr = polyfit2d(array=array, order=order)[0]
     if nanfill is not None: 
         arrayr = utl.fillnan(arrayr, method=nanfill)
         
@@ -1310,10 +1310,10 @@ def upcont( array, h, sx=1, sy=1, padw=0, pmode='gdal', alpha=None, remove=None,
         up[nan] = np.nan
 
     if mask is None:
-        arraym = array      
+        arraym = arrayr
     else:
         up[mask] = np.nan
-        arraym = np.copy(array)
+        arraym = np.copy(arrayr)
         arraym[mask] = np.nan
         
     diff = up - array
