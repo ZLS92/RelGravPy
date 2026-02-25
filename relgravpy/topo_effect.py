@@ -11,7 +11,7 @@ Created on Mon Dec  2 15:51:25 2019
 from . import utils as utl
 from . import shp_tools as shp
 from . import raster_tools as rt
-from . import grav_model as gm
+from . import grav_modelling as gm
 
 import harmonica as hm
 import multiprocessing as mpr
