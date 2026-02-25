@@ -513,9 +513,10 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
         IC = ( Zc < hst ) & ( Zc < 0 ) & Indx          
     
     # Bottom 
-    MbA, MbB1, MbB2, MbC1, MbC2 = np.copy(Zc), np.copy(Zc), np.copy(Zc), np.copy(Zc), np.copy(Zc)
+    Zshp = Zc.shape 
+    MbA, MbB1, MbB2, MbC1, MbC2 = np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp)
     # Top
-    MtA, MtB1, MtB2, MtC1, MtC2 = np.copy(Zc), np.copy(Zc), np.copy(Zc), np.copy(Zc), np.copy(Zc)
+    MtA, MtB1, MtB2, MtC1, MtC2 = np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp)
     
     MbA[IA],  MtA[IA] = hst, MtA[IA]    # compartment A (from hst to hdtm, where hdtm > 0)
     MbB1[IB],  MtB1[IB] = hst, MtB1[IB]
@@ -524,11 +525,11 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
     MbC2[IC], MtC2[IC] = MbC2[IC], 0  # compartment C1 (from hdtm to hst, where hdtm < hst < 0)
     
     # desnsity array  
-    DA = np.full( Zc.shape, dc ) 
-    DB1 = np.full( Zc.shape, dc ) 
-    DB2 = np.full( Zc.shape, dw )
-    DC1 = np.full( Zc.shape, -dc + dw )
-    DC2 = np.full( Zc.shape, dw )
+    DA = np.full( Zshp, dc ) 
+    DB1 = np.full( Zshp, dc ) 
+    DB2 = np.full( Zshp, dw )
+    DC1 = np.full( Zshp, -dc + dw )
+    DC2 = np.full( Zshp, dw )
     
     # z_shift (curvature correction of prisms) --------------------------------
     if z_shift==True:
