@@ -687,11 +687,31 @@ def st_loop( constant_arg, iterable_arg ) :
     # Sum near and far grav. effects
     te = te_near + te_far
 
+    # Convert arrays to float or integers
+    if isinstance( te, np.ndarray ) == True :
+        te = te.item()
+    if isinstance( te_near, np.ndarray ) == True :
+        te_near = te_near.item()
+    if isinstance( te_far, np.ndarray ) == True :
+        te_far = te_far.item()
+    if isinstance( z, np.ndarray ) == True :
+        z = z.item()
+    if isinstance( zdtm, np.ndarray ) == True :
+        zdtm = zdtm.item()
+    if isinstance( st_num, np.ndarray ) == True :
+        st_num = st_num.item()
+    if isinstance( st_type, np.ndarray ) == True :
+        st_type = st_type.item()
+    if isinstance( xg, np.ndarray ) == True :
+        xg = xg.item()
+    if isinstance( yg, np.ndarray ) == True :
+        yg = yg.item()
+
     with open(output_file, 'a+') as f:
         
         line = "% 10d % 10f % 10f % 10.2f % 10.2f % 10.5f % 10.5f % 10.5f % 10d\n" % ( 
-               st_num, np.round(xg[0], 6), np.round(yg[0], 6), np.round(z[0], 3), np.round(zdtm[0], 3),
-               np.round(te_near, 6), np.round(te_far, 6), np.round(te, 6), st_type[0] )
+               st_num, np.round(xg, 6), np.round(yg, 6), np.round(z, 3), np.round(zdtm, 3),
+               np.round(te_near, 6), np.round(te_far, 6), np.round(te, 6), st_type)
         
         f.write( line )
         
