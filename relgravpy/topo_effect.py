@@ -473,7 +473,7 @@ def mesh_ls( Mx, My, Zc, msk=None, R1=None, R=R_wgs84, dc=2670, dw=1030, z_shift
     
     # Delete far field thin elements
     if R1 is not None :
-        zero_h = np.abs( m[:,5] - m[:,4] ) < 0.5
+        zero_h = np.abs( m[:,5] - m[:,4] ) < 0.1
         m = m[ ~zero_h ]
         d = d[ ~zero_h ]
 
