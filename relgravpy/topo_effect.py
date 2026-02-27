@@ -544,9 +544,9 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
     # desnsity array  
     DA = np.full( Zshp, dc ) 
     DB1 = np.full( Zshp, dc ) 
-    DB2 = np.full( Zshp, dw )
+    DB2 = np.full( Zshp, 0 )
     DC1 = np.full( Zshp, -dc + dw )
-    DC2 = np.full( Zshp, dw )
+    DC2 = np.full( Zshp, 0 )
     
     # z_shift (curvature correction of prisms) --------------------------------
     if z_shift==True:
