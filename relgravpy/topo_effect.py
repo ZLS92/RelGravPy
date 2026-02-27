@@ -515,9 +515,9 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
     
     # Bottom 
     Zshp = Zc.shape 
-    MbA, MbB1, MbB2, MbC1, MbC2, MbD = np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp)
+    MbA, MbB1, MbB2, MbC1, MbC2, MbD = np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp)
     # Top
-    MtA, MtB1, MtB2, MtC1, MtC2, MtD = np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp)
+    MtA, MtB1, MtB2, MtC1, MtC2, MtD = np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp)
     
     MbA[IA],  MtA[IA] = hst, Zc[IA] 
     MbB1[IB],  MtB1[IB] = hst, Zc[IB]
