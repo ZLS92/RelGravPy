@@ -425,7 +425,7 @@ def mesh_ls( Mx, My, Zc, msk=None, R1=None, R=R_wgs84, dc=2670, dw=1030, z_shift
     Me, Mw = Mxc-dhx, Mxc+dhx
     Ms, Mn = Myc-dhy, Myc+dhy
 
-    Z_pos = ( Zc > 0 ) & Indx
+    Z_pos = ( Zc >= 0 ) & Indx
     Z_neg = ( Zc < 0 ) & Indx	
     
     # (A,B) compartment sorting -----------------------------------------------
@@ -434,7 +434,8 @@ def mesh_ls( Mx, My, Zc, msk=None, R1=None, R=R_wgs84, dc=2670, dw=1030, z_shift
         IB = ( msk == 1 ) & Indx
     if msk is None : # without coastline array mask
         IA = Z_pos
-        IB = Z_neg	
+        IB = Z_neg
+
     # Bottom 
     MbA, MtA = np.zeros( Zc.shape ), np.zeros( Zc.shape )
     # Top
