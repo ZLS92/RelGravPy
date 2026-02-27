@@ -590,13 +590,16 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
                              Ms[ID].ravel(),   Mn[ID].ravel(),
                            MbD[ID].ravel(), MtD[ID].ravel() ))
     
+    m = np.vstack( ( ma, mb1, mb2, mc1, mc2, md ) )
+    
+
     d = np.hstack( ( DA[IA].ravel(),
                      DB1[IB].ravel(),
                      DB2[IB].ravel(),
                      DC1[IC].ravel(),
                      DC2[IC].ravel(),
                      DD[ID].ravel() ) )
-    
+
     # Delete far field thin elements
     if R1 is not None :
         zero_h = np.abs( m[:,5] - m[:,4] ) < 0.1
