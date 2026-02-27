@@ -436,9 +436,9 @@ def mesh_ls( Mx, My, Zc, msk=None, R1=None, R=R_wgs84, dc=2670, dw=1030, z_shift
         IA = Z_pos
         IB = Z_neg	
     # Bottom 
-    MbA, MtA = np.copy( Zc ), np.copy( Zc )
+    MbA, MtA = np.zeros( Zc.shape ), np.zeros( Zc.shape )
     # Top
-    MbB, MtB = np.copy( Zc ), np.copy( Zc ) 
+    MbB, MtB = np.zeros( Zc.shape ), np.zeros( Zc.shape )
     
     MbA[Z_pos & IA], MtA[Z_pos & IA] = 0, MtA[Z_pos & IA] # compartment A Z_positive
     MbA[Z_neg & IA], MtA[Z_neg & IA] = 0, 0 # compartment A Z_negative
