@@ -440,10 +440,10 @@ def mesh_ls( Mx, My, Zc, msk=None, R1=None, R=R_wgs84, dc=2670, dw=1030, z_shift
     # Top
     MbB, MtB = np.zeros( Zc.shape ), np.zeros( Zc.shape )
     
-    MbA[Z_pos & IA], MtA[Z_pos & IA] = 0, MtA[Z_pos & IA] # compartment A Z_positive
+    MbA[Z_pos & IA], MtA[Z_pos & IA] = 0, Zc[Z_pos & IA] # compartment A Z_positive
     MbA[Z_neg & IA], MtA[Z_neg & IA] = 0, 0 # compartment A Z_negative
     MbB[Z_pos & IB], MtB[Z_pos & IB] = 0, 0 # compartment B Z_positive
-    MbB[Z_neg & IB], MtB[Z_neg & IB] = MtB[Z_neg & IB], 0 # compartment B Z_negative
+    MbB[Z_neg & IB], MtB[Z_neg & IB] = Zc[Z_neg & IB], 0 # compartment B Z_negative
     
     # desnsity array 
     DA = np.full(Zc.shape, dc) 
