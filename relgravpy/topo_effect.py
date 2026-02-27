@@ -511,18 +511,21 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
         IA = ( Zc > 0 ) & Indx
         IB = ( Zc > hst ) & ( Zc < 0 ) & Indx
         IC = ( Zc < hst ) & ( Zc < 0 ) & Indx
+        ID = ( Zc == hst ) & ( Zc < 0 ) & Indx
     
     # Bottom 
     Zshp = Zc.shape 
-    MbA, MbB1, MbB2, MbC1, MbC2 = np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp)
+    MbA, MbB1, MbB2, MbC1, MbC2, MbD = np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp)
     # Top
-    MtA, MtB1, MtB2, MtC1, MtC2 = np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp)
+    MtA, MtB1, MtB2, MtC1, MtC2, MtD = np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp), np.zeros(Zshp)
     
     MbA[IA],  MtA[IA] = hst, Zc[IA] 
     MbB1[IB],  MtB1[IB] = hst, Zc[IB]
     MbB2[IB], MtB2[IB] = Zc[IB], 0  
     MbC1[IC], MtC1[IC] = Zc[IC], hst 
     MbC2[IC], MtC2[IC] = hst, 0 
+    MbD[ID], MtD[ID] = hst, 0
+
 
     # Check if top-bottom are all positive
     if ( MtA[IA]-MbA[IA] < 0 ).any() or ( MtB1[IB]-MbB1[IB] < 0 ).any() or ( MtB2[IB]-MbB2[IB] < 0 ).any() or ( MtC1[IC]-MbC1[IC] < 0 ).any() or ( MtC2[IC]-MbC2[IC] < 0 ).any() :
@@ -544,9 +547,10 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
     # desnsity array  
     DA = np.full( Zshp, dc ) 
     DB1 = np.full( Zshp, dc ) 
-    DB2 = np.full( Zshp, 0 )
+    DB2 = np.full( Zshp, dw )
     DC1 = np.full( Zshp, -dc + dw )
-    DC2 = np.full( Zshp, 0 )
+    DC2 = np.full( Zshp, dw )
+    DD = np.full( Zshp, dw )
     
     # z_shift (curvature correction of prisms) --------------------------------
     if z_shift==True:
@@ -560,7 +564,8 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
         MbB2, MtB2 = MbB2 - Zsh, MtB2 - Zsh
         MbC1, MtC1 = MbC1 - Zsh, MtC1 - Zsh
         MbC2, MtC2 = MbC2 - Zsh, MtC2 - Zsh
-        
+        MbD, MtD = MbD - Zsh, MtD - Zsh
+
     ma = np.column_stack(( Me[IA].ravel(),  Mw[IA].ravel(),
                            Ms[IA].ravel(),  Mn[IA].ravel(),
                           MbA[IA].ravel(), MtA[IA].ravel() ))
@@ -581,12 +586,16 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
                              Ms[IC].ravel(),   Mn[IC].ravel(),
                            MbC2[IC].ravel(), MtC2[IC].ravel() ))
     
-    m = np.vstack( ( ma, mb1, mb2, mc1, mc2 ) )
+    md = np.column_stack((  Me[ID].ravel(),   Mw[ID].ravel(),
+                             Ms[ID].ravel(),   Mn[ID].ravel(),
+                           MbD[ID].ravel(), MtD[ID].ravel() ))
+    
     d = np.hstack( ( DA[IA].ravel(),
                      DB1[IB].ravel(),
                      DB2[IB].ravel(),
                      DC1[IC].ravel(),
-                     DC2[IC].ravel() ) )
+                     DC2[IC].ravel(),
+                     DD[ID].ravel() ) )
     
     # Delete far field thin elements
     if R1 is not None :
