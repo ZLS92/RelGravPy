@@ -510,7 +510,7 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
     if msk is None : # with coastline mask array    
         IA = ( Zc > 0 ) & Indx
         IB = ( Zc > hst ) & ( Zc < 0 ) & Indx
-        IC = ( Zc < hst ) & ( Zc < 0 ) & Indx          
+        IC = ( Zc < hst ) & ( Zc < 0 ) & Indx
     
     # Bottom 
     Zshp = Zc.shape 
@@ -590,7 +590,7 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
     
     # Delete far field thin elements
     if R1 is not None :
-        zero_h = np.abs( m[:,5] - m[:,4] ) < 0.5
+        zero_h = np.abs( m[:,5] - m[:,4] ) < 0.1
         m = m[ ~zero_h ]
         d = d[ ~zero_h ]
     
