@@ -1287,7 +1287,7 @@ def xyz2grid( x, y, z, lim=None, extend=None, extend_method='percentage',
 # -----------------------------------------------------------------------------
 def upcont( array, h, sx=1, sy=1, padw=0, pmode='gdal', alpha=None, remove=None,
         nanfill='gdal', order=[1], mask=None, nodata=True, plot=False, 
-        vmin=None, vmax=None ) :
+        vmin=None, vmax=None, restore=True ) :
 
     nan = np.isnan( array )
     if remove is None: 
@@ -1298,6 +1298,8 @@ def upcont( array, h, sx=1, sy=1, padw=0, pmode='gdal', alpha=None, remove=None,
         arrayr = polyfit2d(array=array, order=order)[0]
     if nanfill is not None: 
         arrayr = utl.fillnan(arrayr, method=nanfill)
+    
+    rem_array = array - arrayr
         
     array_pad, pad_shape = utl.pad_array(arrayr, padw, pmode, alpha=alpha)
     
@@ -1318,6 +1320,10 @@ def upcont( array, h, sx=1, sy=1, padw=0, pmode='gdal', alpha=None, remove=None,
         
     diff = up - arrayr
 
+    if restore is True :
+        up = up + rem_array
+        arraym = arraym + rem_array
+
     if plot == True:
         utl.plta(arraym, vmin, vmax, sbplt=[1, 3, 1], tit='original')
         utl.plta(up, vmin, vmax, sbplt=[1, 3, 2], tit='upward')
@@ -1325,6 +1331,337 @@ def upcont( array, h, sx=1, sy=1, padw=0, pmode='gdal', alpha=None, remove=None,
         utl.plt.tight_layout()
         
     return up
+
+# -----------------------------------------------------------------------------
+def upcont_chessboard(
+    xgrid2d, ygrid2d, array,
+    xp, yp, z_ini_p,
+    z_fin_p=None, z_fin_const=0.0,
+    dz=50.0,
+    sx=None, sy=None,
+    padw=0, pmode='gdal', alpha=None,
+    remove=None, nanfill='gdal', order=[1],
+    mask=None, nodata=True, restore=True,
+    clip_dh_min=0.0, clip_dh_max=None,
+    interp_method='linear',          # griddata: 'linear'|'nearest'|'cubic'
+    plot=False, vmin=None, vmax=None,
+    return_aux=False ):
+    """
+    Chessboard upward continuation (Cordell-style) from an irregular surface to an irregular (or constant) surface above it,
+    when 'array' is already on a regular (x,y) grid given by 2D meshgrids xgrid2d,ygrid2d.
+
+    Inputs
+    ------
+    xgrid2d, ygrid2d : 2D arrays (ny,nx)  (meshgrid)
+    array            : 2D array (ny,nx)   anomaly defined on the initial datum (e.g., seafloor)
+    xp, yp           : 1D arrays (N,)     scattered xy locations where z_ini/z_fin are known
+    z_ini_p          : 1D array  (N,)     initial surface heights at (xp,yp)  (e.g., bathymetry)
+    z_fin_p          : 1D array  (N,)     final surface heights at (xp,yp) (optional)
+    z_fin_const      : float             constant final surface height if z_fin_p is None (sea level often 0)
+
+    Returns
+    -------
+    out : 2D array (ny,nx) continued anomaly on final surface.
+    if return_aux=True also returns: dh_grid, z_ini_grid, z_fin_grid
+    """
+
+    # ----------------------------
+    # Inline helper: spacing from meshgrid
+    # ----------------------------
+    xg = np.asarray(xgrid2d, float)
+    yg = np.asarray(ygrid2d, float)
+    array = np.asarray(array, float)
+
+    if xg.shape != array.shape or yg.shape != array.shape:
+        raise ValueError("xgrid2d, ygrid2d e array devono avere la stessa shape.")
+
+    if sx is None or sy is None:
+        dx = np.nanmedian(np.abs(np.diff(xg, axis=1)))
+        dy = np.nanmedian(np.abs(np.diff(yg, axis=0)))
+        if not np.isfinite(dx) or dx == 0:
+            raise ValueError("Non riesco a stimare sx da xgrid2d (dx nullo o non finito).")
+        if not np.isfinite(dy) or dy == 0:
+            raise ValueError("Non riesco a stimare sy da ygrid2d (dy nullo o non finito).")
+        if sx is None: sx = float(dx)
+        if sy is None: sy = float(dy)
+
+    # ----------------------------
+    # Build dh(x,y) on the grid from scattered z_ini / z_fin
+    # ----------------------------
+    xp = np.asarray(xp, float).ravel()
+    yp = np.asarray(yp, float).ravel()
+    z_ini_p = np.asarray(z_ini_p, float).ravel()
+
+    if xp.size != yp.size or xp.size != z_ini_p.size:
+        raise ValueError("xp, yp, z_ini_p devono avere la stessa lunghezza.")
+
+    if z_fin_p is not None:
+        z_fin_p = np.asarray(z_fin_p, float).ravel()
+        if z_fin_p.size != xp.size:
+            raise ValueError("z_fin_p deve avere la stessa lunghezza di xp/yp se fornito.")
+
+    z_ini_grid = utl.sp.interpolate.griddata((xp, yp), z_ini_p, (xg, yg), method=interp_method)
+    if z_fin_p is None:
+        z_fin_grid = np.full_like(z_ini_grid, float(z_fin_const))
+    else:
+        z_fin_grid = utl.sp.interpolate.griddata((xp, yp), z_fin_p, (xg, yg), method=interp_method)
+
+    dh = z_fin_grid - z_ini_grid
+
+    # clip for upward continuation (dh >= 0)
+    if clip_dh_min is not None:
+        dh = np.where(np.isnan(dh), np.nan, np.maximum(dh, clip_dh_min))
+    if clip_dh_max is not None:
+        dh = np.where(np.isnan(dh), np.nan, np.minimum(dh, clip_dh_max))
+
+    # ----------------------------
+    # Remove / fillnan in same spirit of upcont()
+    # ----------------------------
+    nan_arr = np.isnan(array)
+    nan_dh = np.isnan(dh)
+    bad = nan_arr | nan_dh
+
+    if remove is None:
+        arrayr = array
+    elif remove == 'mean':
+        arrayr = array - np.nanmean(array)
+    elif remove == 'trend':
+        arrayr = polyfit2d(array=array, order=order)[0]
+    else:
+        raise ValueError("remove deve essere None, 'mean' o 'trend'.")
+
+    if nanfill is not None:
+        arrayr = utl.fillnan(arrayr, method=nanfill)
+
+    rem_array = array - arrayr
+
+    # ----------------------------
+    # Padding + FFT (one time)
+    # ----------------------------
+    array_pad, pad_shape = utl.pad_array(arrayr, padw, pmode, alpha=alpha)
+    K, fft2, _, _, _, _ = fft2d(array_pad, sx, sy)
+
+    # ----------------------------
+    # Chessboard stack: constant-height continuations
+    # ----------------------------
+    dh_max = np.nanmax(np.where(nan_dh, np.nan, dh))
+    if not np.isfinite(dh_max):
+        out = np.full_like(array, np.nan, dtype=float)
+        if return_aux:
+            return out, dh, z_ini_grid, z_fin_grid
+        return out
+
+    if dh_max < 0:
+        raise ValueError("dh_max < 0: qui gestisco solo upward (dh >= 0).")
+
+    nlev = int(np.ceil(dh_max / dz)) + 1
+    if nlev < 2:
+        nlev = 2
+    levels = np.linspace(0.0, dz * (nlev - 1), nlev)
+
+    up_levels = []
+    for h in levels:
+        up_pad = np.real(np.fft.ifft2(fft2 * np.exp(-h * K)))
+        up = utl.crop_pad(up_pad, pad_shape)
+        up_levels.append(up)
+    up_levels = np.stack(up_levels, axis=0)  # (nlev, ny, nx)
+
+    # ----------------------------
+    # Per-cell interpolation between bracketing levels
+    # ----------------------------
+    dhc = np.clip(dh, 0.0, levels[-1])
+
+    j_hi = np.searchsorted(levels, dhc, side='right')
+    j_hi = np.clip(j_hi, 1, nlev - 1)
+    j_lo = j_hi - 1
+
+    h_lo = levels[j_lo]
+    h_hi = levels[j_hi]
+    w = (dhc - h_lo) / np.maximum(h_hi - h_lo, 1e-12)
+
+    ny, nx = array.shape
+    yy, xx = np.indices((ny, nx))
+    v_lo = up_levels[j_lo, yy, xx]
+    v_hi = up_levels[j_hi, yy, xx]
+    out = (1.0 - w) * v_lo + w * v_hi
+
+    # ----------------------------
+    # Apply nodata/mask + restore removed part
+    # ----------------------------
+    if mask is not None:
+        out = out.copy()
+        out[mask] = np.nan
+
+    if nodata:
+        out = out.copy()
+        out[bad] = np.nan
+
+    if restore:
+        out = out + rem_array
+
+    # ----------------------------
+    # Plot (optional)
+    # ----------------------------
+    if plot:
+        arraym = arrayr.copy()
+        if mask is not None:
+            arraym = arraym.copy()
+            arraym[mask] = np.nan
+        if restore:
+            arraym = arraym + rem_array
+
+        diff = out - arraym
+        utl.plta(arraym, vmin, vmax, sbplt=[1, 3, 1], tit='original')
+        utl.plta(out, vmin, vmax, sbplt=[1, 3, 2], tit='chessboard upward')
+        utl.plta(diff, sbplt=[1, 3, 3], tit='diff')
+        utl.plt.tight_layout()
+
+    if return_aux:
+        return out, dh, z_ini_grid, z_fin_grid
+    return out
+
+# -----------------------------------------------------------------------------
+def upcont_eqs(
+    x, y, z_ini, gz_obs,
+    z_fin=0.0,
+    depth=None,
+    damping=0.1,
+    G=utl.G,
+    units_in="m/s^2",
+    units_out="same",
+    return_model=False ):
+    """
+    Upward continuation for gravity (gz) from irregular seafloor points to a higher surface (e.g., sea level),
+    using equivalent point masses + Tikhonov damping (equivalent sources).
+
+    Parameters
+    ----------
+    x, y, z_ini : (N,) arrays
+        Observation coordinates at seafloor (z_ini could be negative).
+    gz_obs : (N,) array
+        Observed vertical gravity component gz at (x,y,z_ini).
+        Units: m/s^2 (preferred) or mGal; set units_in accordingly.
+    z_fin : float or (N,) array
+        Target height(s). For sea level use 0.0. Can be array for per-point targets.
+    depth : float, optional
+        Downward shift for equivalent sources below z_ini.
+        If None, chosen as ~0.5 * median nearest-neighbor spacing (rough heuristic).
+    damping : float
+        Tikhonov damping parameter (lambda). Larger -> smoother/more stable, less exact fit.
+    G : float
+        Gravitational constant.
+    units_in : {"m/s^2","mGal"}
+    units_out : {"same","m/s^2","mGal"}
+    return_model : bool
+        If True, also returns estimated masses and source coordinates.
+
+    Returns
+    -------
+    gz_fin : (N,) array
+        Continued gz at (x,y,z_fin).
+    (optional) model dict
+        masses, source coords, fit stats
+    """
+
+    x = np.asarray(x, float).ravel()
+    y = np.asarray(y, float).ravel()
+    z_ini = np.asarray(z_ini, float).ravel()
+    gz_obs = np.asarray(gz_obs, float).ravel()
+
+    if not (x.size == y.size == z_ini.size == gz_obs.size):
+        raise ValueError("x, y, z_ini, gz_obs devono avere la stessa lunghezza.")
+
+    # --- unit conversion in -> SI (m/s^2)
+    if units_in.lower() == "mgal":
+        gz_si = gz_obs * 1e-5
+    elif units_in.lower() in ["m/s^2", "m/s2", "si"]:
+        gz_si = gz_obs
+    else:
+        raise ValueError("units_in deve essere 'm/s^2' o 'mGal'.")
+
+    # --- choose depth if not given (simple but effective)
+    if depth is None:
+        # crude NN spacing estimate (O(N^2) ok for N<100)
+        dx = x[:, None] - x[None, :]
+        dy = y[:, None] - y[None, :]
+        d = np.sqrt(dx*dx + dy*dy)
+        d[d == 0] = np.nan
+        nn = np.nanmin(d, axis=1)
+        depth = 0.5 * np.nanmedian(nn)
+        if not np.isfinite(depth) or depth <= 0:
+            depth = 1.0  # fallback (meters) if geometry degenerate
+
+    # sources located below each observation point
+    xs, ys, zs = x.copy(), y.copy(), (z_ini - depth)
+
+    # --- build kernel matrix A (Nobs x Nsrc) for gz at observation points
+    # A_ij = G * (z_obs - z_src_j) / r^3
+    dx = x[:, None] - xs[None, :]
+    dy = y[:, None] - ys[None, :]
+    dz = z_ini[:, None] - zs[None, :]
+    r2 = dx*dx + dy*dy + dz*dz
+    r = np.sqrt(r2)
+    # avoid singularities (shouldn't happen because zs is shifted by depth)
+    r3 = np.maximum(r2 * r, 1e-24)
+
+    A = G * (dz / r3)  # units: (m/s^2) per kg
+
+    # --- solve damped least squares: (A^T A + lam^2 I) m = A^T d
+    lam = float(damping)
+    ATA = A.T @ A
+    rhs = A.T @ gz_si
+    M = ATA + (lam**2) * np.eye(ATA.shape[0])
+
+    masses = np.linalg.solve(M, rhs)  # kg (equivalent)
+
+    # --- predict at target heights
+    if np.isscalar(z_fin):
+        zt = np.full_like(z_ini, float(z_fin))
+    else:
+        zt = np.asarray(z_fin, float).ravel()
+        if zt.size != x.size:
+            raise ValueError("Se z_fin è array, deve avere lunghezza N.")
+
+    dx_t = x[:, None] - xs[None, :]
+    dy_t = y[:, None] - ys[None, :]
+    dz_t = zt[:, None] - zs[None, :]
+    r2_t = dx_t*dx_t + dy_t*dy_t + dz_t*dz_t
+    r_t = np.sqrt(r2_t)
+    r3_t = np.maximum(r2_t * r_t, 1e-24)
+
+    A_t = G * (dz_t / r3_t)
+    gz_fin_si = A_t @ masses
+
+    # --- output units
+    if units_out == "same":
+        if units_in.lower() == "mgal":
+            gz_fin = gz_fin_si / 1e-5
+        else:
+            gz_fin = gz_fin_si
+    elif units_out.lower() == "mgal":
+        gz_fin = gz_fin_si / 1e-5
+    elif units_out.lower() in ["m/s^2", "m/s2", "si"]:
+        gz_fin = gz_fin_si
+    else:
+        raise ValueError("units_out deve essere 'same', 'm/s^2' o 'mGal'.")
+
+    if not return_model:
+        return gz_fin
+
+    # some fit diagnostics
+    gz_fit_si = A @ masses
+    resid_si = gz_si - gz_fit_si
+    rmse_si = np.sqrt(np.mean(resid_si**2))
+
+    model = {
+        "masses_kg": masses,
+        "sources_xyz": (xs, ys, zs),
+        "depth": depth,
+        "damping": lam,
+        "rmse_m_s2": rmse_si,
+        "rmse_mGal": rmse_si / 1e-5,
+    }
+    return gz_fin, model
 
 # -----------------------------------------------------------------------------
 def edge2line( array, xx, yy, deg=30, dist1=2, dist2=1, poly_deg=1, n=3, num_points=2,

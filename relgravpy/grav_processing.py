@@ -1107,8 +1107,8 @@ def line_levellig( xyzl, prjcode_in=4326, prjcode_out=4326, dist=None, x_c=0, y_
         
         for n, _ in enumerate( g ) :
             
-            W_star_i = W_star[ W[:,1] == g[n,2] ] ** power
-            W_star_j = W_star[ W[:,1] == g[n,3] ] ** power
+            W_star_i = W_star[ W[:,1] == g[n,2] ][0] ** power
+            W_star_j = W_star[ W[:,1] == g[n,3] ][0] ** power
                 
 #            m = ( W_star_j / W_star_i ) * power
 #            g_ij[ n ] =  ( g[n,4] + g[n,5] * m ) / ( 1 + m )
