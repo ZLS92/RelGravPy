@@ -504,11 +504,13 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
     Ms, Mn = Myc-dhy, Myc+dhy 
 
     # (A,B,C) compartment sorting ---------------------------------------------    
-    if msk is not None : # with coastline mask array    
+    if msk is not None : # with coastline mask array
         IA = ( Zc > 0 ) & ( msk == 0 ) & Indx
         IB = ( Zc > hst ) & ( msk == 1 ) & ( Zc < 0 ) & Indx
         IC = ( Zc < hst ) & ( msk == 1 ) & ( Zc < 0 ) & Indx
-    if msk is None : # with coastline mask array    
+        ID = ( Zc == hst ) & ( msk == 1 ) & ( Zc < 0 ) & Indx
+
+    if msk is None : # with coastline mask array
         IA = ( Zc > 0 ) & Indx
         IB = ( Zc > hst ) & ( Zc < 0 ) & Indx
         IC = ( Zc < hst ) & ( Zc < 0 ) & Indx
