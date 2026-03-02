@@ -1333,40 +1333,78 @@ def upcont( array, h, sx=1, sy=1, padw=0, pmode='gdal', alpha=None, remove=None,
     return up
 
 # -----------------------------------------------------------------------------
+import numpy as np
+
 def upcont_chessboard(
     xgrid2d, ygrid2d, array,
-    xp, yp, z_ini_p,
-    z_fin_p=None, z_fin_const=0.0,
+    # --- geometry (optional points)
+    xp=None, yp=None,
+    # --- initial surface (choose ONE)
+    z_ini_grid=None,        # 2D (ny,nx) bathymetry/topography on the grid (recommended)
+    z_ini_p=None,           # 1D (N,) if you want to build z_ini_grid from scattered points
+    # --- final surface (choose ONE)
+    z_fin_grid=None,        # 2D (ny,nx) target surface on grid
+    z_fin_p=None,           # 1D (N,) target heights at scattered points (will be gridded)
+    z_fin_const=0.0,        # constant target height (sea level)
+    # --- chessboard settings
     dz=50.0,
+    # --- FFT settings
     sx=None, sy=None,
     padw=0, pmode='gdal', alpha=None,
+    # --- preprocessing
     remove=None, nanfill='gdal', order=[1],
+    # --- masks
     mask=None, nodata=True, restore=True,
+    # --- dh clipping
     clip_dh_min=0.0, clip_dh_max=None,
-    interp_method='linear',          # griddata: 'linear'|'nearest'|'cubic'
+    # --- gridding of z surfaces
+    interp_method='linear',   # griddata: 'linear'|'nearest'|'cubic'
+    # --- plotting
     plot=False, vmin=None, vmax=None,
-    return_aux=False ):
+    # --- outputs
+    return_aux=False
+):
     """
     Chessboard upward continuation (Cordell-style) from an irregular surface to an irregular (or constant) surface above it,
-    when 'array' is already on a regular (x,y) grid given by 2D meshgrids xgrid2d,ygrid2d.
+    when 'array' is on a regular (x,y) grid given by 2D meshgrids xgrid2d,ygrid2d.
 
-    Inputs
-    ------
-    xgrid2d, ygrid2d : 2D arrays (ny,nx)  (meshgrid)
-    array            : 2D array (ny,nx)   anomaly defined on the initial datum (e.g., seafloor)
-    xp, yp           : 1D arrays (N,)     scattered xy locations where z_ini/z_fin are known
-    z_ini_p          : 1D array  (N,)     initial surface heights at (xp,yp)  (e.g., bathymetry)
-    z_fin_p          : 1D array  (N,)     final surface heights at (xp,yp) (optional)
-    z_fin_const      : float             constant final surface height if z_fin_p is None (sea level often 0)
+    Parameters
+    ----------
+    xgrid2d, ygrid2d : 2D arrays (ny,nx)
+        Meshgrid coordinates.
+    array : 2D array (ny,nx)
+        Anomaly defined on the initial datum (e.g., seafloor).
+        IMPORTANT: array is NOT the bathymetry; bathymetry goes in z_ini_grid.
+
+    z_ini_grid : 2D array (ny,nx), optional
+        Initial surface heights on the grid (e.g., bathymetry). Recommended.
+    z_ini_p : 1D array (N,), optional
+        Initial surface heights at scattered points (xp,yp), used only if z_ini_grid is None.
+
+    z_fin_grid : 2D array (ny,nx), optional
+        Final surface heights on grid (irregular target).
+    z_fin_p : 1D array (N,), optional
+        Final surface heights at scattered points (xp,yp), used only if z_fin_grid is None and you don't use z_fin_const.
+    z_fin_const : float
+        Constant final height if z_fin_grid and z_fin_p are None (sea level often 0).
+
+    dz : float
+        Vertical step for chessboard levels (meters typically).
+    sx, sy : float
+        Grid spacing in x and y. If None, estimated from meshgrid.
 
     Returns
     -------
-    out : 2D array (ny,nx) continued anomaly on final surface.
-    if return_aux=True also returns: dh_grid, z_ini_grid, z_fin_grid
+    out : 2D array
+        Continued anomaly on target surface (on the grid).
+    upxy : 1D array or None
+        Continued anomaly sampled at (xp,yp) (if xp,yp provided).
+    If return_aux=True:
+        returns (out, upxy, dh, z_ini_grid_used, z_fin_grid_used)
     """
 
     # ----------------------------
-    # Inline helper: spacing from meshgrid
+    # Basic checks + spacing estimate
     # ----------------------------
     xg = np.asarray(xgrid2d, float)
     yg = np.asarray(ygrid2d, float)
@@ -1375,6 +1413,9 @@ def upcont_chessboard(
     if xg.shape != array.shape or yg.shape != array.shape:
         raise ValueError("xgrid2d, ygrid2d e array devono avere la stessa shape.")
 
+    ny, nx = array.shape
+
+    # estimate sx, sy if needed
     if sx is None or sy is None:
         dx = np.nanmedian(np.abs(np.diff(xg, axis=1)))
         dy = np.nanmedian(np.abs(np.diff(yg, axis=0)))
@@ -1386,36 +1427,62 @@ def upcont_chessboard(
         if sy is None: sy = float(dy)
 
     # ----------------------------
-    # Build dh(x,y) on the grid from scattered z_ini / z_fin
+    # Points (optional) for building surfaces and for sampling output
     # ----------------------------
-    xp = np.asarray(xp, float).ravel()
-    yp = np.asarray(yp, float).ravel()
-    z_ini_p = np.asarray(z_ini_p, float).ravel()
+    if xp is not None or yp is not None:
+        if xp is None or yp is None:
+            raise ValueError("Se passi xp o yp, devi passare entrambi.")
+        xp = np.asarray(xp, float).ravel()
+        yp = np.asarray(yp, float).ravel()
+        if xp.size != yp.size:
+            raise ValueError("xp e yp devono avere la stessa lunghezza.")
+    have_points = (xp is not None)
 
-    if xp.size != yp.size or xp.size != z_ini_p.size:
-        raise ValueError("xp, yp, z_ini_p devono avere la stessa lunghezza.")
-
-    if z_fin_p is not None:
-        z_fin_p = np.asarray(z_fin_p, float).ravel()
-        if z_fin_p.size != xp.size:
-            raise ValueError("z_fin_p deve avere la stessa lunghezza di xp/yp se fornito.")
-
-    z_ini_grid = utl.sp.interpolate.griddata((xp, yp), z_ini_p, (xg, yg), method=interp_method)
-    if z_fin_p is None:
-        z_fin_grid = np.full_like(z_ini_grid, float(z_fin_const))
+    # ----------------------------
+    # Build z_ini_grid_used
+    # ----------------------------
+    if z_ini_grid is not None:
+        z_ini_grid_used = np.asarray(z_ini_grid, float)
+        if z_ini_grid_used.shape != array.shape:
+            raise ValueError("z_ini_grid deve avere la stessa shape di array.")
     else:
-        z_fin_grid = utl.sp.interpolate.griddata((xp, yp), z_fin_p, (xg, yg), method=interp_method)
+        if (not have_points) or (z_ini_p is None):
+            raise ValueError("Fornisci z_ini_grid oppure (xp, yp, z_ini_p).")
+        z_ini_p = np.asarray(z_ini_p, float).ravel()
+        if z_ini_p.size != xp.size:
+            raise ValueError("z_ini_p deve avere la stessa lunghezza di xp/yp.")
+        z_ini_grid_used = utl.sp.interpolate.griddata((xp, yp), z_ini_p, (xg, yg), method=interp_method)
 
-    dh = z_fin_grid - z_ini_grid
+    # ----------------------------
+    # Build z_fin_grid_used
+    # ----------------------------
+    if z_fin_grid is not None:
+        z_fin_grid_used = np.asarray(z_fin_grid, float)
+        if z_fin_grid_used.shape != array.shape:
+            raise ValueError("z_fin_grid deve avere la stessa shape di array.")
+    else:
+        if z_fin_p is not None:
+            if not have_points:
+                raise ValueError("Per usare z_fin_p devi passare anche xp, yp.")
+            z_fin_p = np.asarray(z_fin_p, float).ravel()
+            if z_fin_p.size != xp.size:
+                raise ValueError("z_fin_p deve avere la stessa lunghezza di xp/yp.")
+            z_fin_grid_used = utl.sp.interpolate.griddata((xp, yp), z_fin_p, (xg, yg), method=interp_method)
+        else:
+            z_fin_grid_used = np.full_like(z_ini_grid_used, float(z_fin_const))
 
-    # clip for upward continuation (dh >= 0)
+    # ----------------------------
+    # dh and clipping (upward => dh >= 0)
+    # ----------------------------
+    dh = z_fin_grid_used - z_ini_grid_used
+
     if clip_dh_min is not None:
         dh = np.where(np.isnan(dh), np.nan, np.maximum(dh, clip_dh_min))
     if clip_dh_max is not None:
         dh = np.where(np.isnan(dh), np.nan, np.minimum(dh, clip_dh_max))
 
     # ----------------------------
-    # Remove / fillnan in same spirit of upcont()
+    # Remove / fillnan (like upcont)
     # ----------------------------
     nan_arr = np.isnan(array)
     nan_dh = np.isnan(dh)
@@ -1447,9 +1514,10 @@ def upcont_chessboard(
     dh_max = np.nanmax(np.where(nan_dh, np.nan, dh))
     if not np.isfinite(dh_max):
         out = np.full_like(array, np.nan, dtype=float)
+        upxy = None
         if return_aux:
-            return out, dh, z_ini_grid, z_fin_grid
-        return out
+            return out, upxy, dh, z_ini_grid_used, z_fin_grid_used
+        return out, upxy
 
     if dh_max < 0:
         raise ValueError("dh_max < 0: qui gestisco solo upward (dh >= 0).")
@@ -1467,23 +1535,26 @@ def upcont_chessboard(
     up_levels = np.stack(up_levels, axis=0)  # (nlev, ny, nx)
 
     # ----------------------------
-    # Per-cell interpolation between bracketing levels
+    # Per-cell interpolation between bracketing levels (robust)
     # ----------------------------
     dhc = np.clip(dh, 0.0, levels[-1])
+    flat = dhc.ravel()
 
-    j_hi = np.searchsorted(levels, dhc, side='right')
+    j_hi = np.searchsorted(levels, flat, side='right')
     j_hi = np.clip(j_hi, 1, nlev - 1)
     j_lo = j_hi - 1
 
     h_lo = levels[j_lo]
     h_hi = levels[j_hi]
-    w = (dhc - h_lo) / np.maximum(h_hi - h_lo, 1e-12)
+    w = (flat - h_lo) / np.maximum(h_hi - h_lo, 1e-12)
 
-    ny, nx = array.shape
     yy, xx = np.indices((ny, nx))
-    v_lo = up_levels[j_lo, yy, xx]
-    v_hi = up_levels[j_hi, yy, xx]
-    out = (1.0 - w) * v_lo + w * v_hi
+    yyf, xxf = yy.ravel(), xx.ravel()
+
+    v_lo = up_levels[j_lo, yyf, xxf]
+    v_hi = up_levels[j_hi, yyf, xxf]
+
+    out = ((1.0 - w) * v_lo + w * v_hi).reshape((ny, nx))
 
     # ----------------------------
     # Apply nodata/mask + restore removed part
@@ -1499,8 +1570,12 @@ def upcont_chessboard(
     if restore:
         out = out + rem_array
 
-    # Interpolate the upward arry onto xy 
-    upxy = utl.xyz2xy( (xg, yg, out), (xp, yp), method=interp_method, fillnan=False )
+    # ----------------------------
+    # Sample result at points (optional)
+    # ----------------------------
+    upxy = None
+    if have_points:
+        upxy = utl.xyz2xy((xg, yg, out), (xp, yp), method=interp_method, fillnan=False)
 
     # ----------------------------
     # Plot (optional)
@@ -1518,6 +1593,9 @@ def upcont_chessboard(
         utl.plta(out, vmin, vmax, sbplt=[1, 3, 2], tit='chessboard upward')
         utl.plta(diff, sbplt=[1, 3, 3], tit='diff')
         utl.plt.tight_layout()
+
+    if return_aux:
+        return out, upxy, dh, z_ini_grid_used, z_fin_grid_used
     
     return out, upxy
 
