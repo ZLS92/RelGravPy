@@ -1499,6 +1499,9 @@ def upcont_chessboard(
     if restore:
         out = out + rem_array
 
+    # Interpolate the upward arry onto xy 
+    upxy = utl.xyz2xy( (xg, yg, out), (xp, yp), method=interp_method, fillnan=False )
+
     # ----------------------------
     # Plot (optional)
     # ----------------------------
@@ -1515,10 +1518,8 @@ def upcont_chessboard(
         utl.plta(out, vmin, vmax, sbplt=[1, 3, 2], tit='chessboard upward')
         utl.plta(diff, sbplt=[1, 3, 3], tit='diff')
         utl.plt.tight_layout()
-
-    if return_aux:
-        return out, dh, z_ini_grid, z_fin_grid
-    return out
+    
+    return out, upxy
 
 # -----------------------------------------------------------------------------
 def upcont_eqs(
