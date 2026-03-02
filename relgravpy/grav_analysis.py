@@ -1333,8 +1333,6 @@ def upcont( array, h, sx=1, sy=1, padw=0, pmode='gdal', alpha=None, remove=None,
     return up
 
 # -----------------------------------------------------------------------------
-import numpy as np
-
 def upcont_chessboard(
     xgrid2d, ygrid2d, array,
     # --- geometry (optional points)
@@ -1362,8 +1360,7 @@ def upcont_chessboard(
     # --- plotting
     plot=False, vmin=None, vmax=None,
     # --- outputs
-    return_aux=False
-):
+    return_aux=False ):
     """
     Chessboard upward continuation (Cordell-style) from an irregular surface to an irregular (or constant) surface above it,
     when 'array' is on a regular (x,y) grid given by 2D meshgrids xgrid2d,ygrid2d.
