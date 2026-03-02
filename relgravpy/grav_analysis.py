@@ -1665,6 +1665,282 @@ def upcont_eqs(
     return gz_fin, model
 
 # -----------------------------------------------------------------------------
+def upcont_fedi(
+    x, y, z_ini, d_ini,
+    z_fin=0.0,
+    # --- z0 search
+    z0_min=None, z0_max=None, z0_step=50.0,  # meters
+    z0_span_default=600.0,                   # meters (paper: spesso < 0.6 km sotto il punto più basso) :contentReference[oaicite:2]{index=2}
+    # --- conditioning / stability
+    cond_max=4000.0,                         # paper example mentions ~4000 as a “good average” :contentReference[oaicite:3]{index=3}
+    reg_epsilon=0.0,                         # optional Tikhonov-like ridge in eigen domain
+    # --- synthetic model for z0 selection
+    synth_sources=None,
+    synth_depth=None,
+    G=6.67430e-11,
+    data_units="mGal",
+    # --- output
+    return_all=False, ):
+    """
+    Fedi et al. (1999) upward continuation for scattered potential-field data,
+    including automatic search of the reference level z0 via synthetic-model RMS minimization. 
+
+    Inputs
+    ------
+    x,y,z_ini : (N,) arrays
+        Observation coordinates at initial irregular surface (seafloor).
+        Units must be meters, in a projected CRS (UTM etc.).
+    d_ini : (N,) array
+        Observed field values to be continued (e.g. gz anomaly).
+    z_fin : float or (N,) array
+        Target heights. Sea level typically 0.0.
+
+    z0 search
+    ---------
+    We use the paper’s idea: for each candidate z0, build continuation operator K(z0),
+    apply it to a synthetic dataset defined on the same observation points,
+    compare to the exact synthetic field at targets, pick z0 minimizing RMS. :contentReference[oaicite:5]{index=5}
+
+    Conditioning
+    ------------
+    Gram matrix g is symmetric; we eigendecompose and truncate small eigenvalues
+    to enforce a max condition number (and optionally add reg_epsilon). 
+
+    Synthetic model
+    ---------------
+    If synth_sources is None, we auto-generate a simple set of point masses beneath the survey area.
+    This is only used to choose z0 (not to compute the final continuation of your real data). :contentReference[oaicite:7]{index=7}
+
+    Returns
+    -------
+    d_fin : (M,) array (M=N if z_fin scalar or len=N if array)
+        Continued field at (x,y,z_fin).
+    If return_all=True: also returns dict with chosen z0, rms curve, K, etc.
+    """
+
+    x = np.asarray(x, float).ravel()
+    y = np.asarray(y, float).ravel()
+    z_ini = np.asarray(z_ini, float).ravel()
+    d_ini = np.asarray(d_ini, float).ravel()
+
+    if not (x.size == y.size == z_ini.size == d_ini.size):
+        raise ValueError("x, y, z_ini, d_ini devono avere la stessa lunghezza.")
+
+    N = x.size
+
+    if np.isscalar(z_fin):
+        z_fin_arr = np.full(N, float(z_fin))
+    else:
+        z_fin_arr = np.asarray(z_fin, float).ravel()
+        if z_fin_arr.size != N:
+            raise ValueError("Se z_fin è array, deve avere lunghezza N.")
+
+    # --- convert data to SI for synthetic computations (only for RMS selection)
+    if data_units.lower() == "mgal":
+        d_si = d_ini * 1e-5
+    elif data_units.lower() in ("m/s^2", "m/s2", "si"):
+        d_si = d_ini
+    else:
+        raise ValueError("data_units deve essere 'mGal' oppure 'm/s^2'.")
+
+    # -----------------------------
+    # Inline kernels (Fedi 1999)
+    # H(rj, ri) = 1/(2π) * (zi+zj) / (dx^2+dy^2+(zi+zj)^2)^(3/2)  (eq.14)
+    # With reference shift z = Z + z0 -> (zi+zj+2z0) (eq.22). 
+    # -----------------------------
+    def H_pairwise(xi, yi, zi, xj, yj, zj, z0):
+        """
+        Returns H_ij with broadcasting:
+        xi,yi,zi shape (N,)
+        xj,yj,zj shape (M,)
+        output (N,M): H(xj,xi) style (depends only on dx,dy, zi+zj+2z0)
+        """
+        dx = xi[:, None] - xj[None, :]
+        dy = yi[:, None] - yj[None, :]
+        zz = zi[:, None] + zj[None, :] + 2.0 * z0
+        r2 = dx*dx + dy*dy + zz*zz
+        r = np.sqrt(r2)
+        r3 = np.maximum(r2 * r, 1e-30)
+        return (1.0 / (2.0 * np.pi)) * (zz / r3)
+
+    def H_data_to_targets(xj, yj, zj, xt, yt, zt, z0):
+        """
+        H(rj, r_target): j indexes data points, target indexes evaluation points
+        output (Mtargets, Ndata) for easy K = H_t @ g_inv
+        """
+        dx = xt[:, None] - xj[None, :]
+        dy = yt[:, None] - yj[None, :]
+        zz = zt[:, None] + zj[None, :] + 2.0 * z0
+        r2 = dx*dx + dy*dy + zz*zz
+        r = np.sqrt(r2)
+        r3 = np.maximum(r2 * r, 1e-30)
+        return (1.0 / (2.0 * np.pi)) * (zz / r3)
+
+    # -----------------------------
+    # Synthetic model for z0 selection (point masses)
+    # -----------------------------
+    def gz_from_point_masses(xp, yp, zp, sources):
+        """
+        Vertical component gz from point masses sources=[(xs,ys,zs,m),...]
+        gz = G * m * (z - zs) / r^3
+        """
+        gz = np.zeros_like(xp, dtype=float)
+        for (xs, ys, zs, m) in sources:
+            dx = xp - xs
+            dy = yp - ys
+            dz = zp - zs
+            r2 = dx*dx + dy*dy + dz*dz
+            r = np.sqrt(r2)
+            r3 = np.maximum(r2 * r, 1e-30)
+            gz += G * m * (dz / r3)
+        return gz
+
+    # auto-generate simple synthetic sources if not provided
+    if synth_sources is None:
+        # choose depth scale if not given
+        if synth_depth is None:
+            # heuristic: half of median nearest-neighbor spacing in xy
+            dx = x[:, None] - x[None, :]
+            dy = y[:, None] - y[None, :]
+            dist = np.sqrt(dx*dx + dy*dy)
+            dist[dist == 0] = np.nan
+            nn = np.nanmin(dist, axis=1)
+            synth_depth = float(np.nanmedian(nn)) if np.isfinite(np.nanmedian(nn)) else 500.0
+
+        xc, yc = float(np.mean(x)), float(np.mean(y))
+        zmin = float(np.min(z_ini))
+        # put two masses beneath the area with opposite signs to avoid trivial scaling
+        sources = [
+            (xc - 0.25*(np.max(x)-np.min(x)), yc, zmin - 2.0*synth_depth,  +1.0e12),
+            (xc + 0.25*(np.max(x)-np.min(x)), yc, zmin - 2.5*synth_depth,  -0.8e12),
+        ]
+        synth_sources = sources
+
+    # synthetic "observed" and "exact target" values (SI)
+    synth_d_obs = gz_from_point_masses(x, y, z_ini, synth_sources)
+    synth_d_tar = gz_from_point_masses(x, y, z_fin_arr, synth_sources)
+
+    # -----------------------------
+    # z0 search range
+    # must ensure Z = z + z0 > 0 for all points (half-space z>0 assumption). :contentReference[oaicite:9]{index=9}
+    # -----------------------------
+    zmin = float(np.min(z_ini))
+    # minimal feasible z0 slightly above -zmin
+    z0_feasible_min = (-zmin) + 1.0  # +1 m safety
+
+    if z0_min is None:
+        z0_min = z0_feasible_min
+    else:
+        z0_min = max(float(z0_min), z0_feasible_min)
+
+    if z0_max is None:
+        z0_max = z0_min + float(z0_span_default)
+    else:
+        z0_max = max(float(z0_max), z0_min + 1.0)
+
+    if z0_step <= 0:
+        raise ValueError("z0_step deve essere > 0.")
+
+    z0_candidates = np.arange(z0_min, z0_max + 0.5*z0_step, z0_step)
+
+    # -----------------------------
+    # Build K(z0) and evaluate RMS on synthetic data
+    # -----------------------------
+    rms_list = []
+    K_best = None
+    z0_best = None
+    g_best = None
+    eig_info_best = None
+
+    # targets are same x,y as data here; if you want different targets, pass xt,yt separately (easy extension)
+    xt, yt, zt = x, y, z_fin_arr
+
+    for z0 in z0_candidates:
+        # Gram matrix g_ij = H(rj, ri) = H_pairwise(i,j) with same set -> symmetric :contentReference[oaicite:10]{index=10}
+        g = H_pairwise(x, y, z_ini, x, y, z_ini, z0)
+
+        # eigen conditioning / truncation (Backus-Gilbert style variance control) 
+        w, U = np.linalg.eigh(g)  # ascending
+        idx = np.argsort(w)[::-1]  # descending
+        w = w[idx]
+        U = U[:, idx]
+
+        wmax = w[0]
+        # threshold to enforce condition number <= cond_max
+        wmin_allowed = wmax / float(cond_max) if cond_max is not None else 0.0
+        keep = w >= wmin_allowed
+
+        if not np.any(keep):
+            rms_list.append(np.inf)
+            continue
+
+        w_kept = w[keep]
+        U_kept = U[:, keep]
+
+        # inverse in eigen space with optional ridge reg
+        # inv_w = 1/(w + eps*wmax) avoids blow-ups if user wants extra smoothing
+        eps = float(reg_epsilon)
+        inv_w = 1.0 / (w_kept + eps * wmax)
+
+        # g_inv = U_kept diag(inv_w) U_kept^T
+        g_inv = (U_kept * inv_w) @ U_kept.T
+
+        # H(target, data) -> (Ntargets, Ndata)
+        Ht = H_data_to_targets(x, y, z_ini, xt, yt, zt, z0)
+
+        # K = Ht @ g_inv (since g symmetric transpose irrelevant) 
+        K = Ht @ g_inv
+
+        # synthetic continuation and RMS
+        synth_cont = K @ synth_d_obs
+        rms = np.sqrt(np.mean((synth_cont - synth_d_tar)**2))
+        rms_list.append(rms)
+
+        if (z0_best is None) or (rms < rms_list[np.argmin(rms_list)]):
+            # this branch is redundant; keep explicit selection below after loop
+            pass
+
+    rms_arr = np.asarray(rms_list, float)
+    best_idx = int(np.nanargmin(rms_arr))
+    z0_best = float(z0_candidates[best_idx])
+
+    # rebuild best K for final continuation of real data
+    g = H_pairwise(x, y, z_ini, x, y, z_ini, z0_best)
+    w, U = np.linalg.eigh(g)
+    idx = np.argsort(w)[::-1]
+    w = w[idx]
+    U = U[:, idx]
+    wmax = w[0]
+    wmin_allowed = wmax / float(cond_max) if cond_max is not None else 0.0
+    keep = w >= wmin_allowed
+    w_kept = w[keep]
+    U_kept = U[:, keep]
+    eps = float(reg_epsilon)
+    inv_w = 1.0 / (w_kept + eps * wmax)
+    g_inv = (U_kept * inv_w) @ U_kept.T
+
+    Ht = H_data_to_targets(x, y, z_ini, xt, yt, zt, z0_best)
+    K_best = Ht @ g_inv
+
+    # apply to YOUR data
+    # (if your d_ini is in mGal but you want output in mGal, the operator is linear -> units pass through unchanged)
+    d_fin = K_best @ d_ini
+
+    if not return_all:
+        return d_fin
+
+    info = {
+        "z0_candidates": z0_candidates,
+        "rms_synth_SI": rms_arr,
+        "z0_best": z0_best,
+        "cond_max": cond_max,
+        "reg_epsilon": reg_epsilon,
+        "K": K_best,
+        "note": "z0 chosen by minimizing synthetic RMS as in Fedi et al. (1999). :contentReference[oaicite:13]{index=13}"
+    }
+    return d_fin, info
+
+# -----------------------------------------------------------------------------
 def edge2line( array, xx, yy, deg=30, dist1=2, dist2=1, poly_deg=1, n=3, num_points=2,
                val_th=None, polyfit=True, plot=False, dist_th=None, smooth_edges=None,
                save_raster=False, new_name='new_raster', path='/vsimem/', prjcode=4326, lim=None ):
