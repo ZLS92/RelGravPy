@@ -1653,7 +1653,7 @@ def gmt_surf( x, y, z,
 
     # Define the block mean command based on the block mean parameter
     # if blkm != '':
-    blkm = f"gmt blockmean xyz_temp {blkm} {Rlim} > xyz_temp_blkm"
+    blkm = f"gmt blockmedian xyz_temp {blkm} {Rlim} > xyz_temp_blkm"
 
     # Define the pause command based on the pause parameter
     if pause == True:

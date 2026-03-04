@@ -2847,8 +2847,392 @@ def shift2Darray( array, factor=1 ) :
     
     return grids, x_shifted_coords, y_shifted_coords
 
+# -----------------------------------------------------------------------------
+def variogram(
+    X, Y, Z, v,
+    max_dist=None,
+    n_bins=30,
+    use_3d=True,
+    model=None,
+    title="Variogram",
+    sample_pairs=200000,
+    random_state=0 ):
+    """
+    Plot the empirical variogram of a set of points (X,Y,Z) with values v, optionally comparing to a model variogram.
+    
+    Parameters    ----------
+    X, Y, Z : array-like
+        Coordinates of the points. Z can be ignored if use_3d=False.
+    v : array-like
+        Values at the points.
+    max_dist : float, optional
+        Maximum distance to consider in the variogram. If None, it is set to the
+        95th percentile of the pairwise distances (robust to outliers).
+    n_bins : int, optional
+        Number of distance bins for the variogram.
+    use_3d : bool, optional
+        Whether to use 3D distances (X,Y,Z) or 2D distances (X,Y) for the variogram.
+    model : callable, optional
+        A function that takes an array of distances and returns the corresponding variogram values, for plotting the model curve.
+    title : str, optional
+        Title of the plot.
+    sample_pairs : int, optional
+        Maximum number of point pairs to sample for computing the variogram. If the total number of pairs exceeds this, a random subset is used for efficiency.
+    random_state : int, optional
+        Random seed for reproducibility when sampling pairs.
+
+    Returns    -------
+    centers : array
+        The centers of the distance bins.
+    gbin : array
+        The empirical variogram values for each bin.
+    npairs : array
+        The number of point pairs in each bin.
+
+    """
+    
+    X = np.asarray(X, float).ravel()
+    Y = np.asarray(Y, float).ravel()
+    Z = np.asarray(Z, float).ravel()
+    v = np.asarray(v, float).ravel()
+    n = X.size
+    if not (n == Y.size == Z.size == v.size):
+        raise ValueError("X,Y,Z,v devono avere stessa lunghezza")
+
+    # --- scegli coppie (tutte se piccolo, altrimenti sottocampiona)
+    rng = np.random.default_rng(random_state)
+    if n * (n - 1) // 2 <= sample_pairs:
+        # tutte le coppie i<j
+        ii, jj = np.triu_indices(n, k=1)
+    else:
+        # coppie random
+        ii = rng.integers(0, n, size=sample_pairs)
+        jj = rng.integers(0, n, size=sample_pairs)
+        m = ii != jj
+        ii, jj = ii[m], jj[m]
+
+    dx = X[ii] - X[jj]
+    dy = Y[ii] - Y[jj]
+    if use_3d:
+        dz = Z[ii] - Z[jj]
+        h = np.sqrt(dx*dx + dy*dy + dz*dz)
+    else:
+        h = np.sqrt(dx*dx + dy*dy)
+
+    gamma = 0.5 * (v[ii] - v[jj])**2
+
+    if max_dist is None:
+        max_dist = np.nanpercentile(h, 95)  # robusto
+
+    m = (h > 0) & (h <= max_dist) & np.isfinite(gamma)
+    h = h[m]; gamma = gamma[m]
+
+    # --- binning
+    edges = np.linspace(0, max_dist, n_bins + 1)
+    centers = 0.5 * (edges[:-1] + edges[1:])
+    gbin = np.full(n_bins, np.nan)
+    npairs = np.zeros(n_bins, dtype=int)
+
+    idx = np.digitize(h, edges) - 1
+    for b in range(n_bins):
+        mb = idx == b
+        npairs[b] = int(np.sum(mb))
+        if npairs[b] > 0:
+            gbin[b] = np.nanmean(gamma[mb])
+
+    # --- plot
+    plt.figure()
+    plt.plot(centers, gbin, marker="o", linestyle="none", label="empirico (binned)")
+    # opzionale: punti grezzi leggeri
+    # plt.plot(h, gamma, ".", alpha=0.05, label="coppie")
+
+    if model is not None:
+        hh = np.linspace(0, max_dist, 200)
+        plt.plot(hh, model(hh), linestyle="-", label="modello")
+
+    plt.xlabel("distanza h (m)")
+    plt.ylabel("semivarianza γ(h)")
+    plt.title(title)
+    plt.grid(True, alpha=0.3)
+    plt.legend()
+    plt.tight_layout()
+    plt.show()
+
+    return centers, gbin, npairs
 
 # -----------------------------------------------------------------------------
+def lsq_collocation(
+    datasets,
+    targets,
+    z_target=0.0,
+    L=8000.0,
+    sigma_signal=8.0,
+    cov_model="exp",
+    trend_order=1,
+    estimate_bias_for=None,
+    bias_reference=None,
+    nugget=1e-6,
+    return_aux=False, 
+    plot_variogram=False,
+    variogram_bins=30,
+    variogram_max_dist=None,
+    variogram_use_3d=True,
+    variogram_sample_pairs=200000,):
+    """
+    Universal kriging or LSQ collocation with multiple datasets, each with its own noise level,
+    optionally estimating constant biases for selected datasets, and predicting on a target surface.
 
-# def remove_small_imperfections(image, size_threshold):
+    Parameters
+    ----------
+    datasets : list of dict
+        Each dict must contain:
+          - 'x','y','z','d' : arrays (Ni,)
+        and either:
+          - 'sigma' : float or array (Ni,)  (observation std, mGal)
+        optional:
+          - 'name'  : str (recommended)
 
+        Example:
+          datasets = [
+            dict(name="sea",    x=..., y=..., z=..., d=..., sigma=2.0),
+            dict(name="bottom", x=..., y=..., z=..., d=..., sigma=3.0),
+            dict(name="ship",   x=..., y=..., z=..., d=..., sigma=4.0),
+          ]
+
+    targets : dict
+        Must contain:
+          - 'x','y' : arrays (Nt,)
+        Optional:
+          - 'z' : arrays (Nt,)  (if provided overrides z_target)
+
+    z_target : float | array(Nt,) | callable
+        Surface definition for targets if targets['z'] is not provided.
+        - float: constant surface
+        - array: per-target z
+        - callable: z = z_target(x, y)
+
+    estimate_bias_for : None | "all" | list
+        Which datasets get a constant bias term (estimated). Can be list of names or indices.
+        If None: no biases.
+        If "all": all datasets except bias_reference.
+
+    bias_reference : None | name | index
+        Dataset that defines the reference level (its bias is fixed to 0, i.e. no column).
+        If None and biases enabled: the FIRST dataset is used as reference.
+
+    Returns
+    -------
+    d_t : (Nt,) predicted values at (xt, yt, z_surface)
+    aux : dict (optional)
+    """
+
+    # -------------------- helpers
+    def _as1(x):
+        return np.asarray(x, float).ravel()
+
+    def H_trend(x, y, order):
+        if order <= 0:
+            return np.empty((x.size, 0))
+        if order == 1:
+            return np.column_stack([np.ones_like(x), x, y])
+        if order == 2:
+            return np.column_stack([np.ones_like(x), x, y, x*x, x*y, y*y])
+        raise ValueError("trend_order must be 0, 1, or 2")
+
+    def cov_exp(r, sig2, L):
+        return sig2 * np.exp(-r / max(L, 1e-12))
+
+    # -------------------- stack all observations
+    Xs, Ys, Zs, ds = [], [], [], []
+    sigmas = []
+    names = []
+    sizes = []
+
+    for i, dat in enumerate(datasets):
+        x = _as1(dat["x"]); y = _as1(dat["y"]); z = _as1(dat["z"]); d = _as1(dat["d"])
+        if not (x.size == y.size == z.size == d.size):
+            raise ValueError(f"Dataset {i} has inconsistent lengths.")
+        sigma = dat.get("sigma", None)
+        if sigma is None:
+            raise ValueError(f"Dataset {i} must provide 'sigma' (float or array).")
+        sigma = np.asarray(sigma, float)
+        if sigma.ndim == 0:
+            sigma = np.full(x.size, float(sigma))
+        else:
+            sigma = sigma.ravel()
+            if sigma.size != x.size:
+                raise ValueError(f"Dataset {i} sigma must be scalar or same length as data.")
+        name = dat.get("name", f"ds{i}")
+
+        Xs.append(x); Ys.append(y); Zs.append(z); ds.append(d)
+        sigmas.append(sigma)
+        names.append(name)
+        sizes.append(x.size)
+
+    X = np.concatenate(Xs)
+    Y = np.concatenate(Ys)
+    Z = np.concatenate(Zs)
+    d = np.concatenate(ds)
+    sigma_obs = np.concatenate(sigmas)
+    n = X.size
+
+    # -------------------- decide which biases to estimate
+    if estimate_bias_for is None:
+        bias_set = set()
+    else:
+        if estimate_bias_for == "all":
+            bias_set = set(names)
+        else:
+            # allow indices or names
+            bias_set = set()
+            for it in estimate_bias_for:
+                if isinstance(it, (int, np.integer)):
+                    bias_set.add(names[int(it)])
+                else:
+                    bias_set.add(str(it))
+
+    if bias_set:
+        if bias_reference is None:
+            ref_name = names[0]
+        else:
+            ref_name = names[int(bias_reference)] if isinstance(bias_reference, (int, np.integer)) else str(bias_reference)
+        # reference should NOT get a bias column (fix it to 0)
+        if ref_name in bias_set:
+            bias_set.remove(ref_name)
+    else:
+        ref_name = None
+
+    # -------------------- build design matrix H: trend + (optional) bias columns
+    H = H_trend(X, Y, trend_order)
+    bias_cols = []
+    if bias_set:
+        # create one indicator column per biased dataset
+        start = 0
+        dataset_id_of_obs = np.empty(n, dtype=object)
+        for name, sz in zip(names, sizes):
+            dataset_id_of_obs[start:start+sz] = name
+            start += sz
+
+        for bname in sorted(bias_set):
+            ind = (dataset_id_of_obs == bname).astype(float)
+            bias_cols.append(ind)
+
+        H = np.column_stack([H] + bias_cols)
+
+    p = H.shape[1]
+
+    # -------------------- covariance of signal
+    sig2 = float(sigma_signal)**2
+    L = float(L)
+
+    dx = X[:, None] - X[None, :]
+    dy = Y[:, None] - Y[None, :]
+    dz = Z[:, None] - Z[None, :]
+    r = np.sqrt(dx*dx + dy*dy + dz*dz)
+
+    if cov_model != "exp":
+        raise ValueError("Only cov_model='exp' is implemented in this snippet.")
+    C = cov_exp(r, sig2, L)
+
+    # -------------------- total covariance V = C + N
+    V = C + np.diag(sigma_obs**2 + float(nugget))
+
+    # Cholesky solves
+    Lc = np.linalg.cholesky(V)
+
+    def solve_V(b):
+        y = np.linalg.solve(Lc, b)
+        return np.linalg.solve(Lc.T, y)
+
+    # -------------------- GLS trend/bias estimate
+    if p > 0:
+        VinvH = solve_V(H)     # n x p
+        A = H.T @ VinvH        # p x p
+        Vinvd = solve_V(d)     # n
+        bvec = H.T @ Vinvd     # p
+        beta = np.linalg.solve(A, bvec)
+        d_res = d - (H @ beta)
+    else:
+        beta = None
+        d_res = d
+
+    # -------------------- targets: (xt, yt, zt)
+    Xt = _as1(targets["x"])
+    Yt = _as1(targets["y"])
+    Nt = Xt.size
+    if "z" in targets and targets["z"] is not None:
+        Zt = _as1(targets["z"])
+        if Zt.size != Nt:
+            raise ValueError("targets['z'] must have same length as targets x/y.")
+    else:
+        if callable(z_target):
+            Zt = _as1(z_target(Xt, Yt))
+        else:
+            zt = np.asarray(z_target, float)
+            if zt.ndim == 0:
+                Zt = np.full(Nt, float(zt))
+            else:
+                Zt = zt.ravel()
+                if Zt.size != Nt:
+                    raise ValueError("z_target array must have length Nt.")
+
+    # -------------------- cross-cov target-to-observations
+    dx_t = Xt[:, None] - X[None, :]
+    dy_t = Yt[:, None] - Y[None, :]
+    dz_t = Zt[:, None] - Z[None, :]
+    rt = np.sqrt(dx_t*dx_t + dy_t*dy_t + dz_t*dz_t)
+    Cto = cov_exp(rt, sig2, L)  # Nt x n
+
+    # collocation part
+    w = solve_V(d_res)          # n
+    s_hat = Cto @ w             # Nt
+
+    # deterministic part at targets (trend + *NO bias by default*)
+    if p > 0:
+        Ht = H_trend(Xt, Yt, trend_order)
+        if bias_set:
+            # by default: predict the "reference field", so all bias indicators = 0 at targets
+            # (this mirrors your original choice: align everything to the reference dataset level)
+            Ht = np.column_stack([Ht] + [np.zeros(Nt) for _ in sorted(bias_set)])
+        d_t = s_hat + (Ht @ beta)
+    else:
+        d_t = s_hat
+
+    aux = {
+        "beta": beta,
+        "ref_bias_fixed_to_zero": ref_name,
+        "bias_estimated_for": sorted(bias_set),
+        "names": names,
+        "sizes": sizes,
+        "params": dict(L=L, sigma_signal=sigma_signal, cov_model=cov_model,
+                       trend_order=trend_order, nugget=nugget),
+        "targets": dict(N=Nt, z_mode=("explicit" if "z" in targets and targets["z"] is not None
+                                      else "callable" if callable(z_target)
+                                      else "scalar/array")),
+        "note": "Targets are predicted on the reference level (bias indicators = 0 at targets).",
+    }
+
+    if plot_variogram is True:
+
+        sig2 = float(sigma_signal)**2
+        L_ = float(L)
+
+        def gamma_model(h):
+            return sig2 * (1.0 - np.exp(-h / max(L_, 1e-12)))  # + nugget_var se vuoi
+
+        variogram(
+            X, Y, Z, d_res,
+            max_dist=variogram_max_dist,
+            n_bins=variogram_bins,
+            use_3d=variogram_use_3d,
+            model=gamma_model,
+            title="Variogramma dei residui (detrendati)",
+            sample_pairs=variogram_sample_pairs )
+
+    if not return_aux:
+        
+        return d_t
+    
+    else :
+
+        return d_t, aux
