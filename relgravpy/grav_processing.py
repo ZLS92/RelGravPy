@@ -747,7 +747,9 @@ def line_remres( xyzl,
     if pad_dist != 0 :
         xyzl, idx_origin = utl.pad_lines( xyzl, pad_dist=pad_dist, pad_idx=pad_idx, 
             x_c=x_c, y_c=y_c, z_c=z_c, line_c=line_c, radius=half_ws, order_c=order_c, plot=False )
-    
+    else :
+        idx_origin = np.arange( xyzl.shape[0] )
+        
     i_no_pad = idx_origin >= 0
 
     lines = np.unique( xyzl_origin[:,line_c_origin] ) 

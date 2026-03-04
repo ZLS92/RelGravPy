@@ -2812,8 +2812,10 @@ def resamp_lines( xyzl, step, prjcode_in=4326, prjcode_out=4326,
     # If lines argument is an empty list, 
     # set it equal to the unique line numbers 
     # found in the line column of the xyzl array
-    lines = list(lines.ravel())
-    if lines == []:
+    if type(lines) in (list, tuple):
+        lines = np.array(lines)
+        
+    if lines.size == 0:
         print( xyzl[:, line_c] )
         lines = np.unique(xyzl[:, line_c])
 
