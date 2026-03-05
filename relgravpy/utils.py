@@ -203,6 +203,20 @@ def tmi(t1=None, t2=None):
         print( time.time() - t1 )
     else:
         print( t2 - t1 )
+        
+# -----------------------------------------------------------------------------
+def adapt_path(path):
+    """
+    Convert a file path to the appropriate format for the current operating system.
+    """
+    system = platform.system()
+
+    if system == "Windows":
+        # Windows format
+        return path.replace("/", "\\")
+    else:
+        # Linux / Mac
+        return path.replace("\\", "/")
 
 # -----------------------------------------------------------------------------
 def dms2dd( degrees, minutes=0.0, seconds=0.0 ):
