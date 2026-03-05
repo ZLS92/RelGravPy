@@ -2408,124 +2408,203 @@ def split_lines( xyzl,
     return xyzl_new
         
 # -----------------------------------------------------------------------------
-def pad_lines( xyzl, pad_dist, pad_idx=-1, prjcode_in=None,
-               prjcode_out=None, x_c=0, y_c=1, z_c=2, line_c=3, plot=False, s=1, 
-               radius=0, order_c='same', dist=None ) :
-    
-    xyzl = np.copy( xyzl )
-    
-    if prjcode_in != prjcode_out :
-        xyzl[:,x_c], xyzl[:,y_c] = prjxy( prjcode_in, prjcode_out, 
-                                          xyzl[:,x_c], xyzl[:,y_c])
+def pad_lines(
+    xyzl, pad_dist, pad_idx=-1, prjcode_in=None,
+    prjcode_out=None, x_c=0, y_c=1, z_c=2, line_c=3,
+    plot=False, s=1, radius=0, order_c='same', dist=None
+):
+    import numpy as np
+    import matplotlib.pyplot as plt
 
-    if order_c != 'same' :
-        xyzli = sort_lines( xyzl, add_dist=False, x_c=x_c, y_c=y_c, 
-                            line_c=line_c, order_c=order_c )
-    else :
+    xyzl = np.copy(xyzl)
+
+    # Proiezione (se serve)
+    if (prjcode_in is not None) and (prjcode_out is not None) and (prjcode_in != prjcode_out):
+        xyzl[:, x_c], xyzl[:, y_c] = prjxy(prjcode_in, prjcode_out, xyzl[:, x_c], xyzl[:, y_c])
+
+    # Ordinamento (se serve)
+    if order_c != 'same':
+        xyzli = sort_lines(xyzl, add_dist=False, x_c=x_c, y_c=y_c, line_c=line_c, order_c=order_c)
+    else:
         xyzli = xyzl
-    
-    pad_xyzl = np.zeros( ( 0, xyzli.shape[1] ) ) 
-    
-    lines_id = np.unique( xyzli[:,line_c] )
-    
-    for i, l in enumerate( lines_id ) :
-        
-        line = xyzli[ xyzli[ :, line_c ] == l ] 
-        
-        len_line = line.shape[0]
-        
-        if len_line > 1 :
-            
-            if dist is None :    
-                dist = min_dist( line[ :, x_c], line[ :, y_c] )['mean']
-            
-            if radius is None :
-                radius = dist * 2
-                
-            n = int( int( pad_dist / dist ) + ( pad_dist % dist > 0 ) ) # round Up number of padding points
-            new_line = np.copy( line )
-            ramp_x = np.arange( 1, n+1 )
-#            ramp = ( ramp_x/n )**4 - 2 *( ramp_x/n )**2 + 1
-            r=0.1
-            if n <= line.shape[0] :
-                c = int( n/2 )
-            else :
-                c = int( line.shape[0] )
-            ramp = ( -1 * ( np.e**(c*r) ) + 1 * ( np.e**(r*ramp_x) ) ) / ( ( np.e**(c*r) + ( np.e**(r*ramp_x) ) ) )
-                            
-            tg_l= []
-            
-            for i in range( 0, line.shape[0]-1 ) :
-                if ( line[ i, y_c ] == line[ i+1, y_c ] ) and  \
-                   ( line[ i, x_c ] == line[ i+1, x_c ] ) :
-                    continue
-                else :
-                    num_i = line[ i, y_c ] - line[ i+1, y_c ] 
-                    den_i = line[ i, x_c ] - line[ i+1, x_c ] 
-                    if den_i == 0 :
-                        tg_l.append( np.inf )
-                    else :
-                        tg_l.append( num_i / den_i ) 
-  
-            tg_l = np.abs( np.mean(tg_l) )
-            
-            for i in range( 1, n ) :
-                
-                signx = np.sign( line[ 0, x_c ] - line[ -1, x_c ] )
-                signy = np.sign( line[ 0, y_c ] - line[ -1, y_c ] )
-                row_i = np.copy( line[ 0, : ] )
-                row_i[ x_c ] = line[ 0, x_c ] + signx * dist * i * np.cos( np.arctan( tg_l ) ) 
-                row_i[ y_c ] = line[ 0, y_c ] + signy * dist * i * np.sin( np.arctan( tg_l ) )
-                row_i[ -1 ] = pad_idx
-                row_i[ z_c ] = line[ 0, z_c ]
-                    
-                row_f = np.copy( line[ -1, : ] )
-                row_f[ x_c ] = line[ -1, x_c ] - signx * dist * i * np.cos( np.arctan( tg_l ) ) 
-                row_f[ y_c ] = line[ -1, y_c ] - signy * dist * i * np.sin( np.arctan( tg_l ) )
-                row_f[ -1 ] = pad_idx 
-                
-                row_f[ z_c ] = line[ -1, z_c ]
-                new_line = np.vstack( ( row_i, new_line, row_f ) )
-                
-            if radius != 0 : 
-                nearest_i = neighboring_points( ( line[ :, x_c ], line[ :, y_c ] ), 
-                              ( line[ 0, x_c ], line[ 0, y_c ] ), radius )[1]
-                rampi = normalize( ramp, line[ 0, z_c ], 
-                                   np.nanmean( line[ nearest_i, z_c ] ) )
-                new_line[0:n,z_c] = rampi
-                nearest_f = neighboring_points( ( line[ :, x_c ], line[ :, y_c ] ), 
-                              ( line[ -1, x_c ], line[ -1, y_c ] ), radius )[1]
-                rampf = normalize( ramp, line[ -1, z_c ], 
-                                   np.nanmean( line[ nearest_f, z_c ] ) )
-                new_line[-n:,z_c] = np.flipud( rampf )                  
-        
-        else :
-            new_line = line
-        
-        pad_xyzl = np.vstack( ( pad_xyzl, new_line ) )
-        
-    idx_original = pad_xyzl[ :, -1 ]
-    pad_xyzl = np.delete( pad_xyzl, -1, 1 )
-    
-    if plot == True :
-        
-        plt.figure()
-        
-        add_idx = idx_original == pad_idx
-        
-        # plt.scatter( pad_xyzl[~add_idx, x_c], pad_xyzl[~add_idx, y_c], c='k', s=s, label='Original points')
-        # plt.scatter( pad_xyzl[add_idx, x_c], pad_xyzl[add_idx, y_c], c='r', s=s, label='Added points')
-        # plt.legend()
-        # plt.gca().set_aspect('equal')
 
-        plt.subplot( 1, 2, 1 )
-        plt.scatter( xyzl[:, x_c], xyzl[:, y_c], c=xyzl[:, z_c], vmin=-20, vmax=10, s=1 )
-        plt.subplot( 1, 2, 2 )
-        plt.scatter( pad_xyzl[:, 0], pad_xyzl[:, 1], c=pad_xyzl[:, 2], vmin=-20, vmax=10, s=1 )
+    # Assunzione: esiste una colonna "idx" all'ultima posizione (come nel tuo workflow)
+    # Se non c'è, la creiamo (così non esplode).
+    if xyzli.shape[1] <= max(x_c, y_c, z_c, line_c):
+        raise ValueError("pad_lines: indici colonna non compatibili con xyzl")
+
+    has_idx_col = True
+    # euristica: se l'ultima colonna sembra già essere un indice progressivo / pad marker
+    # altrimenti la creiamo.
+    # Se vuoi essere più rigido: metti has_idx_col=False sempre e crea sempre una colonna nuova.
+    # Qui preferisco robustezza.
+    # Se la colonna line_c è l'ultima, allora sicuramente non hai idx.
+    if line_c == xyzli.shape[1] - 1:
+        has_idx_col = False
+
+    if not has_idx_col:
+        xyzli = np.column_stack((xyzli, np.arange(xyzli.shape[0], dtype=float)))
+        idx_col = xyzli.shape[1] - 1
+    else:
+        idx_col = xyzli.shape[1] - 1
+
+    pad_xyzl = np.zeros((0, xyzli.shape[1]))
+    lines_id = np.unique(xyzli[:, line_c])
+
+    def _unit_vec(p0, p1):
+        v = np.array([p1[0]-p0[0], p1[1]-p0[1]], dtype=float)
+        n = np.hypot(v[0], v[1])
+        if n == 0:
+            return None
+        return v / n
+
+    def _find_first_valid_dir(line_xy):
+        # primo segmento non nullo
+        for k in range(line_xy.shape[0]-1):
+            u = _unit_vec(line_xy[k], line_xy[k+1])
+            if u is not None:
+                return u
+        return None
+
+    def _find_last_valid_dir(line_xy):
+        # ultimo segmento non nullo
+        for k in range(line_xy.shape[0]-1, 0, -1):
+            u = _unit_vec(line_xy[k-1], line_xy[k])
+            if u is not None:
+                return u
+        return None
+
+    def _cosine_taper(n):
+        # da 0 a 1, n punti
+        # 0 -> 0, 1 -> 1 con derivata zero agli estremi (morbido)
+        if n <= 1:
+            return np.array([1.0], dtype=float)
+        t = np.linspace(0.0, 1.0, n)
+        return 0.5 * (1 - np.cos(np.pi * t))
+
+    for l in lines_id:
+        line = xyzli[xyzli[:, line_c] == l]
+        len_line = line.shape[0]
+
+        if len_line <= 1:
+            new_line = line
+            pad_xyzl = np.vstack((pad_xyzl, new_line))
+            continue
+
+        # dist per QUESTA linea
+        if dist is None:
+            dist_line = min_dist(line[:, x_c], line[:, y_c])['mean']
+        else:
+            dist_line = float(dist)
+
+        if dist_line <= 0 or not np.isfinite(dist_line):
+            new_line = line
+            pad_xyzl = np.vstack((pad_xyzl, new_line))
+            continue
+
+        # radius default
+        radius_line = radius
+        if radius_line is None:
+            radius_line = dist_line * 2
+
+        # numero punti padding per lato
+        n = int(np.ceil(pad_dist / dist_line))
+        if n <= 0:
+            new_line = line
+            pad_xyzl = np.vstack((pad_xyzl, new_line))
+            continue
+
+        line_xy = np.column_stack((line[:, x_c], line[:, y_c]))
+
+        u0 = _find_first_valid_dir(line_xy)   # direzione in avanti al capo iniziale
+        u1 = _find_last_valid_dir(line_xy)    # direzione in avanti al capo finale
+
+        if (u0 is None) or (u1 is None):
+            new_line = line
+            pad_xyzl = np.vstack((pad_xyzl, new_line))
+            continue
+
+        # padding: estendo "indietro" al capo iniziale e "in avanti" al capo finale
+        # capo iniziale: -u0
+        # capo finale: +u1
+        start = line[0, :].copy()
+        end   = line[-1, :].copy()
+
+        # creo n punti per lato (NON includo il punto originale)
+        ks = np.arange(n, 0, -1, dtype=float)   # n..1 (più lontano -> più vicino)
+        kf = np.arange(1, n+1, dtype=float)     # 1..n
+
+        pad_start = np.tile(start, (n, 1))
+        pad_end   = np.tile(end,   (n, 1))
+
+        pad_start[:, x_c] = start[x_c] - u0[0] * dist_line * ks
+        pad_start[:, y_c] = start[y_c] - u0[1] * dist_line * ks
+        pad_end[:, x_c]   = end[x_c]   + u1[0] * dist_line * kf
+        pad_end[:, y_c]   = end[y_c]   + u1[1] * dist_line * kf
+
+        # marca padding
+        pad_start[:, idx_col] = pad_idx
+        pad_end[:, idx_col]   = pad_idx
+
+        # z: inizialmente costante uguale agli estremi
+        pad_start[:, z_c] = start[z_c]
+        pad_end[:, z_c]   = end[z_c]
+
+        new_line = np.vstack((pad_start, line, pad_end))
+
+        # rampa z (opzionale)
+        if radius_line != 0:
+            # start: target = media vicini nel raggio (sulla linea originale)
+            nearest_i = neighboring_points(
+                (line[:, x_c], line[:, y_c]),
+                (line[0, x_c], line[0, y_c]),
+                radius_line
+            )[1]
+            nearest_f = neighboring_points(
+                (line[:, x_c], line[:, y_c]),
+                (line[-1, x_c], line[-1, y_c]),
+                radius_line
+            )[1]
+
+            zi0 = line[0, z_c]
+            zf0 = line[-1, z_c]
+
+            ziT = np.nanmean(line[nearest_i, z_c]) if np.size(nearest_i) else zi0
+            zfT = np.nanmean(line[nearest_f, z_c]) if np.size(nearest_f) else zf0
+
+            taper = _cosine_taper(n)  # 0..1
+
+            # start padding: dal valore al capo verso target (vicini) avvicinandosi al capo
+            # ks: lontano -> vicino: vogliamo lontano = zi0, vicino = ziT
+            # quindi uso taper in ordine 0..1 ma applicato coerentemente
+            new_line[:n, z_c] = zi0 + (ziT - zi0) * taper  # lontano->vicino
+
+            # end padding: vicino al capo = zfT, lontano = zf0? (simmetrico)
+            # qui preferisco: vicino al capo tende a zfT, andando fuori torna a zf0 (costante estremo)
+            new_line[-n:, z_c] = zfT + (zf0 - zfT) * taper[::-1]
+
+        pad_xyzl = np.vstack((pad_xyzl, new_line))
+
+    idx_original = pad_xyzl[:, idx_col].copy()
+    pad_xyzl = np.delete(pad_xyzl, idx_col, 1)
+
+    if plot:
+        plt.figure()
+        add_idx = idx_original == pad_idx
+
+        plt.subplot(1, 2, 1)
+        plt.scatter(xyzl[:, x_c], xyzl[:, y_c], c=xyzl[:, z_c], s=s)
+        plt.gca().set_aspect('equal', adjustable='box')
+        plt.title("Original")
+
+        plt.subplot(1, 2, 2)
+        plt.scatter(pad_xyzl[:, x_c], pad_xyzl[:, y_c], c=pad_xyzl[:, z_c], s=s)
+        plt.gca().set_aspect('equal', adjustable='box')
+        plt.title("Padded")
 
         plt.show()
 
-    return pad_xyzl, idx_original  
+    return pad_xyzl, idx_original
 
 # -----------------------------------------------------------------------------
 def cross_over_points( xyzl, method='nearest', s=2, cmap='rainbow', plot=False, 

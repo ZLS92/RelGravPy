@@ -662,7 +662,9 @@ def line_remres( xyzl,
                  pad_dist=0, 
                  filt=None, 
                  wfilt=3, 
-                 min_points=2 ) :
+                 min_points=2, 
+                 kernel='gauss',
+                 sigma_frac=0.35, ) :
 
     xyzl = np.copy( xyzl )
     # xyz_ref = cop.copy( xyz_ref )
@@ -782,6 +784,14 @@ def line_remres( xyzl,
     xyzl_new = np.empty( ( xyzl.shape[0], xyzl.shape[1] + 4 ) )
     original_ref_val = np.zeros( xyzl_origin.shape[0] )
 
+    def _wmean(vals, wts):
+        vals = np.asarray(vals, float)
+        wts  = np.asarray(wts,  float)
+        m = np.isfinite(vals) & np.isfinite(wts) & (wts > 0)
+        if np.sum(m) == 0:
+            return np.nan
+        return np.sum(vals[m] * wts[m]) / np.sum(wts[m])
+
     for l in lines :
 
         idx = xyzl[ : , line_c ] == l
@@ -825,23 +835,67 @@ def line_remres( xyzl,
 
             for i in range( line.shape[0] ) : 
 
-                win_i = utl.neighboring_points( ( line[:,x_c], line[:,y_c] ), 
-                                                ( line[i,x_c], line[i,y_c] ), half_ws )[1]
-                if np.size(win_i) == 0:
-                    z_rem[i] = z_i[i]
-                else:
-                    pl_i = z_i[ win_i ]
-                    z_rem[i] = np.nanmean( pl_i )
+                sigma = max(half_ws * sigma_frac, 1e-6)
 
-                if have_local_ref:
-                    win_ii = utl.neighboring_points( ( xx_ref, yy_ref ), 
-                                                     ( line[i,x_c], line[i,y_c] ), half_ws )[1]
-                    if np.size(win_ii) == 0:
-                        # fallback: pointwise interpolated reference
-                        pass
+                for i in range(line.shape[0]):
+
+                    # -----------------------
+                    # DATA: z_rem (low-pass)
+                    # -----------------------
+                    win_i = utl.neighboring_points(
+                        (line[:,x_c], line[:,y_c]),
+                        (line[i,x_c], line[i,y_c]),
+                        half_ws
+                    )[1]
+
+                    if np.size(win_i) == 0:
+                        z_rem[i] = z_i[i]
                     else:
-                        pl_ii = zz_ref[ win_ii ]
-                        z_ref[i] = np.nanmean( pl_ii )
+                        dx = line[win_i, x_c] - line[i, x_c]
+                        dy = line[win_i, y_c] - line[i, y_c]
+                        d  = np.sqrt(dx*dx + dy*dy)
+
+                        if kernel == 'uniform':
+                            wloc = np.ones_like(d)
+                        elif kernel == 'gauss':
+                            wloc = np.exp(-0.5*(d/sigma)**2)
+                        elif kernel == 'tricube':
+                            u = np.clip(d/half_ws, 0.0, 1.0)
+                            wloc = (1 - u**3)**3
+                        else:
+                            wloc = np.ones_like(d)
+
+                        z_rem_i = _wmean(z_i[win_i], wloc)
+                        z_rem[i] = z_i[i] if not np.isfinite(z_rem_i) else z_rem_i
+
+                    # -----------------------
+                    # REF: z_ref (low-pass)
+                    # -----------------------
+                    if have_local_ref:
+                        win_ii = utl.neighboring_points(
+                            (xx_ref, yy_ref),
+                            (line[i,x_c], line[i,y_c]),
+                            half_ws
+                        )[1]
+
+                        if np.size(win_ii) != 0:
+                            dxr = xx_ref[win_ii] - line[i, x_c]
+                            dyr = yy_ref[win_ii] - line[i, y_c]
+                            dr  = np.sqrt(dxr*dxr + dyr*dyr)
+
+                            if kernel == 'uniform':
+                                wloc_r = np.ones_like(dr)
+                            elif kernel == 'gauss':
+                                wloc_r = np.exp(-0.5*(dr/sigma)**2)
+                            elif kernel == 'tricube':
+                                u = np.clip(dr/half_ws, 0.0, 1.0)
+                                wloc_r = (1 - u**3)**3
+                            else:
+                                wloc_r = np.ones_like(dr)
+
+                            z_ref_i = _wmean(zz_ref[win_ii], wloc_r)
+                            if np.isfinite(z_ref_i):
+                                z_ref[i] = z_ref_i
 
             # Apply the coast-weighting to the *correction* (same principle as before):
             # z_new = z_i + w*(z_ref - z_rem)
