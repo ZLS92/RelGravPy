@@ -674,7 +674,6 @@ def line_remres( xyzl,
 
     if type( xyz_ref ) in ( tuple, list ) :
        xyz_ref = np.column_stack( xyz_ref ) 
-    #    utl.print_table( xyz_ref )
 
     if ( xyz_w is not None ) and ( type( xyz_w ) in ( tuple, list ) ) :
        xyz_w = np.column_stack( xyz_w ) 
@@ -685,7 +684,6 @@ def line_remres( xyzl,
 
         xyz_ref[:,0], xyz_ref[:,1] = utl.prjxy( prjcode_in, prjcode_out, 
                                             xyz_ref[:,0], xyz_ref[:,1] )
-                                            
 
         if xyz_w is not None :
             xyz_w[:,0], xyz_w[:,1] = utl.prjxy( prjcode_in, prjcode_out, 
@@ -703,20 +701,21 @@ def line_remres( xyzl,
 
     # Getting the window size if not provided
     if wind_size is None :
-        # Getting input reference field resolution
-        ref_res = utl.min_dist( xyz_ref[0].ravel(), xyz_ref[1].ravel() )['mean']
+        # Getting input reference field resolution (robust for Nx3 arrays)
+        ref_res = utl.min_dist( xyz_ref[:,0].ravel(), xyz_ref[:,1].ravel() )['mean']
         if wind_factor == 1:
             if units == 'degree' :
-                wind_factor = int( ref_wl / utl.deg2m( ref_res ) )
+                wf = int( ref_wl / max(utl.deg2m( ref_res ), 1e-12) )
             else :
-                wind_factor = int( ref_wl / ref_res )
+                wf = int( ref_wl / max(ref_res, 1e-12) )
+            wind_factor = max( 1, wf )
         wind_size = ref_res * wind_factor
 
     if units == 'degree' :
         print( 'window_size : ', round( utl.deg2m( wind_size ), 2 ) )
     else :   
         print( 'window_size : ', round( wind_size, 2 ) )
-    
+
     half_ws =  wind_size / 2
 
     # Identify lines less then minimum number of points ( min_points )
@@ -726,7 +725,7 @@ def line_remres( xyzl,
         idx = xyzl[:,line_c] == l
         if np.sum( idx ) < min_points :
             small_lines.append( l )
-        
+
     if dist is not None :
 
         xyzl = utl.resamp_lines( xyzl, dist, order_c=order_c_origin,
@@ -749,35 +748,36 @@ def line_remres( xyzl,
             x_c=x_c, y_c=y_c, z_c=z_c, line_c=line_c, radius=half_ws, order_c=order_c, plot=False )
     else :
         idx_origin = np.arange( xyzl.shape[0] )
-        
+
     i_no_pad = idx_origin >= 0
 
     lines = np.unique( xyzl_origin[:,line_c_origin] ) 
 
-    print( 'Reference field interpolation ...' )
-    
+    print( 'Reference field interpolation .' )
     ref_val = utl.xyz2xy( ( xyz_ref[:,0], xyz_ref[:,1], xyz_ref[:,2] ), 
                           ( xyzl[:,x_c], xyzl[:,y_c] ), method='cubic' )
-    
     mean_ref_step = utl.min_dist( xyz_ref[:,0], xyz_ref[:,1] )['mean']
-
     print( 'Done!')
-    
-    if xyz_w is not None :
 
+    # --- weights (default = 1 everywhere) ---
+    if xyz_w is not None :
         print( 'Weights interpolation ...')
-        
         weights  = utl.xyz2xy( (  xyz_w[:,0], xyz_w[:,1], xyz_w[:,2] ), 
                                ( xyzl[:,x_c], xyzl[:,y_c] ), 
                                  method='cubic', fillnan=True ) 
-        
         print( 'Done!') 
+    else :
+        weights = np.ones( xyzl.shape[0], dtype=float )
+
+    # Be forgiving: NaN/Inf weights -> 0, and clamp to [0, 1]
+    weights = np.asarray( weights, dtype=float )
+    weights[ ~np.isfinite(weights) ] = 0.0
+    weights = np.clip( weights, 0.0, 1.0 )
 
     # Start RemRes loop
     # -------------------------------------------------------------------------
-    print( 'RemRes loop ...')
+    print( 'RemRes loop .')
 
-    xyzl_out = np.copy( xyzl_origin )
     xyzl_out = np.column_stack( ( xyzl_origin, np.zeros( ( xyzl_origin.shape[0], 2 ) ) ) )
     xyzl_new = np.empty( ( xyzl.shape[0], xyzl.shape[1] + 4 ) )
     original_ref_val = np.zeros( xyzl_origin.shape[0] )
@@ -787,62 +787,82 @@ def line_remres( xyzl,
         idx = xyzl[ : , line_c ] == l
         idxo = xyzl_origin[ : , line_c_origin ] == l
         line = xyzl[ idx ]
-        
+        if line.shape[0] == 0 :
+            continue
+
         z_i = line[:,z_c]
         z_rem = np.zeros( line.shape[0] )
-        z_ref = ref_val[idx]
+        z_ref = ref_val[idx].copy()
         z_w = weights[idx]
         l_num = line[0, line_c]
 
         mean_line_step = utl.min_dist( line[:, x_c], line[:, y_c] )['mean']
-        
+
+        # Local ref grid (optional: speeds up neighbor queries, but be robust if empty)
         line_lim = utl.xy2lim( line[:,x_c], line[:,y_c], extend=half_ws )
         idx_ref = utl.xy_in_lim( xyz_ref[:,0], xyz_ref[:,1], line_lim )[2]
-        xx_ref, yy_ref, zz_ref = utl.xyz2grid( x=xyz_ref[idx_ref,0], y=xyz_ref[idx_ref,1], z=xyz_ref[idx_ref,2],
-                                               gstep=mean_ref_step, method='nearest' )[0]
 
-        resamp_factor = int( mean_ref_step / mean_line_step )
-        xx_ref, yy_ref, zz_ref = utl.resampling( ( xx_ref, yy_ref, zz_ref ), factor=resamp_factor  )       
-        
+        have_local_ref = ( np.size(idx_ref) >= 4 )
+        if have_local_ref :
+            try:
+                xx_ref, yy_ref, zz_ref = utl.xyz2grid(
+                    x=xyz_ref[idx_ref,0], y=xyz_ref[idx_ref,1], z=xyz_ref[idx_ref,2],
+                    gstep=mean_ref_step, method='nearest'
+                )[0]
+
+                # Resample ref grid to something comparable to line spacing (avoid factor=0)
+                if mean_line_step > 0 and mean_ref_step > 0:
+                    resamp_factor = int( np.round( mean_ref_step / mean_line_step ) )
+                else:
+                    resamp_factor = 1
+                resamp_factor = int( np.clip( resamp_factor, 1, 25 ) )
+                if resamp_factor > 1:
+                    xx_ref, yy_ref, zz_ref = utl.resampling( ( xx_ref, yy_ref, zz_ref ), factor=resamp_factor )
+            except Exception:
+                have_local_ref = False
+
         if ( line.shape[0] > 1 ) and ( l_num not in small_lines ) : 
 
             for i in range( line.shape[0] ) : 
 
                 win_i = utl.neighboring_points( ( line[:,x_c], line[:,y_c] ), 
                                                 ( line[i,x_c], line[i,y_c] ), half_ws )[1]
-                
-                win_ii = utl.neighboring_points( ( xx_ref, yy_ref ), 
-                                                 ( line[i,x_c], line[i,y_c] ), half_ws )[1]
+                if np.size(win_i) == 0:
+                    z_rem[i] = z_i[i]
+                else:
+                    pl_i = z_i[ win_i ]
+                    z_rem[i] = np.nanmean( pl_i )
 
-                pl_i = xyzl[idx, z_c][ win_i ]
-                
-                z_rem[i] = np.nanmean( pl_i ) 
+                if have_local_ref:
+                    win_ii = utl.neighboring_points( ( xx_ref, yy_ref ), 
+                                                     ( line[i,x_c], line[i,y_c] ), half_ws )[1]
+                    if np.size(win_ii) == 0:
+                        # fallback: pointwise interpolated reference
+                        pass
+                    else:
+                        pl_ii = zz_ref[ win_ii ]
+                        z_ref[i] = np.nanmean( pl_ii )
 
-                pl_ii = zz_ref[ win_ii ]
-                
-                z_ref[i] = np.nanmean( pl_ii )
-
-            z_res = z_ref * z_w
-
-            z_rem = z_rem * z_w
-
-            z_new = z_i - z_rem + z_res 
+            # Apply the coast-weighting to the *correction* (same principle as before):
+            # z_new = z_i + w*(z_ref - z_rem)
+            z_corr = ( z_ref - z_rem ) * z_w
+            z_new = z_i + z_corr
 
         else :
             z_new = z_i
-            
+
         xyzl_new[ idx, 0] = line[:,x_c]
         xyzl_new[ idx, 1] = line[:,y_c]
         xyzl_new[ idx, 2] = z_new
         xyzl_new[ idx, 3] = line[:,line_c]
-        xyzl_new[ idx, 4] = z_rem
+        xyzl_new[ idx, 4] = z_rem * z_w
         xyzl_new[ idx, 5] = z_ref
         xyzl_new[ idx, 6] = z_i
         xyzl_new[ idx, 7] = ref_val[idx]
 
+        # Map back to original sampling (skip padding points)
         dist_new = utl.geo_line_dist( xyzl_new[ idx & i_no_pad, 0], 
                                       xyzl_new[ idx & i_no_pad, 1] )
-
         dist_old = utl.geo_line_dist( xyzl_origin[ idxo, x_c_origin], 
                                       xyzl_origin[ idxo, y_c_origin] )
 
@@ -863,24 +883,17 @@ def line_remres( xyzl,
     if cover_ref.shape[ 0 ] > 0 :
         print( '\nCross-over error of Ref-lines :')
         minz_ref, maxz_ref, meanz_ref, stdz_ref = utl.stat( cover_ref[ :, 6 ], decimals=2 )
-    
 
-    # Getting index of the columns 
-    # of the corected data and 
-    # of the reference data
+    # Getting index of the columns of the corected data and of the reference data
     z_c_new = xyzl_out.shape[1]-1
     z_c_ref = xyzl_out.shape[1]-2
 
     # Calculate cross-over error
-
-    # original c.o. error
     cover_o = utl.cross_over_points( xyzl_out, x_c=x_c_origin, y_c=y_c_origin, z_c=z_c_origin, 
                     line_c=line_c_origin, method='linear' )
-    
-    # new c.o. error after Remove-Restore
     cover_rr = utl.cross_over_points( xyzl_out, x_c=x_c_origin, y_c=y_c_origin, z_c=z_c_new, 
                     line_c=line_c_origin, method='linear' )
-    
+
     if cover_o.shape[ 0 ] > 0 :
         print( '\nCross-over error before Remove-restore :')
         minz_o, maxz_o, meanz_o, stdz_o = utl.stat( cover_o[ :, 6 ], decimals=2 )
@@ -889,15 +902,15 @@ def line_remres( xyzl,
 
     # Adjust levelling with LSQ method
     if adjst_lev == True : 
-        print( '\nAdjust levelling ...') 
+        print( '\nAdjust levelling .') 
         xyzl_out, cover, _ = line_levellig( xyzl_out, x_c=x_c_origin, y_c=y_c_origin, z_c=z_c_new, 
                                           line_c=line_c_origin, power=power, iterations=iterations, 
                                           dist=dist, spl_k=spl_k, spl_s=spl_s, order_c=order_c_origin ) 
-        print( '\n ... Done!') 
+        print( '\n . Done!') 
 
     # Adjust levelling with Median method
     if median_lev == True :
-        print( '\nMedian levelling ...') 
+        print( '\nMedian levelling .') 
         if median_lines == 'crossing' :
             cover = utl.cross_over_points( xyzl_out, x_c=x_c_origin, y_c=y_c_origin, z_c=z_c_new, 
                           line_c=line_c_origin, method='linear' )[:,3]    
@@ -909,7 +922,7 @@ def line_remres( xyzl,
         xyzl_out, cover = median_levellig( xyzl_out, dist=dist, x_c=x_c_origin, y_c=y_c_origin,
                                     z_c=z_c_new, line_c=line_c_origin, radius=radius, lines=median_lines, 
                                     order_c=order_c_origin ) 
-        print( '\n ...Done!') 
+        print( '\n .Done!') 
 
     #  Final filtering the corrected data (optional)
     if filt is not None :
@@ -918,56 +931,48 @@ def line_remres( xyzl,
                               filter_type=filt, poly_order=6, prjcode_out=prjcode_in, 
                               x_c=x_c_origin, y_c=y_c_origin, z_c=z_c_new, 
                               line_c=line_c_origin, extend_factor=2, edge_fix=True ) 
-        
+
     # Calculate final c.o. error after all corrections
     cover_f = utl.cross_over_points( xyzl_out, x_c=x_c_origin, y_c=y_c_origin, z_c=z_c_new, 
                     line_c=line_c_origin, method='linear' )
-    
+
     if cover_f.shape[ 0 ] > 0 : 
         print( '\nFinal cross-over error :')
         minz_f, maxz_f, meanz_f, stdz_f = utl.stat( cover_f[ :, 6 ], decimals=2 )
 
     # -------------------------------------------------------------------------
     # Plots
-        
     if plot is True :
-        
+
         plt.close("Data_Lev_Plot")
         plt.figure("Data_Lev_Plot", figsize=(9, 4))
 
         plt.subplot(1,2,1)
 
-        vmin = np.nanmean( xyzl_origin[:,z_c_origin] ) - 2 * np.std( xyzl_origin[:,z_c_origin] )
-        vmax = np.nanmean( xyzl_origin[:,z_c_origin] ) + 2 * np.std( xyzl_origin[:,z_c_origin] )
-
-        ostat = utl.stat( xyzl_origin[:,z_c_origin], decimals=0, show=False )
-        plt.title( 'Original : \n' + f'Min={ostat[0]}  Max={ostat[1]}  Mean={ostat[2]}  Std={ostat[3]}' )
-        plt.scatter( xyzl_origin[:,x_c_origin], xyzl_origin[:,y_c_origin], 
-                     s=s, c=xyzl_origin[:,z_c_origin], cmap='rainbow', vmin=vmin, vmax=vmax )
-        plt.colorbar( )
+        vmin = np.nanmean( xyzl_origin[:,z_c_origin] ) - np.nanstd( xyzl_origin[:,z_c_origin] )*2 if vmin is None else vmin
+        vmax = np.nanmean( xyzl_origin[:,z_c_origin] ) + np.nanstd( xyzl_origin[:,z_c_origin] )*2 if vmax is None else vmax
+        plt.scatter( xyzl_origin[:,x_c_origin], xyzl_origin[:,y_c_origin], c=xyzl_origin[:,z_c_origin], s=s, cmap='rainbow', vmin=vmin, vmax=vmax )
         plt.gca().axes.xaxis.set_visible(False)
         plt.gca().axes.yaxis.set_visible(False)
-        
+        plt.title('Original data')
+
         plt.subplot(1,2,2)
-
-        lstat = utl.stat( xyzl_out[:,z_c_new], decimals=0, show=False )
-        plt.title( 'Leveled : \n' + f'Min={lstat[0]}  Max={lstat[1]}  Mean={lstat[2]}  Std={lstat[3]}' )
-        plt.scatter( xyzl_out[:,x_c_origin], xyzl_out[:,y_c_origin], s=s, c=xyzl_out[:,z_c_new], 
-                     cmap='rainbow', vmin=vmin, vmax=vmax )
-        plt.colorbar( )
+        plt.scatter( xyzl_out[:,x_c_origin], xyzl_out[:,y_c_origin], c=xyzl_out[:,z_c_new], s=s, cmap='rainbow', vmin=vmin, vmax=vmax )
         plt.gca().axes.xaxis.set_visible(False)
         plt.gca().axes.yaxis.set_visible(False)
+        plt.title('Remove-Restore leveled')
 
         plt.tight_layout()
+        plt.colorbar( ax=plt.gcf().axes, location='bottom', shrink=0.6 )
         plt.show()
-        
-    if plot_cross is True :
+
+    if plot_cross is True and cover_o.shape[0] > 0 and cover_f.shape[0] > 0 :
 
         if vminc == None :
             vminc = np.nanmin( cover_o[:,6] )
         if vmaxc == None :
             vmaxc = np.nanmax( cover_o[:,6] )
-        
+
         plt.close("Data_Lev_CrossPlot")
         fig, axs = plt.subplots(1, 2, figsize=(8, 6), num="Data_Lev_CrossPlot")
 
@@ -989,9 +994,9 @@ def line_remres( xyzl,
         cbar.ax.text(1.02, 0.5, '[ mGal ]', va='center', ha='left', rotation=0, transform=cbar.ax.transAxes)
 
         plt.show()
-    
+
     if plot_lines == True :
-        
+
         if units == 'degree' : 
             deg2m = True
         else : 
@@ -1012,9 +1017,9 @@ def line_remres( xyzl,
         xyzl_out[:,x_c_origin], xyzl_out[:,y_c_origin] = utl.prjxy( prjcode_out, prjcode_in, 
                                                                     xyzl_out[:,x_c_origin], 
                                                                     xyzl_out[:,y_c_origin] )
-        
+
     print( z_c_new )
-        
+
     return  xyzl_out, xyzl_new, cover_f, fl
 
 # -----------------------------------------------------------------------------       
@@ -1023,251 +1028,242 @@ def line_levellig( xyzl, prjcode_in=4326, prjcode_out=4326, dist=None, x_c=0, y_
                    plot_cross=False, vminc=None, vmaxc=None, deg_to_m=False, power=2,
                    new_xy=True, x_units='', y_units='[mGal]', plot_lines=False,
                    spl_k=3, spl_s=None, order_c='same', lines=[] ) :
-                   
+
     xyzl = np.copy( xyzl )
     if prjcode_in != prjcode_out :
         xyzl[:,x_c], xyzl[:,y_c] = utl.prjxy( prjcode_in, prjcode_out, 
                                               xyzl[:,x_c], xyzl[:,y_c] )
-    
+
     if order_c != 'same' :
         xyzl = utl.sort_lines( xyzl, line_c=line_c, x_c=x_c, y_c=y_c, 
                                add_dist=False, order_c=order_c )
 
     if lines == [] :
         lines = np.unique( xyzl[ :, line_c ] )
-        
+
     if dist == None :
         dist = utl.lines_samp_dist( xyzl, line_c=line_c, x_c=x_c, y_c=y_c, 
                                     deg_to_m=deg_to_m, kind='mode' ) 
-        
+
     # Original c.o. error
     cover_o = utl.cross_over_points( xyzl, x_c=x_c, y_c=y_c, z_c=z_c, 
                     line_c=line_c, method='linear' )
-    
+
     if cover_o.shape[ 0 ] > 0 :
         print( '\nCross-over error before leveling adjasments:')
         minz_o, maxz_o, meanz_o, stdz_o = utl.stat( cover_o[ :, 6 ], decimals=2 )
+    else :
+        # Nothing to level against
+        if new_xy is False and prjcode_in != prjcode_out:
+            xyzl[:,x_c], xyzl[:,y_c] = utl.prjxy( prjcode_out, prjcode_in, xyzl[:,x_c], xyzl[:,y_c] )
+        return xyzl, cover_o, None
 
     xyzl_new = np.copy( xyzl )
     # -------------------------------------------------------------------------
     # Start itarations
-    
+
+    if spl_s is None :
+        spl_s = 0
+
     for itr in range( iterations ) :
-        
+
         xyzl_re = utl.resamp_lines( xyzl_new, dist, order_c=order_c,
                                     line_c=line_c, x_c=x_c, y_c=y_c, z_c=z_c, lines=lines )
 
         cross_p = utl.cross_over_points( xyzl_re, method='linear', 
                                          x_c=0, y_c=1, z_c=2, line_c=3 )
-        
-        
+        if cross_p.shape[0] == 0:
+            break
+
         i1 = np.isin( cross_p[:,2], lines ) 
         i2 = np.isin( cross_p[:,3], lines )
         lines_cross = np.unique( np.concatenate( ( cross_p[i1,3], cross_p[i2,2], lines ) ) )
         cross_p = cross_p[ i1 | i2 ]
-        
+
         N = np.size( lines_cross ) # Number of survey lines
-        K = []
         W = []
         g = []
-        
-        for i, l in enumerate( lines_cross ) :
-            
-            if xyzl[ xyzl[ :, line_c ] == l ].shape[0] <= 1 : continue
-            
+
+        for l in lines_cross :
+
+            if xyzl[ xyzl[ :, line_c ] == l ].shape[0] <= 1 : 
+                continue
+
             idx_c = ( cross_p[:,2] == l ) | ( cross_p[:,3] == l ) 
             cross_pi = cross_p[ idx_c ]
-            Delta_g = np.zeros( cross_pi.shape[0] )
-            
-            if np.size( Delta_g ) == 0 :
+            if cross_pi.shape[0] == 0:
                 continue
+
+            Delta_g = np.zeros( cross_pi.shape[0] )
+            for li in range( cross_pi.shape[0] ) :
+                if cross_pi[li,2] == l :
+                    g.append( cross_pi[li] ) 
+                else :
+                    # flip i/j so that "l" is always i
+                    col_change = [0,1,3,2,5,4,6]
+                    g.append( cross_pi[ li, col_change ] ) 
+                Delta_g[li] = g[-1][4] - g[-1][5]
+
+            # weight for the line (same idea, but avoid infinities)
+            denom = np.sum( Delta_g**2 )
+            if ( denom <= 0 ) or ( l not in lines ) :
+                w0 = cross_pi.shape[0] / 1e-12
             else :
-                K.append( np.size( Delta_g ) ) 
-                
-                for li in range( K[-1] ) :
-                    if cross_pi[li,2] == l :
-                        g.append( cross_pi[li] ) 
-                    if cross_pi[li,3] == l :  
-                        col_change = [0,1,3,2,5,4,6]
-                        g.append( cross_pi[ li, col_change ] ) 
-                    
-                    Delta_g[li] = g[-1][4] - g[-1][5]    
-                
-                if ( np.sum( Delta_g**2 ) == 0 ) or ( l not in lines ) :
-                    w_line = [ K[-1] / 1e-50, l ] 
-                else :    
-                    w_line = [ K[-1] / np.sum( Delta_g**2 ), l ]
-                W.append( w_line ) 
-   
+                w0 = cross_pi.shape[0] / ( denom + 1e-12 )
+            W.append( [ w0, l ] ) 
+
+        if len(g) == 0 or len(W) == 0:
+            break
+
         g = np.array( g )
         W = np.array( W )        
-        
+
         W_star = W[:,0] * ( N / np.sum( W[:,0] ) ) 
-        
+
         g_ij = np.zeros( g.shape[0] )
         C_ij = np.zeros( g.shape[0] )
-        
-        for n, _ in enumerate( g ) :
-            
-            W_star_i = W_star[ W[:,1] == g[n,2] ][0] ** power
-            W_star_j = W_star[ W[:,1] == g[n,3] ][0] ** power
-                
-#            m = ( W_star_j / W_star_i ) * power
-#            g_ij[ n ] =  ( g[n,4] + g[n,5] * m ) / ( 1 + m )
-            
+
+        for n in range( g.shape[0] ) :
+
+            wi_arr = W_star[ W[:,1] == g[n,2] ]
+            wj_arr = W_star[ W[:,1] == g[n,3] ]
+            if wi_arr.size == 0 or wj_arr.size == 0:
+                continue
+            W_star_i = float(wi_arr[0]) ** power
+            W_star_j = float(wj_arr[0]) ** power
+
             g_ij[ n ] = ( g[n,4] * W_star_i + g[n,5] * W_star_j ) / ( W_star_i + W_star_j )         
             C_ij[ n ] = g_ij[ n ] - g[n,4]
-                    
+
         for l in W[:,1] :
-            
+
             if l in lines :
-            
+
                 idx = xyzl_re[:, 3] == l 
                 idx_cross = g[:,2] == l
                 g_cross = C_ij[ idx_cross ]
-                
+                if np.sum(idx) == 0 or g_cross.size == 0:
+                    continue
+
                 line_dists = np.linspace( 0, dist*np.size( xyzl_re[idx, 2] ), 
                                           np.size( xyzl_re[idx, 2] ) )            
-                
+
                 if ( np.size( g_cross ) == 1 ) : 
                     g_cross_line = np.repeat( g_cross[0], np.sum( idx ) )
-                    
+
                 if ( np.size( g_cross ) >= 2 ) :
-                    x_start, y_start = xyzl_re[idx, 0][0], xyzl_re[idx, 1][0]  
-                    
-                    dist_cross =  np.sqrt( ( g[ idx_cross, 0 ] - x_start )**2 + 
-                                           ( g[ idx_cross, 1 ] - y_start )**2 )
+                    # Distance of crossover points from line start (robust for degrees)
+                    x_start, y_start = xyzl_re[idx, 0][0], xyzl_re[idx, 1][0]
+
+                    gx = g[ idx_cross, 0 ]
+                    gy = g[ idx_cross, 1 ]
+                    if deg_to_m:
+                        dist_cross = np.array([utl.geo_line_dist([x_start, x], [y_start, y])[-1,1] for x, y in zip(gx, gy)])
+                    else:
+                        dist_cross = np.sqrt( ( gx - x_start )**2 + ( gy - y_start )**2 )
 
                     si = np.argsort( dist_cross )
                     dist_cross = dist_cross[si]
                     g_cross = g_cross[si]
                     int_c_f = utl.sp.interpolate.interp1d( dist_cross, g_cross, kind='nearest',
                               bounds_error=False, fill_value='extrapolate' ) 
-                                                      
+
                     g_cross_line = int_c_f( line_dists )
-                    
+
                     # Spline interpolation
-                    # -------------------------------------------------------------
-                    if g_cross_line.size <= spl_k :
-                        spl_k2 = g_cross_line.size - 1
+                    if g_cross_line.size <= 2 :
+                        # too few points for a spline: keep nearest interpolation
+                        pass
+                    else:
+                        if g_cross_line.size <= spl_k :
+                            spl_k2 = max( 1, g_cross_line.size - 1 )
+                        else : 
+                            spl_k2 = spl_k
 
-                    else : 
-                        spl_k2 = spl_k
-
-                    spl = utl.sp.interpolate.UnivariateSpline( line_dists, 
-                                                               g_cross_line, 
-                                                               k=spl_k2, 
-                                                               s=spl_s ) 
-                    g_cross_line = spl( line_dists )  
+                        spl = utl.sp.interpolate.UnivariateSpline( line_dists, 
+                                                                   g_cross_line, 
+                                                                   k=spl_k2, 
+                                                                   s=spl_s ) 
+                        g_cross_line = spl( line_dists )  
 
                 xyzl_re[idx, 2] = xyzl_re[idx, 2] + g_cross_line
-            
-        for i, l in enumerate( lines ) :   
+
+        # Map corrections back to original sampling of xyzl_new
+        for l in lines :   
 
             idx_new = xyzl_new[ :, line_c ] == l
-            line_new = xyzl_new[ xyzl_new[ :, line_c ] == l ]
-            
-            if line_new.shape[0] <= 1 : continue
-            
-            line_re = xyzl_re[ xyzl_re[ :, 3 ] == l ]
-            
-            dist_re = utl.geo_line_dist( line_re[:,0], line_re[:,1] )[:,1]  
-            dist_new = utl.geo_line_dist( line_new[:,x_c], line_new[:, y_c] )[:,1] 
-            
-            if dist_re.size > 1 :
-                int_new = utl.sp.interpolate.interp1d( dist_re, line_re[:, 2], 
-                          kind='linear', bounds_error=False, fill_value='extrapolate' )   
-                xyzl_new[idx_new, z_c] = int_new( dist_new )
-            else :
-              xyzl_new[idx_new, z_c] = line_re[:, 2] 
-            
-        
-        # Original c.o. error
-        cover_i = utl.cross_over_points( xyzl_new, vmin=vminc, vmax=vmaxc, method='linear',
-                                        x_c=x_c, y_c=y_c, z_c=z_c, line_c=line_c ) 
-        
-        if cover_i.shape[ 0 ] > 0 :
-            print( f'\nCross-over error after leveling adjasments, iteration { itr+1}:')
-            minz_i, maxz_i, meanz_i, stdz_i = utl.stat( cover_i[ :, 6 ], decimals=2 )
-    
-    # -------------------------------------------------------------------------
-    #Plots
-    if plot is True :
-        
-        plt.figure()
-        
-        if vmin == None :
-            vmin = np.nanmean( xyzl_new[:,z_c] ) - 2 * np.std( xyzl_new[:,z_c] )
-        if vmax == None :
-            vmax = np.nanmean( xyzl_new[:,z_c] ) + 2 * np.std( xyzl_new[:,z_c] )          
-        
-        plt.subplot(1,2,1)
-        plt.title('Original')
-        plt.scatter( xyzl[:,x_c], xyzl[:,y_c], s=s, c=xyzl[:,z_c], cmap='rainbow',
-                     vmin=vmin, vmax=vmax )
-        
-        plt.subplot(1,2,2)
-        plt.title('Leveled')
-        plt.scatter( xyzl_new[:,x_c], xyzl_new[:,y_c], s=s, c=xyzl_new[:,z_c], cmap='rainbow',
-                     vmin=vmin, vmax=vmax )
-        
-        plt.tight_layout()
-        plt.colorbar( ax=plt.gcf().axes, location='bottom', shrink=0.6 )    
-    
-    if plot_cross is True :
-        
+            if np.sum(idx_new) == 0:
+                continue
+
+            # resampled line
+            idx_re = xyzl_re[:,3] == l
+            if np.sum(idx_re) < 2:
+                continue
+
+            dist_re = utl.geo_line_dist( xyzl_re[idx_re,0], xyzl_re[idx_re,1] )
+            dist_new = utl.geo_line_dist( xyzl_new[idx_new,x_c], xyzl_new[idx_new,y_c] )
+
+            # interpolate corrected z from resampled line back to xyzl_new
+            xyzl_new[idx_new, z_c] = np.interp( dist_new[:,1], dist_re[:,1], xyzl_re[idx_re,2] )
+
+    # Final cross-over error
+    cover_i = utl.cross_over_points( xyzl_new, x_c=x_c, y_c=y_c, z_c=z_c, 
+                    line_c=line_c, method='linear' )
+    if cover_i.shape[ 0 ] > 0 :
+        print( '\nCross-over error after leveling adjasments:')
+        minz_i, maxz_i, meanz_i, stdz_i = utl.stat( cover_i[ :, 6 ], decimals=2 )
+
+    # Plot crossovers (optional)
+    if plot_cross is True and cover_o.shape[0] > 0 and cover_i.shape[0] > 0 :
+
         if vminc == None :
             vminc = np.nanmin( cover_o[:,6] )
         if vmaxc == None :
             vmaxc = np.nanmax( cover_o[:,6] )
-        
-        plt.figure(figsize=(8, 6))
-        
-        plt.subplot(1,2,1)
-        plt.scatter( cover_o[:,0], cover_o[:,1], s=s*10, c=cover_o[:,6], cmap='rainbow',
-                     vmin=vminc, vmax=vmaxc )
-        plt.gca().axes.xaxis.set_visible(False)
-        plt.gca().axes.yaxis.set_visible(False)
-        
-        plt.title( 'Cross-Over Error Original : \n' + f'Min={minz_o}  Max={maxz_o}  Mean={meanz_o}  Std={stdz_o}' )        
 
-        plt.subplot(1,2,2)
-        plt.scatter( cover_i[:,0], cover_i[:,1], s=s*10, c=cover_i[:,6], cmap='rainbow',
-                      vmin=vminc, vmax=vmaxc )
-        plt.gca().axes.xaxis.set_visible(False)
-        plt.gca().axes.yaxis.set_visible(False)
-        
-        plt.title( 'Cross-Over Error Final : \n' + f' Min={minz_i}  Max={maxz_i}  Mean={meanz_i}  Std={stdz_i}' )    
+        plt.close("Data_Lev_CrossPlot")
+        fig, axs = plt.subplots(1, 2, figsize=(8, 6), num="Data_Lev_CrossPlot")
 
-        plt.tight_layout()
+        axs[0].scatter(cover_o[:, 0], cover_o[:, 1], s=s*10, c=cover_o[:, 6], cmap='rainbow',
+                       vmin=vminc, vmax=vmaxc)
+        axs[0].axes.xaxis.set_visible(False)
+        axs[0].axes.yaxis.set_visible(False)
+        axs[0].set_title('Cross-Over Error Original')
 
-        cbar = plt.colorbar( ax=plt.gcf().axes, location='bottom', shrink=0.6 )     
-        plt.text(1.02, 0.5, '[ mGal ]', va='center', ha='left', rotation=0, transform=cbar.ax.transAxes)
-        
+        axs[1].scatter(cover_i[:, 0], cover_i[:, 1], s=s*10, c=cover_i[:, 6], cmap='rainbow',
+                       vmin=vminc, vmax=vmaxc)
+        axs[1].axes.xaxis.set_visible(False)
+        axs[1].axes.yaxis.set_visible(False)
+        axs[1].set_title('Cross-Over Error Final')
+
+        fig.tight_layout()
+        plt.show()
+
+    # Plot lines (optional)
     if plot_lines == True :
-        
+
         if deg_to_m == True : 
             deg2m = True
         else : 
             deg2m = False
-        
+
         z_old_c = xyzl.shape[1]
-        xyzl_new = np.column_stack( ( xyzl_new, xyzl[ :, z_c ] ) )
-        fl = lz_plot.plot_lines( xyzl_new, line_c=line_c, x_c=x_c, y_c=y_c, z_c=[z_old_c,z_c], 
+        xyzl_new2 = np.column_stack( ( xyzl_new, xyzl[ :, z_c ] ) )
+        fl = lz_plot.plot_lines( xyzl_new2, line_c=line_c, x_c=x_c, y_c=y_c, z_c=[z_old_c,z_c], 
                               deg2m=deg2m, plot_points=False, marker='+', marker_color='k',
                               s=1.5, x_units=x_units, y_units=y_units, c=['b','g' ], 
                               legend=[ 'original_line', 'leveled_line' ] )  
-        
-        xyzl_new = np.delete( xyzl_new, z_old_c, 1 )
-        
     else : 
         fl = None
-    
+
     if new_xy is False :
         xyzl_new = np.copy( xyzl_new )
         xyzl_new[:,x_c], xyzl_new[:,y_c] = utl.prjxy( prjcode_out, prjcode_in, 
                                                       xyzl_new[:,x_c], 
                                                       xyzl_new[:,y_c] )         
+    
+    # -------------------------------------
+    #return xyzl_new, cover_i, fl, ( minz_o, maxz_o, meanz_o, stdz_o ), ( minz_i, maxz_i, meanz_i, stdz_i )
     return xyzl_new, cover_i, fl
         
         
