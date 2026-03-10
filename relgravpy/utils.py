@@ -1120,7 +1120,7 @@ def plta( array,
           cc=None, 
           out_lim=None,
           cl=True, 
-          resemp_fac=None,
+          zoom=None,
           light_source=[ 315, 45 ], 
           spl_order=3, 
           place_colorbar=['right', 0.01, 0.07, 0.025, 0.80],
@@ -1194,8 +1194,8 @@ def plta( array,
     if flipud == True :
         array = np.flipud( array )
 
-    if resemp_fac is not None :
-        array = resampling( array, resemp_fac, spl_order=spl_order, 
+    if zoom is not None :
+        array = resampling( array, zoom, spl_order=spl_order, 
                             dimention='2D', mode='nearest' )
 
     if not ax :
@@ -1528,8 +1528,11 @@ def XYZ_crop2lim( X, Y, Z, lim ) :
         xc = X[ ( xi, yi ) ]
         yc = Y[ ( xi, yi ) ]
         zc = Z[ ( xi, yi ) ]
+    
+    original_shape_idx = ( np.min(yi), np.max(yi), 
+        np.min(xi), np.max(xi) )
 
-        return [ xc, yc, zc ]
+    return xc, yc, zc, original_shape_idx
 
 # -----------------------------------------------------------------------------
 def isiterable(p_object):
@@ -5819,3 +5822,56 @@ def calculate_julian_century(timestamp):
     )
 
     return decimal_julian_century, julian_hour
+
+
+# -----------------------------------------------------------------------------
+def match_nearest_xy(dat_ref, dat_mov, max_dist, reciprocal=False):
+    """
+    Match nearest neighbors in XY between two datasets.
+
+    Parameters
+    ----------
+    dat_ref, dat_mov : dict
+        Must contain x,y,z,d
+    max_dist : float
+        Max XY distance for accepting a pair
+    reciprocal : bool
+        If True, keep only reciprocal nearest-neighbor matches
+
+    Returns
+    -------
+    out : dict
+        i_ref, i_mov, dist_xy
+    """
+    xr = np.asarray(dat_ref["x"], float).ravel()
+    yr = np.asarray(dat_ref["y"], float).ravel()
+    xm = np.asarray(dat_mov["x"], float).ravel()
+    ym = np.asarray(dat_mov["y"], float).ravel()
+
+    tree_mov = sp.spatial.cKDTree(np.column_stack([xm, ym]))
+    dist_rm, j_rm = tree_mov.query(np.column_stack([xr, yr]), k=1)
+
+    keep = dist_rm <= max_dist
+    i_ref = np.where(keep)[0]
+    i_mov = j_rm[keep]
+    dist_xy = dist_rm[keep]
+
+    if reciprocal:
+        tree_ref = sp.spatial.cKDTree(np.column_stack([xr, yr]))
+        dist_mr, i_mr = tree_ref.query(np.column_stack([xm, ym]), k=1)
+
+        good = []
+        for k, (ir, im) in enumerate(zip(i_ref, i_mov)):
+            if i_mr[im] == ir and dist_mr[im] <= max_dist:
+                good.append(k)
+
+        good = np.asarray(good, dtype=int)
+        i_ref = i_ref[good]
+        i_mov = i_mov[good]
+        dist_xy = dist_xy[good]
+
+    return {
+        "i_ref": i_ref,
+        "i_mov": i_mov,
+        "dist_xy": dist_xy,
+    }

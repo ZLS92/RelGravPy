@@ -2278,8 +2278,15 @@ def DeTrend_filt( array,
         array = utl.fillnan( array, method=nanfill )
 
     nan = np.isnan(array)
-    ar_pad, original_shape_indx = utl.pad_array( array, radius*2+padw, alpha=alpha, 
+
+    if type( padw ) in (list,tuple) :
+        ar_pad, original_shape_indx = padw[0], padw[1]
+        if remove == 'mean' :
+            ar_pad = ar_pad - initial_mean
+    else:
+        ar_pad, original_shape_indx = utl.pad_array( array, radius*2+padw, alpha=alpha, 
                                                  mode=pmode, ptype=None, plot=False)
+    print( original_shape_indx)
 
     ar_filt = np.copy( array )
     trend = np.copy( array )
