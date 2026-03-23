@@ -32,6 +32,7 @@ from shapely.geometry import Polygon, LineString, Point
 from shapely.geometry import MultiPolygon, MultiPoint, MultiLineString
 from scipy import signal 
 import io 
+import matplotlib.dates as mdates
 
 # -----------------------------------------------------------------------------
 # Constants
@@ -4677,14 +4678,17 @@ def combine64(years, months=1, days=1, hours=None, minutes=None,
 
     if seconds is not None:
         if np.any(np.mod(seconds, 1) != 0):
-            nanoseconds = seconds.copy() * 1e9
+            nanoseconds = np.asarray(seconds) * 1e9
             seconds = None
 
     vals = ( years, months, days, hours, minutes, seconds,
              milliseconds, microseconds, nanoseconds )
 
-    datetime_type = np.sum( np.asarray(v, dtype=t) for t, v in zip(types, vals)
-                            if v is not None)
+    components = [np.asarray(v, dtype=t) for t, v in zip(types, vals) if v is not None]
+
+    datetime_type = components[0]
+    for component in components[1:]:
+        datetime_type = datetime_type + component
 
     return datetime_type
 

@@ -23,6 +23,7 @@ copy = utl.copy
 dt = utl.datetime
 datetime = dt.datetime
 timedelta = dt.timedelta
+mdates = utl.mdates
 
 # -----------------------------------------------------------------------------
 # Alias for the current directory (main dir.)
@@ -2544,24 +2545,58 @@ def earth_tides( lat, lon, z=0, DateTime=None,
 
     for i in range(tides.size):
         tides[i] = LongmanTides(lat[i], lon[i], z[i], DateTime[i])[2]
+        
+    # conversione DateTime -> stringhe formattate
+    DateTime_ns = np.array([
+        np.datetime64(int(Dt), 'ns') if isinstance(Dt, (int, np.integer)) 
+        else np.datetime64(Dt, 'ns')
+        for Dt in DateTime
+    ])
+
+    dt_iso = np.datetime_as_string(DateTime_ns, unit='s')
+
+    dt_str = np.array([
+        f"{d[8:10]}/{d[5:7]}/{d[2:4]} {d[11:19]}"
+        for d in dt_iso
+    ])
 
     # --------------- PLOT ----------------
     if plot:
-        plt.figure(figsize=(10, 6))
-        plt.plot(DateTime, tides, 'o-', label='Earth Tides')
+        plt.figure()
+
+        # usa datetime64 (non stringhe!)
+        plt.plot(DateTime_ns, tides, '-', label='Earth Tides')
+
         plt.xlabel('DateTime')
         plt.ylabel('Tide (mGal)')
         plt.grid(True)
         plt.legend()
+
+        # formatter leggibile
+        plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%d/%m %H:%M'))
+
+        # gestione automatica tick
+        plt.gca().xaxis.set_major_locator(mdates.AutoDateLocator())
+
         plt.gcf().autofmt_xdate()
 
     # -------------- SAVE FILE ----------------
     if save_file:
-        with open(save_file, 'w') as f:
-            f.write(f"{'Lon':>12} {'Lat':>12} {'DateTime':>25} {'Tide_mGal':>8}\n")
-            for lon_val, lat_val, dt, tide in zip(lon, lat, DateTime, tides):
-                f.write(f"{lon_val:12.6f} {lat_val:12.6f} {str(dt):>25} {tide:8.4f}\n")
-        f.close()
+        with open(save_file, 'w', encoding='utf-8') as f:
+            f.write(f"{'Lon':>12} {'Lat':>12} {'DateTime_UTC':>25} {'Tide_mGal':>10}\n")
+
+            for lon_val, lat_val, Dt, tide in zip(lon, lat, DateTime, tides):
+                # conversione robusta a datetime64[ns]
+                if isinstance(Dt, (int, np.integer)):
+                    dt64 = np.datetime64(int(Dt), 'ns')
+                else:
+                    dt64 = np.datetime64(Dt, 'ns')
+
+                dt_iso = np.datetime_as_string(dt64, unit='s')
+                dt_str = f"{dt_iso[8:10]}/{dt_iso[5:7]}/{dt_iso[2:4]} {dt_iso[11:19]}"
+
+                f.write(f"{lon_val:12.6f} {lat_val:12.6f} {dt_str:>25} {tide:10.4f}\n")
+
 
     # ---------------- RETURN ----------------
     if range_mode:
