@@ -2563,7 +2563,7 @@ def earth_tides( lat, lon, z=0, DateTime=None,
     # --------------- PLOT ----------------
     if plot:
         plt.figure()
-        plt.plot(dt_iso, tides, '-', label='Earth Tides')
+        plt.plot(dt_str, tides, '-', label='Earth Tides')
         plt.xlabel('DateTime')
         plt.ylabel('Tide (mGal)')
         plt.grid(True)
