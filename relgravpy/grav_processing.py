@@ -2565,7 +2565,7 @@ def earth_tides( lat, lon, z=0, DateTime=None,
         plt.figure()
 
         # usa datetime64 (non stringhe!)
-        plt.plot(DateTime_ns, tides, '-', label='Earth Tides')
+        plt.plot(dt_iso, tides, '-', label='Earth Tides')
 
         plt.xlabel('DateTime')
         plt.ylabel('Tide (mGal)')
