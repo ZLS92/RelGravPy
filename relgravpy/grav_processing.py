@@ -2563,21 +2563,13 @@ def earth_tides( lat, lon, z=0, DateTime=None,
     # --------------- PLOT ----------------
     if plot:
         plt.figure()
-
-        # usa datetime64 (non stringhe!)
         plt.plot(dt_iso, tides, '-', label='Earth Tides')
-
         plt.xlabel('DateTime')
         plt.ylabel('Tide (mGal)')
         plt.grid(True)
         plt.legend()
-
-        # formatter leggibile
         plt.gca().xaxis.set_major_formatter(mdates.DateFormatter('%d/%m %H:%M'))
-
-        # gestione automatica tick
         plt.gca().xaxis.set_major_locator(mdates.AutoDateLocator())
-
         plt.gcf().autofmt_xdate()
 
     # -------------- SAVE FILE ----------------
