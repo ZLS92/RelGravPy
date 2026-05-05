@@ -3474,7 +3474,8 @@ def average_zls_single_obs( grav_dict, max_time_gap=600, save_file=None,
 
 # -----------------------------------------------------------------------------
 def read_zls_obs_file( file, mode='single', tide_corr=False, average_obs=False, 
-        max_time_gap=600, save_file=None, ignore_st=[], skip=None ):
+        max_time_gap=600, save_file=None, ignore_st=[], skip=None,
+        ignore_ob=[]):
 
     # Check if the file exists
     if not os.path.isfile(file):
@@ -3546,6 +3547,12 @@ def read_zls_obs_file( file, mode='single', tide_corr=False, average_obs=False,
             for key in grav_dict.keys():
                 grav_dict[key] = grav_dict[key][~idx]
 
+    # Ignore specified Obs IDs
+    for ob in ignore_ob:
+        idx = grav_dict['Obs ID'] == ob
+        if np.any(idx):
+            for key in grav_dict.keys():
+                grav_dict[key] = grav_dict[key][~idx]
 
     # Print Obs ID followed by Station ID and DateTime
     print( "\n\nObservations Summary:")
