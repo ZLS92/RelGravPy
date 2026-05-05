@@ -3537,7 +3537,7 @@ def read_zls_obs_file( file, mode='single', tide_corr=False, average_obs=False,
 
     # Create a 'Obs ID' field if it doesn't exist
     if 'Obs ID' not in grav_dict:
-        grav_dict['Obs ID'] = np.arange(len(grav_dict['Station ID'])) + 1
+        grav_dict['Obs ID'] = np.arange(len(grav_dict['Station ID']))
 
     # Ignore specified stations
     for st in ignore_st:
