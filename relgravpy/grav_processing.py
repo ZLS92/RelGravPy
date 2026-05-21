@@ -2451,21 +2451,6 @@ def grav_net_lsqadj(
                     for key in grav_dict.keys():
                         line_i += f"{grav_dict[key][i]},"
                     f.write(line_i[:-1] + '\n')
-                 
-            # Write data rows
-            for i in range(len(unique_stations)):
-                row = [
-                    unique_stations[i],
-                    f"{g_est[i]:.6f}",
-                    f"{std_errors[i]:.6f}"
-                ]
-                if lon is not None:
-                    row.append(f"{grav_dict['Lon'][i]:.6f}")
-                if lat is not None:
-                    row.append(f"{grav_dict['Lat'][i]:.6f}")
-                if elev is not None:
-                    row.append(f"{grav_dict['Elevation'][i]:.2f}")
-                f.write(','.join(row) + '\n')
         
     
     # Plot residuals histogram
