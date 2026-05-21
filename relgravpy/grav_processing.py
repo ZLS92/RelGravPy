@@ -3549,7 +3549,7 @@ def read_zls_obs_file( file, mode='single', tide_corr=False, average_obs=False,
             if station_changed or (time_gap > max_time_gap):
                 curr_id += 1
             obs_id[i] = curr_id
-    grav_dict['Obs ID'] = obs_id
+    grav_dict = {'Obs ID': obs_id, **grav_dict}
 
     # Ignore specified stations
     for st in ignore_st:
