@@ -2049,7 +2049,8 @@ def grav_net_lsqadj(
     DateTimeFormat='datetime64[s]', weight=1.0, grav_abs=[], 
     drift=False, k=False, n_links=1, plot=False, 
     max_time_gap=None, split_days=True, print_res_gt=0.02, 
-    max_time_net_gap=None, link_id=None ) :
+    max_time_net_gap=None, link_id=None, 
+    lon=None, lat=None, elev=None, save_file=None ):
 
     """
     Compensates a gravity network using observed gravity values, timestamps,
@@ -2108,7 +2109,15 @@ def grav_net_lsqadj(
     max_time_net_gap : float, optional
         Maximum allowed time gap (in seconds) to keep observations in the same sub-network.
         If exceeded, the dataset is split into separate sub-networks for adjustment.
-
+        
+    link_id : array-like of int, optional
+        Array of link IDs for each observation, used to assign observations to different network blocks.
+        
+    lon, lat, elev : array-like of float, optional
+        Geographic coordinates of each station, used for plotting and diagnostics.
+    
+    save_file : str, optional
+        Path to save the adjustment results (e.g., CSV file). If None, results are not saved.
 
     Returns
     -------
@@ -2178,6 +2187,12 @@ def grav_net_lsqadj(
     time_sec = time_sec[idx]
     datetime = datetime[idx]
     link_id = link_id[idx]
+    if lon is not None:
+        lon = np.asarray(lon)[idx]
+    if lat is not None:
+        lat = np.asarray(lat)[idx]
+    if elev is not None:
+        elev = np.asarray(elev)[idx]
 
     # --- Check for network splits based on max_time_net_gap ---
     # Find time gaps larger than max_time_net_gap (if specified)
@@ -2392,7 +2407,60 @@ def grav_net_lsqadj(
                     f"Δg = {delta_g:.5f} | "
                     f"ΔT = {delta_t:.1f} s"
                 )
+                
+    # Build grav_dict with station info and estimates
+    # We take the first occurrence of each station 
+    # in the original sorted list to get its lon/lat/elev if available
+    station_first_idx = {}
+    grav_dict = {}
+    for i, st in enumerate(stations):
+        
+        if st not in station_first_idx:
+            station_first_idx[st] = i
+            grav_dict['Station ID'] = unique_stations.copy()
+            grav_dict['ObsG'] = g_est.copy()
+            grav_dict['StdErr'] = std_errors.copy()
 
+            if lat is not None:
+                grav_dict['Lat'] = np.array([lat[station_first_idx[st]] for st in unique_stations], dtype=float)
+            
+            if lon is not None:
+                grav_dict['Lon'] = np.array([lon[station_first_idx[st]] for st in unique_stations], dtype=float)
+            
+            if elev is not None:
+                grav_dict['Elevation'] = np.array([elev[station_first_idx[st]] for st in unique_stations], dtype=float)
+
+    # Save results to file if requested
+    if save_file is not None:
+        if grav_dict is not None and len(grav_dict) > 0:
+            with open(save_file, 'w') as f:
+                # Write header
+                header_line = ''
+                for key in grav_dict.keys():
+                    header_line += f"{key},"
+                f.write(header_line[:-1] + '\n')
+                for i in range(len(unique_stations)):
+                    line_i = ''
+                    for key in grav_dict.keys():
+                        line_i += f"{grav_dict[key][i]},"
+                    f.write(line_i[:-1] + '\n')
+                 
+            # Write data rows
+            for i in range(len(unique_stations)):
+                row = [
+                    unique_stations[i],
+                    f"{g_est[i]:.6f}",
+                    f"{std_errors[i]:.6f}"
+                ]
+                if lon is not None:
+                    row.append(f"{grav_dict['Lon'][i]:.6f}")
+                if lat is not None:
+                    row.append(f"{grav_dict['Lat'][i]:.6f}")
+                if elev is not None:
+                    row.append(f"{grav_dict['Elevation'][i]:.2f}")
+                f.write(','.join(row) + '\n')
+        
+    
     # Plot residuals histogram
     if plot is True and len(residuals) > 0:
         
@@ -2425,7 +2493,7 @@ def grav_net_lsqadj(
         plt.legend()
         plt.grid(True)
 
-    return g_est, unique_stations, residuals, std_errors, sigma0
+    return g_est, unique_stations, residuals, std_errors, sigma0, grav_dict
 
 # -----------------------------------------------------------------------------
 def earth_tides( lat, lon, z=0, DateTime=None, 
