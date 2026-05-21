@@ -2412,25 +2412,22 @@ def grav_net_lsqadj(
     # We take the first occurrence of each station 
     # in the original sorted list to get its lon/lat/elev if available
     station_first_idx = {}
-    grav_dict = {}
     for i, st in enumerate(stations):
-        
         if st not in station_first_idx:
-            
             station_first_idx[st] = i
-            if lat is not None:
-                grav_dict['Lat'] = np.array([lat[station_first_idx[st]] for st in unique_stations], dtype=float)
-            
-            if lon is not None:
-                grav_dict['Lon'] = np.array([lon[station_first_idx[st]] for st in unique_stations], dtype=float)
-            
-            if elev is not None:
-                grav_dict['Elevation'] = np.array([elev[station_first_idx[st]] for st in unique_stations], dtype=float)
+    grav_dict = {}
+    if lon is not None:
+        grav_dict['Lon'] = np.array([lon[station_first_idx[st]] for st in unique_stations], dtype=float)
 
-            
-            grav_dict['Station ID'] = unique_stations.copy()
-            grav_dict['ObsG'] = g_est.copy()
-            grav_dict['StdErr'] = std_errors.copy()
+    if lat is not None:
+        grav_dict['Lat'] = np.array([lat[station_first_idx[st]] for st in unique_stations], dtype=float)
+
+    if elev is not None:
+        grav_dict['Elevation'] = np.array([elev[station_first_idx[st]] for st in unique_stations], dtype=float)
+
+    grav_dict['Station ID'] = unique_stations.copy()
+    grav_dict['ObsG'] = g_est.copy()
+    grav_dict['StdErr'] = std_errors.copy()
             
     # Save results to file if requested
     if save_file is not None:
