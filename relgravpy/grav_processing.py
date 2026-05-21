@@ -3560,15 +3560,15 @@ def read_zls_obs_file( file, mode='single', tide_corr=False, average_obs=False,
 
     # Ignore specified Obs IDs
     for ob in ignore_obs:
-        idx = grav_dict['Obs ID'] == ob
+        idx = grav_dict['ObsID'] == ob
         if np.any(idx):
             for key in grav_dict.keys():
                 grav_dict[key] = grav_dict[key][~idx]
 
     # Print Obs ID followed by Station ID and DateTime
     print( "\n\nObservations Summary:")
-    for i in range(len(grav_dict['Obs ID'])):
-        print(f"Obs ID: {grav_dict['Obs ID'][i]}, Station ID: {grav_dict['Station ID'][i]}, DateTime: {grav_dict['Datetime64'][i]}")
+    for i in range(len(grav_dict['ObsID'])):
+        print(f"Obs ID: {grav_dict['ObsID'][i]}, Station ID: {grav_dict['Station ID'][i]}, DateTime: {grav_dict['Datetime64'][i]}")
 
     # If save_file is not None, save the processed data
     if save_file is not None:
