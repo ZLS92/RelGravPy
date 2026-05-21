@@ -2416,11 +2416,7 @@ def grav_net_lsqadj(
     for i, st in enumerate(stations):
         
         if st not in station_first_idx:
-            station_first_idx[st] = i
-            grav_dict['Station ID'] = unique_stations.copy()
-            grav_dict['ObsG'] = g_est.copy()
-            grav_dict['StdErr'] = std_errors.copy()
-
+            
             if lat is not None:
                 grav_dict['Lat'] = np.array([lat[station_first_idx[st]] for st in unique_stations], dtype=float)
             
@@ -2430,6 +2426,11 @@ def grav_net_lsqadj(
             if elev is not None:
                 grav_dict['Elevation'] = np.array([elev[station_first_idx[st]] for st in unique_stations], dtype=float)
 
+            station_first_idx[st] = i
+            grav_dict['Station ID'] = unique_stations.copy()
+            grav_dict['ObsG'] = g_est.copy()
+            grav_dict['StdErr'] = std_errors.copy()
+            
     # Save results to file if requested
     if save_file is not None:
         if grav_dict is not None and len(grav_dict) > 0:
