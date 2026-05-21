@@ -3536,9 +3536,20 @@ def read_zls_obs_file( file, mode='single', tide_corr=False, average_obs=False,
             grav_dict = average_zls_single_obs( grav_dict, max_time_gap, 
                 skip=skip )
 
-    # Create a 'Obs ID' field if it doesn't exist
-    if 'Obs ID' not in grav_dict:
-        grav_dict['Obs ID'] = np.arange(len(grav_dict['Station ID']))
+    # Build Obs ID after mode-specific processing.
+    # Increment Obs ID when station changes or time gap exceeds max_time_gap.
+    n_obs = len(grav_dict['Station ID'])
+    obs_id = np.zeros(n_obs, dtype=int)
+    if n_obs > 0:
+        curr_id = 0
+        obs_id[0] = curr_id
+        for i in range(1, n_obs):
+            station_changed = grav_dict['Station ID'][i] != grav_dict['Station ID'][i - 1]
+            time_gap = np.abs(grav_dict['TimeFloat'][i] - grav_dict['TimeFloat'][i - 1])
+            if station_changed or (time_gap > max_time_gap):
+                curr_id += 1
+            obs_id[i] = curr_id
+    grav_dict['Obs ID'] = obs_id
 
     # Ignore specified stations
     for st in ignore_st:
