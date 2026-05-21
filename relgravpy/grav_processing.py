@@ -2433,7 +2433,7 @@ def grav_net_lsqadj(
             np.array([elev[station_first_idx[st]] for st in unique_stations], dtype=float),
             3
         )
-    grav_dict['Station ID'] = unique_stations.copy()
+    grav_dict['StationID'] = unique_stations.copy()
     grav_dict['ObsG'] = g_est.copy()
     grav_dict['StdErr'] = std_errors.copy()
             
