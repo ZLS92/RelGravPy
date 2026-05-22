@@ -4064,14 +4064,25 @@ import numpy as np
 from datetime import datetime, timedelta
 
 
-def load_tsoft_chan(file, year, sample_interval=1.0, tide_col=1,
-                    interp_datetime=None, fill_value=np.nan):
+def load_tsoft_chan(
+    file,
+    year,
+    sample_interval=1.0,
+    tide_col=-1,
+    interp_datetime=None,
+    tide_unit="nm/s2",
+    output_unit="mgal",
+    fill_value=np.nan
+):
     """
     Importa un file TSoft export.dat / expchan.dat.
 
     Il file deve contenere:
     - prima colonna: indice temporale TSoft
     - colonne successive: valori dei canali esportati
+
+    Di default viene letta l'ultima colonna del file, assumendo che
+    corrisponda al canale di marea selezionato in TSoft.
 
     Nota sulla convenzione temporale
     --------------------------------
@@ -4092,12 +4103,17 @@ def load_tsoft_chan(file, year, sample_interval=1.0, tide_col=1,
     sample_interval : float, optional
         Intervallo di campionamento in secondi. Default = 1.0.
     tide_col : int, optional
-        Colonna del valore di marea da leggere. Default = 1.
+        Colonna del valore di marea da leggere.
+        Default = -1, cioè ultima colonna del file.
     interp_datetime : array-like of datetime or numpy.datetime64, optional
-        Tempi sui quali interpolare la marea. Se None, restituisce la serie
-        originale del file TSoft.
+        Tempi sui quali interpolare la marea. Se None, restituisce
+        la serie originale del file TSoft.
+    tide_unit : {"nm/s2", "mgal"}, optional
+        Unità della marea nel file TSoft. Default = "nm/s2".
+    output_unit : {"mgal", "nm/s2"}, optional
+        Unità della marea restituita. Default = "mgal".
     fill_value : float, optional
-        Valore da assegnare fuori dal range temporale del file.
+        Valore assegnato fuori dal range temporale del file.
         Default = np.nan.
 
     Returns
@@ -4105,7 +4121,7 @@ def load_tsoft_chan(file, year, sample_interval=1.0, tide_col=1,
     out : dict
         Dizionario con:
         - 'datetime': array di datetime
-        - 'tide': array numpy con i valori della marea, originali o interpolati
+        - 'tide': array numpy con i valori della marea
     """
 
     data = np.loadtxt(file)
@@ -4113,8 +4129,29 @@ def load_tsoft_chan(file, year, sample_interval=1.0, tide_col=1,
     if data.ndim == 1:
         data = data.reshape(1, -1)
 
+    if data.shape[1] < 2:
+        raise ValueError(
+            "Il file deve contenere almeno due colonne: "
+            "indice temporale e valore del canale."
+        )
+
     time_index = data[:, 0]
-    tide = data[:, tide_col]
+    tide = data[:, tide_col].astype(float)
+
+    # Conversione unità
+    if tide_unit.lower() in ["nm/s2", "nm/s^2", "nms2"]:
+        tide_mgal = tide * 1e-4
+    elif tide_unit.lower() in ["mgal", "mgal"]:
+        tide_mgal = tide
+    else:
+        raise ValueError("tide_unit deve essere 'nm/s2' oppure 'mgal'.")
+
+    if output_unit.lower() in ["mgal", "mgal"]:
+        tide_out = tide_mgal
+    elif output_unit.lower() in ["nm/s2", "nm/s^2", "nms2"]:
+        tide_out = tide_mgal / 1e-4
+    else:
+        raise ValueError("output_unit deve essere 'mgal' oppure 'nm/s2'.")
 
     t0 = datetime(year, 1, 1, 0, 0, 0)
 
@@ -4123,21 +4160,17 @@ def load_tsoft_chan(file, year, sample_interval=1.0, tide_col=1,
         for i in time_index
     ])
 
-    # Se non viene richiesto nessun tempo di interpolazione,
-    # restituisco la serie originale.
+    # Se non viene richiesta interpolazione, restituisce la serie originale
     if interp_datetime is None:
         return {
             "datetime": datetimes,
-            "tide": tide
+            "tide": tide_out
         }
 
-    # Converto i datetime TSoft in numpy.datetime64
+    # Interpolazione sui tempi richiesti
     datetimes64 = np.array(datetimes, dtype="datetime64[ns]")
-
-    # Converto l'array richiesto in numpy.datetime64
     interp_datetime64 = np.array(interp_datetime, dtype="datetime64[ns]")
 
-    # Converto i tempi in secondi relativi, così posso usare np.interp
     t_ref = datetimes64[0]
 
     x = (datetimes64 - t_ref) / np.timedelta64(1, "s")
@@ -4146,7 +4179,7 @@ def load_tsoft_chan(file, year, sample_interval=1.0, tide_col=1,
     tide_interp = np.interp(
         xi,
         x,
-        tide,
+        tide_out,
         left=fill_value,
         right=fill_value
     )
