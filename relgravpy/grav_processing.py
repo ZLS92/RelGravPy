@@ -4099,7 +4099,7 @@ def load_tsoft_chan(file, year, sample_interval=1.0, tide_col=1):
     t0 = datetime(year, 1, 1, 0, 0, 0)
 
     datetimes = np.array([
-        t0 + timedelta(seconds=float(i) * sample_interval)
+        t0 + timedelta(seconds=float(i+1) * sample_interval)
         for i in time_index
     ])
 
