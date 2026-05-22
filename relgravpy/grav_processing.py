@@ -4055,3 +4055,55 @@ def nettleton(x, y, z, faa, den=None, make_scatter=True, make_corr_plot=True):
     }
 
     return results
+
+import numpy as np
+from datetime import datetime, timedelta
+
+# -----------------------------------------------------------------------------
+def load_tsoft_chan(file, year, sample_interval=1.0, tide_col=1):
+    """
+    Importa un file TSoft export.dat / expchan.dat.
+
+    Il file deve contenere:
+    - prima colonna: indice temporale, cioè numero di intervalli di campionamento
+      trascorsi dal 1 gennaio dell'anno iniziale della serie
+    - colonne successive: valori dei canali esportati
+
+    Parameters
+    ----------
+    file : str
+        Percorso del file TSoft esportato.
+    year : int
+        Anno iniziale della serie TSoft.
+    sample_interval : float, optional
+        Intervallo di campionamento in secondi. Default = 1.0.
+    tide_col : int, optional
+        Colonna del valore di marea da leggere. Default = 1, cioè seconda colonna.
+
+    Returns
+    -------
+    out : dict
+        Dizionario con:
+        - 'datetime': array di datetime Python
+        - 'tide': array numpy con i valori della marea
+    """
+
+    data = np.loadtxt(file)
+
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+
+    time_index = data[:, 0]
+    tide = data[:, tide_col]
+
+    t0 = datetime(year, 1, 1, 0, 0, 0)
+
+    datetimes = np.array([
+        t0 + timedelta(seconds=float(i) * sample_interval)
+        for i in time_index
+    ])
+
+    return {
+        "datetime": datetimes,
+        "tide": tide
+    }
