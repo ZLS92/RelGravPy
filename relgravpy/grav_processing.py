@@ -4060,14 +4060,28 @@ import numpy as np
 from datetime import datetime, timedelta
 
 # -----------------------------------------------------------------------------
-def load_tsoft_chan(file, year, sample_interval=1.0, tide_col=1):
+import numpy as np
+from datetime import datetime, timedelta
+
+
+def load_tsoft_chan(file, year, sample_interval=1.0, tide_col=1,
+                    interp_datetime=None, fill_value=np.nan):
     """
     Importa un file TSoft export.dat / expchan.dat.
 
     Il file deve contenere:
-    - prima colonna: indice temporale, cioè numero di intervalli di campionamento
-      trascorsi dal 1 gennaio dell'anno iniziale della serie
+    - prima colonna: indice temporale TSoft
     - colonne successive: valori dei canali esportati
+
+    Nota sulla convenzione temporale
+    --------------------------------
+    Nei file TSoft testati, l'indice temporale sembra riferirsi
+    all'intervallo di campionamento, mentre il valore del campione
+    va associato alla fine dell'intervallo.
+
+    Per questo motivo il timestamp viene ricostruito come:
+
+        datetime = 1 gennaio dell'anno iniziale + (indice + 1) * dt
 
     Parameters
     ----------
@@ -4078,14 +4092,20 @@ def load_tsoft_chan(file, year, sample_interval=1.0, tide_col=1):
     sample_interval : float, optional
         Intervallo di campionamento in secondi. Default = 1.0.
     tide_col : int, optional
-        Colonna del valore di marea da leggere. Default = 1, cioè seconda colonna.
+        Colonna del valore di marea da leggere. Default = 1.
+    interp_datetime : array-like of datetime or numpy.datetime64, optional
+        Tempi sui quali interpolare la marea. Se None, restituisce la serie
+        originale del file TSoft.
+    fill_value : float, optional
+        Valore da assegnare fuori dal range temporale del file.
+        Default = np.nan.
 
     Returns
     -------
     out : dict
         Dizionario con:
-        - 'datetime': array di datetime Python
-        - 'tide': array numpy con i valori della marea
+        - 'datetime': array di datetime
+        - 'tide': array numpy con i valori della marea, originali o interpolati
     """
 
     data = np.loadtxt(file)
@@ -4099,11 +4119,39 @@ def load_tsoft_chan(file, year, sample_interval=1.0, tide_col=1):
     t0 = datetime(year, 1, 1, 0, 0, 0)
 
     datetimes = np.array([
-        t0 + timedelta(seconds=float(i+1) * sample_interval)
+        t0 + timedelta(seconds=float(i + 1) * sample_interval)
         for i in time_index
     ])
 
+    # Se non viene richiesto nessun tempo di interpolazione,
+    # restituisco la serie originale.
+    if interp_datetime is None:
+        return {
+            "datetime": datetimes,
+            "tide": tide
+        }
+
+    # Converto i datetime TSoft in numpy.datetime64
+    datetimes64 = np.array(datetimes, dtype="datetime64[ns]")
+
+    # Converto l'array richiesto in numpy.datetime64
+    interp_datetime64 = np.array(interp_datetime, dtype="datetime64[ns]")
+
+    # Converto i tempi in secondi relativi, così posso usare np.interp
+    t_ref = datetimes64[0]
+
+    x = (datetimes64 - t_ref) / np.timedelta64(1, "s")
+    xi = (interp_datetime64 - t_ref) / np.timedelta64(1, "s")
+
+    tide_interp = np.interp(
+        xi,
+        x,
+        tide,
+        left=fill_value,
+        right=fill_value
+    )
+
     return {
-        "datetime": datetimes,
-        "tide": tide
+        "datetime": interp_datetime,
+        "tide": tide_interp
     }
