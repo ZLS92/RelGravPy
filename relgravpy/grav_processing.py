@@ -2472,7 +2472,8 @@ def lsq_obs_adj(observations, n_stations, n_links=1, drift=False, k=False):
     sigma0 = np.sqrt( sigma0_sq )
 
     # Covariance matrix and standard errors (only for gravity estimates)
-    Cov = sigma0_sq * np.linalg.inv(N)
+    # Cov = sigma0_sq * np.linalg.inv(N)
+    Cov = np.linalg.pinv(N)
     std_errors = np.sqrt(np.diag(Cov[:n_stations, :n_stations]))
 
     return X, V, sigma0, std_errors
