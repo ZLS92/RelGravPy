@@ -2633,7 +2633,8 @@ def grav_net_lsqadj(
     lon=None,
     lat=None,
     elev=None,
-    save_file=None
+    save_file=None,
+    absolute_weights=None
 ):
     """
     Adjust a gravity network using sequential gravity differences.
@@ -2731,9 +2732,16 @@ def grav_net_lsqadj(
     grav_dict : dict
         Dictionary containing adjusted results.
     """
-
+    
     if grav_abs is None:
         grav_abs = []
+
+    # Automatic choice unless explicitly specified
+    if absolute_weights is None:
+        absolute_weights = (
+            std is not None
+            or drift_std is not None
+        )
 
     # Physical uncertainties are available when at least one of these
     # arrays is supplied.
