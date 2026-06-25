@@ -1589,271 +1589,664 @@ def grav_drift_staircase(
 
 # -----------------------------------------------------------------------------
 def grav_drift_poly(
-    stations, 
+    stations,
     gobs,
-    datetime = None, 
-    date = None, 
-    time = None,
-    deg = 1,
-    DateTimeFormat = 'datetime64[s]',
-    ignore_st = [],
-    plot = False,
-    plt_datetitle = '',
-    tare = None,
-    shift_point = 'first',
-    ref_curve = 'piecewise'
-    ):
+    datetime=None,
+    date=None,
+    time=None,
+    std=None,
+    deg=1,
+    DateTimeFormat='datetime64[s]',
+    ignore_st=None,
+    plot=False,
+    plt_datetitle='',
+    tare=None,
+    shift_point='first',
+    ref_curve='piecewise',
+    return_cov=False
+):
     """
-    Computes a continuous instrumental drift correction curve based on repeated
-    gravity measurements at the same stations over time. The function estimates
-    the drift from differences between repeated station readings and fits a
-    polynomial model to represent the drift behavior across the dataset.
-    
+    Compute a continuous instrumental-drift correction curve from repeated
+    gravity measurements at the same stations.
+
+    Repeated occupations are converted into drift-control points. A polynomial
+    model, optionally combined with step terms associated with tare events, is
+    fitted to the control points.
+
+    When standard uncertainties are supplied, the polynomial parameters are
+    estimated by weighted least squares.
+
     Parameters
     ----------
-
     stations : array-like of str
-        List of station names, one for each gravity observation.
-    
+        Station name associated with each gravity observation.
+
     gobs : array-like of float
-        Raw gravity observations (in mGal).
-    
+        Gravity observations, in mGal.
+
     datetime : array-like, optional
-        Array of full timestamps (e.g., datetime64 or ISO-format strings), one per observation.
-        If not provided, both `date` and `time` must be specified.
-    
-    date : array-like of str, optional
-        Array of date strings (e.g., '2025-03-06'). Used only if `datetime` is None.
-    
-    time : array-like of str, optional
-        Array of time strings (e.g., '14:30:00'). Used only if `datetime` is None.
-    
+        Observation timestamps as numpy.datetime64 values, ISO strings or,
+        when DateTimeFormat='seconds', seconds since the Unix epoch.
+
+    date, time : array-like of str, optional
+        Separate date and time arrays. Used only when `datetime` is None.
+
+    std : array-like of float, optional
+        Standard uncertainty associated with each gravity observation, in
+        mGal. If supplied, it is used to weight the drift-control points.
+
+        The uncertainties assigned to the shifted drift-control points are
+        approximated by the uncertainties of the original observations. The
+        additional correlations introduced by constructing the shifted
+        segments are not explicitly modelled.
+
     deg : int, default=1
-        Degree of the polynomial used to fit the drift curve (e.g., 1 = linear drift).
-    
-    DateTimeFormat : str, default='datetime64[s]'
-        Format of the `datetime` values. Accepts 'datetime64[s]' or 'seconds'.
-    
-    ignore_st : list of str, default=[]
-        List of station names to ignore when estimating drift (e.g., stations with known issues).
+        Degree of the polynomial drift model.
+
+    DateTimeFormat : {'datetime64[s]', 'seconds'}, default='datetime64[s]'
+        Format used for the input timestamps.
+
+    ignore_st : list of str, optional
+        Stations excluded from the estimation of the drift curve.
 
     plot : bool, default=False
-        If True, generates a plot showing the estimated drift curve and control points  
-        based on repeated measurements.
+        If True, plot drift-control points, fitted model and uncertainty band.
 
     plt_datetitle : str, default=''
-        Title to use for the plot if `plot` is True.
-    
-    tare : list of str, default=None
-        List of date strings (e.g., '2025-03-06') indicating tare events where the instrument
-        was reset. Used to build step functions in the drift model.
-    
-    shift_point : str, default='first'
-        Point used to compute shifts for repeated stations:
-        - 'mid': use the mean of all repeated measurements at the station.
-        - 'first': use the first measurement at the station.
-    
+        Additional text appended to the plot title.
+
+    tare : list, optional
+        Times of tare events. Each event creates an independent step term in
+        the drift model.
+
+    shift_point : {'first', 'mid'}, default='first'
+        Reference point used when aligning repeated-station segments.
+
+    ref_curve : {'piecewise'} or int, default='piecewise'
+        Model used to align each new repeated-station segment with the
+        previously constructed drift-control points:
+
+        - 'piecewise': piecewise-linear interpolation;
+        - int: polynomial degree used for the temporary reference curve.
+
+    return_cov : bool, default=False
+        If True, also return the covariance matrix of the drift curve and the
+        covariance matrix of the fitted parameters.
+
     Returns
     -------
-
     gobs_corr : np.ndarray
-        Drift-corrected gravity observations (gobs - drift).
+        Drift-corrected gravity observations, in mGal. Values are returned in
+        the same order as the input observations.
+
     drift_curv : np.ndarray
-        Drift values over time, same shape as gobs.
-    
+        Estimated drift correction at each observation time, in mGal.
+
+    drift_std : np.ndarray
+        Standard uncertainty of the estimated drift curve at each observation
+        time, in mGal.
+
+    drift_cov : np.ndarray, optional
+        Covariance matrix of the estimated drift curve, in mGal². Returned only
+        when `return_cov=True`.
+
+    cov_m : np.ndarray, optional
+        Covariance matrix of the fitted model parameters. Returned only when
+        `return_cov=True`.
+
+    Notes
+    -----
+    The drift curve is expressed relative to the first observation time.
+    Therefore, the estimated drift and its uncertainty are both equal to zero
+    at the first observation.
+
+    The drift covariance should be used when propagating uncertainty to a
+    gravity difference. For observations i and j:
+
+        Var(d_j - d_i) =
+            drift_cov[j, j]
+            + drift_cov[i, i]
+            - 2 * drift_cov[i, j]
     """
 
     # ------------------------------------------------------------
-    # Build datetime
+    # Default arguments
+    # ------------------------------------------------------------
+    if ignore_st is None:
+        ignore_st = []
+
+    if tare is None:
+        tare = []
+
+    if not isinstance(deg, (int, np.integer)) or deg < 0:
+        raise ValueError("'deg' must be a non-negative integer.")
+
+    if shift_point not in {'first', 'mid'}:
+        raise ValueError(
+            "'shift_point' must be either 'first' or 'mid'."
+        )
+
+    # ------------------------------------------------------------
+    # Build datetime array
     # ------------------------------------------------------------
     if datetime is None:
+
         if date is None or time is None:
-            raise ValueError("If 'datetime' is None, 'date' and 'time' must be provided.")
-        datetime_str = np.char.add(np.array(date, dtype=str), 'T')
-        datetime_str = np.char.add(datetime_str, np.array(time, dtype=str))
+            raise ValueError(
+                "If 'datetime' is None, both 'date' and 'time' "
+                "must be provided."
+            )
+
+        datetime_str = np.char.add(
+            np.asarray(date, dtype=str),
+            'T'
+        )
+
+        datetime_str = np.char.add(
+            datetime_str,
+            np.asarray(time, dtype=str)
+        )
+
         datetime = datetime_str.astype('datetime64[s]')
+
     else:
-        datetime = np.array(datetime)
-        if datetime.dtype.kind in {'U', 'S'}:
+        datetime = np.asarray(datetime)
+
+        if (
+            DateTimeFormat != 'seconds'
+            and datetime.dtype.kind in {'U', 'S', 'O'}
+        ):
             datetime = datetime.astype('datetime64[s]')
 
-    # Convert to seconds
+    # ------------------------------------------------------------
+    # Convert time to seconds since epoch
+    # ------------------------------------------------------------
     if 'datetime64' in DateTimeFormat:
-        time_sec = (datetime - np.datetime64('1970-01-01T00:00:00')) / np.timedelta64(1, 's')
+
+        datetime = datetime.astype('datetime64[s]')
+
+        time_sec = (
+            datetime - np.datetime64('1970-01-01T00:00:00')
+        ) / np.timedelta64(1, 's')
+
+        time_sec = np.asarray(time_sec, dtype=float)
+
     elif DateTimeFormat == 'seconds':
-        time_sec = datetime.astype(float)
+
+        time_sec = np.asarray(datetime, dtype=float)
+
     else:
-        raise ValueError("Unsupported DateTimeFormat.")
+        raise ValueError(
+            "Unsupported DateTimeFormat. Use 'datetime64[s]' "
+            "or 'seconds'."
+        )
 
     # ------------------------------------------------------------
-    # Sort data by time
+    # Convert and validate inputs
     # ------------------------------------------------------------
     stations = np.asarray(stations)
-    gobs = np.asarray(gobs)
-    time_sec = np.asarray(time_sec)
+    gobs = np.asarray(gobs, dtype=float)
+    time_sec = np.asarray(time_sec, dtype=float)
 
+    n_data = len(gobs)
+
+    if len(stations) != n_data or len(time_sec) != n_data:
+        raise ValueError(
+            "'stations', 'gobs' and time arrays must have the same length."
+        )
+
+    if np.any(~np.isfinite(gobs)):
+        raise ValueError("'gobs' contains non-finite values.")
+
+    if np.any(~np.isfinite(time_sec)):
+        raise ValueError("Observation times contain non-finite values.")
+
+    if std is not None:
+
+        std = np.asarray(std, dtype=float)
+
+        if std.shape != gobs.shape:
+            raise ValueError(
+                "'std' must have the same shape as 'gobs'."
+            )
+
+        if np.any(~np.isfinite(std)) or np.any(std <= 0.0):
+            raise ValueError(
+                "All values in 'std' must be finite and greater than zero."
+            )
+
+    # ------------------------------------------------------------
+    # Sort data chronologically
+    # ------------------------------------------------------------
     idx_sort = np.argsort(time_sec)
+    idx_unsort = np.argsort(idx_sort)
+
     stations = stations[idx_sort]
     gobs = gobs[idx_sort]
     time_sec = time_sec[idx_sort]
 
-    # ------------------------------------------------------------
-    # Build tare_id from tare events (GNSS-style)
-    # ------------------------------------------------------------
-    tare_id = None
-    if tare is not None and len(tare) > 0:
-        tare_times = np.array([
-            np.datetime64(t.replace('/', '-'))
-            for t in tare
-        ])
-        tare_sec = (tare_times - np.datetime64('1970-01-01T00:00:00')) / np.timedelta64(1, 's')
+    if DateTimeFormat != 'seconds':
+        datetime = datetime[idx_sort]
 
-        tare_id = np.zeros(len(time_sec), dtype=int)
-        for t_ev in tare_sec:
-            tare_id[time_sec >= t_ev] += 1
+    if std is not None:
+        std = std[idx_sort]
+
+    # ------------------------------------------------------------
+    # Build tare IDs
+    # ------------------------------------------------------------
+    tare_id = np.zeros(n_data, dtype=int)
+
+    if len(tare) > 0:
+
+        if DateTimeFormat == 'seconds':
+            tare_sec = np.asarray(tare, dtype=float)
+
+        else:
+            tare_times = np.asarray([
+                np.datetime64(str(value).replace('/', '-'))
+                for value in tare
+            ])
+
+            tare_sec = (
+                tare_times
+                - np.datetime64('1970-01-01T00:00:00')
+            ) / np.timedelta64(1, 's')
+
+            tare_sec = np.asarray(tare_sec, dtype=float)
+
+        for tare_event in tare_sec:
+            tare_id[time_sec >= tare_event] += 1
 
     # ------------------------------------------------------------
     # Identify repeated stations
     # ------------------------------------------------------------
     rep_stations = []
-    for s in stations:
-        if s in rep_stations:
+
+    for station in stations:
+
+        if station in rep_stations:
             continue
-        if np.sum(stations == s) > 1 and s not in ignore_st:
-            rep_stations.append(s)
+
+        if (
+            np.sum(stations == station) > 1
+            and station not in ignore_st
+        ):
+            rep_stations.append(station)
+
+    if len(rep_stations) == 0:
+        raise ValueError(
+            "No repeated stations are available for estimating drift."
+        )
 
     # ------------------------------------------------------------
-    # Build drift control points
+    # Build repeated-station segments
+    # ------------------------------------------------------------
+    segments = []
+
+    for station in rep_stations:
+
+        idxs = np.where(stations == station)[0]
+
+        first_idx = idxs[0]
+        last_idx = idxs[-1]
+
+        segment = {
+            'station': station,
+            'idx': idxs,
+            'time': time_sec[idxs],
+            'gobs': gobs[idxs],
+            'std': None if std is None else std[idxs],
+            't_mid': 0.5 * (
+                time_sec[first_idx] + time_sec[last_idx]
+            ),
+            't_fst': time_sec[first_idx]
+        }
+
+        segments.append(segment)
+
+    if shift_point == 'mid':
+        segments.sort(key=lambda segment: segment['t_mid'])
+    else:
+        segments.sort(key=lambda segment: segment['t_fst'])
+
+    # ------------------------------------------------------------
+    # Build drift-control points
     # ------------------------------------------------------------
     drift = []
     time_drift = []
     st_drift = []
     idx_drift = []
-    segments = []
+    std_drift = []
+
     time_ref = []
     drift_ref = []
 
-    # Loop on repeated stations to build segments
-    for s in rep_stations:
-        idxs = np.where(stations == s)[0]
-
-        i1 = idxs[0]
-        i2 = idxs[-1]
-
-        t_mid = 0.5 * (time_sec[i1] + time_sec[i2])
-        t_fst = time_sec[i1]
-
-        segments.append({
-            'station': s,
-            'idx': idxs.tolist(),
-            'time': time_sec[idxs].tolist(),
-            'gobs': gobs[idxs].tolist(),
-            't_mid': t_mid,
-            't_fst': t_fst,
-        })
-
-    # Sort segments by chosen shift point
-    if shift_point == 'mid':
-        segments.sort(key=lambda seg: seg['t_mid'])
-    if shift_point == 'first':
-        segments.sort(key=lambda seg: seg['t_fst'])
-
-    for i, seg in enumerate(segments):
+    for segment_number, segment in enumerate(segments):
 
         if shift_point == 'mid':
-            t_ref = seg['t_mid']
-            g_ref = np.interp(t_ref, seg['time'], seg['gobs'])
-        
-        if shift_point == 'first':
-            t_ref = seg['t_fst']
-            g_ref = seg['gobs'][0]
 
-        if i == 0:
-            # First segment → drift = 0 at reference point
+            t_ref = segment['t_mid']
+
+            g_ref = np.interp(
+                t_ref,
+                segment['time'],
+                segment['gobs']
+            )
+
+        else:
+
+            t_ref = segment['t_fst']
+            g_ref = segment['gobs'][0]
+
+        if segment_number == 0:
+
+            # The first repeated-station segment defines the initial level.
             shift = g_ref
 
         else:
-            if type(ref_curve) == str and ref_curve == 'piecewise':
-                # Piecewise linear interpolation of previous drift points
-                f = utl.sp.interpolate.interp1d(time_drift, drift, kind='linear', 
-                    fill_value="extrapolate")
-                shift = g_ref - f(t_ref)
-            
-            elif type(ref_curve) == int:
-                # Polynomial fit of previous drift points
-                t0 = time_drift[0]
-                dlp = np.polyfit(np.array(time_drift) - t0, np.array(drift), deg=ref_curve)
-                drift_pred = np.polyval(dlp, t_ref - t0)
-                shift = g_ref - drift_pred
-        
-        gshift = [ gk - shift for gk in seg['gobs'] ] 
 
-        # Add both segment endpoints as drift control points
-        drift.extend( gshift )
-        time_drift.extend( seg['time'] )
-        st_drift.extend([seg['station']] * len(seg['time']))
-        idx_drift.extend(seg['idx'])
+            if isinstance(ref_curve, str):
+
+                if ref_curve != 'piecewise':
+                    raise ValueError(
+                        "String 'ref_curve' must be 'piecewise'."
+                    )
+
+                if len(time_drift) < 2:
+                    drift_prediction = drift[-1]
+
+                else:
+                    interpolation = utl.sp.interpolate.interp1d(
+                        np.asarray(time_drift, dtype=float),
+                        np.asarray(drift, dtype=float),
+                        kind='linear',
+                        fill_value='extrapolate',
+                        assume_sorted=True
+                    )
+
+                    drift_prediction = float(
+                        interpolation(t_ref)
+                    )
+
+                shift = g_ref - drift_prediction
+
+            elif isinstance(ref_curve, (int, np.integer)):
+
+                if ref_curve < 0:
+                    raise ValueError(
+                        "Integer 'ref_curve' must be non-negative."
+                    )
+
+                temporary_degree = min(
+                    int(ref_curve),
+                    len(time_drift) - 1
+                )
+
+                temporary_t0 = time_drift[0]
+
+                # Use days to improve the conditioning of the temporary fit.
+                temporary_time = (
+                    np.asarray(time_drift, dtype=float)
+                    - temporary_t0
+                ) / 86400.0
+
+                temporary_coefficients = np.polyfit(
+                    temporary_time,
+                    np.asarray(drift, dtype=float),
+                    deg=temporary_degree
+                )
+
+                reference_time = (
+                    t_ref - temporary_t0
+                ) / 86400.0
+
+                drift_prediction = np.polyval(
+                    temporary_coefficients,
+                    reference_time
+                )
+
+                shift = g_ref - drift_prediction
+
+            else:
+                raise ValueError(
+                    "'ref_curve' must be 'piecewise' or an integer."
+                )
+
+        shifted_gravity = segment['gobs'] - shift
+
+        drift.extend(shifted_gravity.tolist())
+        time_drift.extend(segment['time'].tolist())
+        st_drift.extend(
+            [segment['station']] * len(segment['time'])
+        )
+        idx_drift.extend(segment['idx'].tolist())
+
+        if segment['std'] is not None:
+            std_drift.extend(segment['std'].tolist())
+
         time_ref.append(t_ref)
         drift_ref.append(g_ref - shift)
-        
-        # Sort drift control points by time
-        sidx = np.argsort(np.asarray( time_drift) )
-        drift = np.asarray(drift)[sidx].tolist()
-        time_drift = np.asarray(time_drift)[sidx].tolist()
-        st_drift = np.asarray(st_drift)[sidx].tolist()
-        idx_drift = np.asarray(idx_drift)[sidx].tolist()
 
+        # Keep control points chronologically ordered
+        drift_sort = np.argsort(
+            np.asarray(time_drift, dtype=float)
+        )
 
-    drift = np.asarray(drift)
-    time_drift = np.asarray(time_drift)
+        drift = np.asarray(drift, dtype=float)[
+            drift_sort
+        ].tolist()
+
+        time_drift = np.asarray(time_drift, dtype=float)[
+            drift_sort
+        ].tolist()
+
+        st_drift = np.asarray(st_drift)[
+            drift_sort
+        ].tolist()
+
+        idx_drift = np.asarray(idx_drift, dtype=int)[
+            drift_sort
+        ].tolist()
+
+        if std is not None:
+            std_drift = np.asarray(std_drift, dtype=float)[
+                drift_sort
+            ].tolist()
+
+    drift = np.asarray(drift, dtype=float)
+    time_drift = np.asarray(time_drift, dtype=float)
     st_drift = np.asarray(st_drift)
-    idx_drift = np.asarray(idx_drift)
-    time_ref = np.asarray(time_ref)
-    drift_ref = np.asarray(drift_ref)
+    idx_drift = np.asarray(idx_drift, dtype=int)
+
+    time_ref = np.asarray(time_ref, dtype=float)
+    drift_ref = np.asarray(drift_ref, dtype=float)
+
+    if std is not None:
+        std_drift = np.asarray(std_drift, dtype=float)
 
     # ------------------------------------------------------------
-    # Design matrix: polynomial + step functions
+    # Design matrix: polynomial and tare steps
     # ------------------------------------------------------------
-    t = time_drift - time_drift[0]
-    A_poly = np.vstack([t**i for i in range(deg + 1)]).T
+    # Express relative time in days to avoid poorly conditioned powers
+    # of Unix time in seconds.
+    time_origin = time_drift[0]
 
-    if tare_id is not None:
-        tare_drift = tare_id[idx_drift]
-        unique_tares = np.unique(tare_drift)
+    t_control = (
+        time_drift - time_origin
+    ) / 86400.0
 
-        A_tare = np.zeros((len(t), len(unique_tares)))
-        for i, tid in enumerate(unique_tares):
-            A_tare[:, i] = (tare_drift == tid).astype(float)
+    A_poly = np.vstack([
+        t_control**power
+        for power in range(deg + 1)
+    ]).T
 
-        # fix first tare to zero
-        A_tare = A_tare[:, 1:]
-        A = np.hstack([A_poly, A_tare])
+    tare_control = tare_id[idx_drift]
+    unique_tares = np.unique(tare_control)
+
+    if len(unique_tares) > 1:
+
+        # The first tare interval is the reference interval.
+        A_tare = np.zeros(
+            (len(t_control), len(unique_tares) - 1),
+            dtype=float
+        )
+
+        for column, tare_value in enumerate(
+            unique_tares[1:]
+        ):
+            A_tare[:, column] = (
+                tare_control == tare_value
+            ).astype(float)
+
+        A = np.hstack((A_poly, A_tare))
+
     else:
         A = A_poly
 
     # ------------------------------------------------------------
-    # Least squares fit
+    # Least-squares fit
     # ------------------------------------------------------------
-    m, _, _, _ = np.linalg.lstsq(A, drift, rcond=None)
+    n_control = len(drift)
+    n_parameters = A.shape[1]
+    degrees_of_freedom = n_control - n_parameters
+
+    if n_control < n_parameters:
+        raise ValueError(
+            "The number of drift-control points is smaller than the "
+            "number of model parameters."
+        )
+
+    if std is not None:
+
+        weights = 1.0 / std_drift**2
+
+        normal_matrix = A.T @ (
+            weights[:, np.newaxis] * A
+        )
+
+        right_hand_side = A.T @ (
+            weights * drift
+        )
+
+        model_parameters = np.linalg.pinv(
+            normal_matrix
+        ) @ right_hand_side
+
+        drift_control_model = A @ model_parameters
+        drift_residuals = drift - drift_control_model
+
+        if degrees_of_freedom > 0:
+
+            sigma0_sq = (
+                np.sum(
+                    weights * drift_residuals**2
+                )
+                / degrees_of_freedom
+            )
+
+        else:
+            # With no redundancy, the a-posteriori variance factor
+            # cannot be estimated.
+            sigma0_sq = 1.0
+
+        cov_m = (
+            sigma0_sq
+            * np.linalg.pinv(normal_matrix)
+        )
+
+    else:
+
+        model_parameters, _, _, _ = np.linalg.lstsq(
+            A,
+            drift,
+            rcond=None
+        )
+
+        drift_control_model = A @ model_parameters
+        drift_residuals = drift - drift_control_model
+
+        if degrees_of_freedom > 0:
+
+            sigma0_sq = (
+                np.sum(drift_residuals**2)
+                / degrees_of_freedom
+            )
+
+        else:
+            sigma0_sq = 0.0
+
+        cov_m = (
+            sigma0_sq
+            * np.linalg.pinv(A.T @ A)
+        )
 
     # ------------------------------------------------------------
-    # Evaluate drift on all data
+    # Evaluate drift model at all observation times
     # ------------------------------------------------------------
-    t_all = time_sec - time_drift[0]
-    A_poly_all = np.vstack([t_all**i for i in range(deg + 1)]).T
-    drift_curv = A_poly_all @ m[:deg + 1]
+    t_all = (
+        time_sec - time_origin
+    ) / 86400.0
 
-    if tare_id is not None:
-        for i, tid in enumerate(unique_tares[1:]):
-            drift_curv += m[deg + 1 + i] * (tare_id == tid)
+    A_poly_all = np.vstack([
+        t_all**power
+        for power in range(deg + 1)
+    ]).T
 
-    drift0 = drift[0]
-    drift = drift - drift0
-    drift_curv = drift_curv - drift0
-    drift_ref = drift_ref - drift0
+    if len(unique_tares) > 1:
+
+        A_tare_all = np.zeros(
+            (n_data, len(unique_tares) - 1),
+            dtype=float
+        )
+
+        for column, tare_value in enumerate(
+            unique_tares[1:]
+        ):
+            A_tare_all[:, column] = (
+                tare_id == tare_value
+            ).astype(float)
+
+        A_all = np.hstack((
+            A_poly_all,
+            A_tare_all
+        ))
+
+    else:
+        A_all = A_poly_all
 
     # ------------------------------------------------------------
-    # Apply correction
+    # Anchor drift to zero at the first observation
+    # ------------------------------------------------------------
+    # B_all represents the model difference d(t) - d(t_first).
+    first_model_row = A_all[0:1, :]
+    B_all = A_all - first_model_row
+
+    drift_curv = B_all @ model_parameters
+
+    # ------------------------------------------------------------
+    # Drift covariance and standard uncertainty
+    # ------------------------------------------------------------
+    drift_cov = B_all @ cov_m @ B_all.T
+
+    # Numerical round-off may produce very small negative diagonal values.
+    drift_variance = np.clip(
+        np.diag(drift_cov),
+        a_min=0.0,
+        a_max=None
+    )
+
+    drift_std = np.sqrt(drift_variance)
+
+    # Control points expressed relative to the same model origin
+    model_at_first_time = float(
+        first_model_row @ model_parameters
+    )
+
+    drift_plot = drift - model_at_first_time
+    drift_ref_plot = drift_ref - model_at_first_time
+
+    # ------------------------------------------------------------
+    # Apply drift correction
     # ------------------------------------------------------------
     gobs_corr = gobs - drift_curv
 
@@ -1861,25 +2254,133 @@ def grav_drift_poly(
     # Plot
     # ------------------------------------------------------------
     if plot:
-        time_drift_dt = np.array([dt.datetime.fromtimestamp(t, dt.timezone.utc) for t in time_drift])
-        time_dt = np.array([dt.datetime.fromtimestamp(t, dt.timezone.utc) for t in time_sec])
 
-        plt.figure(figsize=(10, 6))
-        for s in np.unique(rep_stations):
-            msk = st_drift == s
-            plt.plot(time_drift_dt[msk], drift[msk], 'o-', label=f'Station {s}')
+        time_drift_dt = np.asarray([
+            dt.datetime.fromtimestamp(
+                value,
+                tz=dt.timezone.utc
+            )
+            for value in time_drift
+        ])
 
-        # plt.plot( time_drift_dt, drift, label='Drift curve' )
-        plt.plot(time_dt, drift_curv, 'k--', linewidth=2, label='Drift model')
-        plt.xlabel('DateTime')
-        plt.ylabel('Drift [mGal]')
-        plt.title(f'Drift curve {plt_datetitle}')
-        plt.legend()
-        plt.grid(True)
-        plt.gcf().autofmt_xdate()
+        time_dt = np.asarray([
+            dt.datetime.fromtimestamp(
+                value,
+                tz=dt.timezone.utc
+            )
+            for value in time_sec
+        ])
 
-    return gobs_corr, drift_curv
+        fig, ax = plt.subplots(
+            figsize=(6.3, 4.2)
+        )
 
+        for station in np.unique(st_drift):
+
+            station_mask = st_drift == station
+
+            ax.plot(
+                time_drift_dt[station_mask],
+                drift_plot[station_mask] * 1000.0,
+                marker='o',
+                linestyle='-',
+                linewidth=1.0,
+                markersize=4,
+                label=f'Station {station}'
+            )
+
+        ax.plot(
+            time_dt,
+            drift_curv * 1000.0,
+            linestyle='--',
+            linewidth=2.0,
+            label='Fitted drift model'
+        )
+
+        ax.fill_between(
+            time_dt,
+            (drift_curv - drift_std) * 1000.0,
+            (drift_curv + drift_std) * 1000.0,
+            alpha=0.20,
+            label='±1 standard uncertainty'
+        )
+
+        title = 'Gravimeter drift curve'
+
+        if plt_datetitle:
+            title += f' – {plt_datetitle}'
+
+        ax.set_title(
+            title,
+            fontsize=13,
+            fontweight='bold'
+        )
+
+        ax.set_xlabel(
+            'UTC Time [HH:MM]',
+            fontsize=11
+        )
+
+        ax.set_ylabel(
+            'Drift [µGal]',
+            fontsize=11
+        )
+
+        ax.xaxis.set_major_formatter(
+            plt.matplotlib.dates.DateFormatter(
+                '%H:%M',
+                tz=dt.timezone.utc
+            )
+        )
+
+        ax.tick_params(
+            axis='both',
+            labelsize=9
+        )
+
+        ax.legend(
+            fontsize=8
+        )
+
+        ax.grid(
+            True,
+            linewidth=0.5,
+            alpha=0.6
+        )
+
+        fig.autofmt_xdate(
+            rotation=45,
+            ha='right'
+        )
+
+        fig.tight_layout()
+
+    # ------------------------------------------------------------
+    # Restore original input order
+    # ------------------------------------------------------------
+    gobs_corr_out = gobs_corr[idx_unsort]
+    drift_curv_out = drift_curv[idx_unsort]
+    drift_std_out = drift_std[idx_unsort]
+
+    drift_cov_out = drift_cov[
+        np.ix_(idx_unsort, idx_unsort)
+    ]
+
+    if return_cov:
+
+        return (
+            gobs_corr_out,
+            drift_curv_out,
+            drift_std_out,
+            drift_cov_out,
+            cov_m
+        )
+
+    return (
+        gobs_corr_out,
+        drift_curv_out,
+        drift_std_out
+    )
 
 # -----------------------------------------------------------------------------
 def lsq_obs_adj(observations, n_stations, n_links=1, drift=False, k=False):
