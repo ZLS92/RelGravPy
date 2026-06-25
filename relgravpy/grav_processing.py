@@ -1978,8 +1978,8 @@ def lsq_obs_adj(observations, n_stations, n_links=1, drift=False, k=False):
 # -----------------------------------------------------------------------------
 def grav_net_lsqadj(
     stations, gobs, datetime=None, date=None, time=None,
-    DateTimeFormat='datetime64[s]', weight=1.0, grav_abs=[], 
-    drift=False, k=False, n_links=1, plot=False, 
+    DateTimeFormat='datetime64[s]', weight=1.0, std=None, grav_abs=[], 
+    drift=False, drift_std=None, k=False, n_links=1, plot=False, 
     max_time_gap=None, split_days=True, print_res_gt=0.02, 
     max_time_net_gap=None, link_id=None, 
     lon=None, lat=None, elev=None, save_file=None ):
@@ -2011,6 +2011,11 @@ def grav_net_lsqadj(
 
     weight : float, default=1.0
         Weight applied to all observation pairs (1/σ²).
+        
+    std : array-like of float, optional
+        Standard uncertainty associated with each gravity observation, in mGal.
+        If provided, observation-pair weights are computed as the inverse
+        variance of each gravity difference.
 
     grav_abs : list of str, optional
         List of station names to fix as absolute gravity reference (e.g., ['CRS_Abs']).
@@ -2018,6 +2023,10 @@ def grav_net_lsqadj(
 
     drift : bool, default=False
         If True, estimate drift terms for each network block.
+
+    drift_std : array-like of float, optional
+        Standard uncertainty of the drift correction applied to each observation,
+        in mGal. If provided, it is combined in quadrature with `std`.
 
     k : bool, default=False
         If True, estimate scale factors for each network block.
@@ -2111,18 +2120,62 @@ def grav_net_lsqadj(
     stations = np.array(stations)
     gobs = np.array(gobs)
     link_id = np.array(link_id)
+    
+    gobs = np.asarray(gobs, dtype=float)
+
+    if std is not None:
+        std = np.asarray(std, dtype=float)
+
+        if len(std) != len(gobs):
+            raise ValueError(
+                "'std' must have the same length as 'gobs'."
+            )
+
+        if np.any(std < 0):
+            raise ValueError(
+                "'std' values must be non-negative."
+            )
+
+    if drift_std is not None:
+        drift_std = np.asarray(drift_std, dtype=float)
+
+        if len(drift_std) != len(gobs):
+            raise ValueError(
+                "'drift_std' must have the same length as 'gobs'."
+            )
+
+        if np.any(drift_std < 0):
+            raise ValueError(
+                "'drift_std' values must be non-negative."
+            )
+
+        # Combine std and drift_std in quadrature if both are provided
+        if std is not None:
+            combined_std = np.sqrt(std**2 + drift_std**2)
+        else:
+            combined_std = drift_std
 
     # Sort all inputs chronologically
     idx = np.argsort(time_sec)
+
     stations = stations[idx]
     gobs = gobs[idx]
     time_sec = time_sec[idx]
     datetime = datetime[idx]
     link_id = link_id[idx]
+
+    if std is not None:
+        std = std[idx]
+
+    if drift_std is not None:
+        drift_std = drift_std[idx]
+
     if lon is not None:
         lon = np.asarray(lon)[idx]
+
     if lat is not None:
         lat = np.asarray(lat)[idx]
+
     if elev is not None:
         elev = np.asarray(elev)[idx]
 
@@ -2163,6 +2216,18 @@ def grav_net_lsqadj(
         sub_datetime = datetime[start_idx:end_idx]
         sub_time_sec = time_sec[start_idx:end_idx]
         sub_link_id = link_id[start_idx:end_idx]
+        
+        sub_std = (
+            None
+            if std is None
+            else std[start_idx:end_idx]
+        )
+
+        sub_drift_std = (
+            None
+            if drift_std is None
+            else drift_std[start_idx:end_idx]
+        )
 
         # --- PROCESS SINGLE SUB-NETWORK ---
         # Map station names to unique indices
@@ -2197,11 +2262,50 @@ def grav_net_lsqadj(
                 continue
 
             # --- 4) build Δg ---
+            # if sta_i != sta_j:
+            #     idx_i = station_map[sta_i]
+            #     idx_j = station_map[sta_j]
+            #     delta_g = sub_gobs[j + 1] - sub_gobs[j]
+            #     observations.append((idx_i, idx_j, delta_g, delta_t, lid_i, weight))
+            
             if sta_i != sta_j:
+
                 idx_i = station_map[sta_i]
                 idx_j = station_map[sta_j]
+
                 delta_g = sub_gobs[j + 1] - sub_gobs[j]
-                observations.append((idx_i, idx_j, delta_g, delta_t, lid_i, weight))
+
+                # Default weight used when no valid uncertainties are available
+                obs_weight = float(weight)
+
+                if sub_std is not None:
+
+                    sigma_i_sq = sub_std[j] ** 2
+                    sigma_j_sq = sub_std[j + 1] ** 2
+
+                    # Optionally include uncertainty of the drift correction
+                    if sub_drift_std is not None:
+                        sigma_i_sq += sub_drift_std[j] ** 2
+                        sigma_j_sq += sub_drift_std[j + 1] ** 2
+
+                    sigma_delta_sq = sigma_i_sq + sigma_j_sq
+
+                    if (
+                        np.isfinite(sigma_delta_sq)
+                        and sigma_delta_sq > 0.0
+                    ):
+                        obs_weight = 1.0 / sigma_delta_sq
+
+                observations.append(
+                    (
+                        idx_i,
+                        idx_j,
+                        delta_g,
+                        delta_t,
+                        lid_i,
+                        obs_weight
+                    )
+                )
             
         # Handle absolute reference stations for this sub-network
         sub_grav_abs = []
