@@ -2253,6 +2253,7 @@ def grav_drift_poly(
     # ------------------------------------------------------------
     # Plot
     # ------------------------------------------------------------
+ 
     if plot:
 
         time_drift_dt = np.asarray([
@@ -2281,7 +2282,7 @@ def grav_drift_poly(
 
             ax.plot(
                 time_drift_dt[station_mask],
-                drift_plot[station_mask] * 1000.0,
+                drift_plot[station_mask],
                 marker='o',
                 linestyle='-',
                 linewidth=1.0,
@@ -2291,7 +2292,7 @@ def grav_drift_poly(
 
         ax.plot(
             time_dt,
-            drift_curv * 1000.0,
+            drift_curv,
             linestyle='--',
             linewidth=2.0,
             label='Fitted drift model'
@@ -2299,8 +2300,8 @@ def grav_drift_poly(
 
         ax.fill_between(
             time_dt,
-            (drift_curv - drift_std) * 1000.0,
-            (drift_curv + drift_std) * 1000.0,
+            drift_curv - drift_std,
+            drift_curv + drift_std,
             alpha=0.20,
             label='±1 standard uncertainty'
         )
@@ -2322,7 +2323,7 @@ def grav_drift_poly(
         )
 
         ax.set_ylabel(
-            'Drift [µGal]',
+            'Drift [mGal]',
             fontsize=11
         )
 
