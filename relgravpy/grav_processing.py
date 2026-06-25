@@ -2473,13 +2473,14 @@ def lsq_obs_adj(
     # ------------------------------------------------------------
     for row, observation in enumerate(observations):
 
-        if len(observation) != 6:
-            raise ValueError(
-                "Each observation must contain six elements: "
-                "(i, j, delta_g, delta_t, link_id, weight)."
-            )
-
-        i, j, delta_g, delta_t, link_id, obs_weight = observation
+        (
+            i,
+            j,
+            delta_g,
+            delta_t,
+            link_id,
+            obs_weight
+        ) = observation
 
         i = int(i)
         j = int(j)
@@ -2519,21 +2520,32 @@ def lsq_obs_adj(
                 f"Invalid weight at observation {row}: {obs_weight}."
             )
 
-        # Observation equation:
-        # g_i - g_j + delta_g = v
-        A[row, i] += 1.0
-        A[row, j] -= 1.0
+        if i == j:
+            # Absolute reference equation:
+            # g_i - g_abs = v
+            A[row, i] = 1.0
+            L[row] = -delta_g
 
-        if k:
-            scale_column = n_stations + link_id
-            A[row, scale_column] = -delta_g
+        else:
+            # Relative observation equation:
+            # g_i - g_j + delta_g = v
+            A[row, i] = 1.0
+            A[row, j] = -1.0
+            L[row] = delta_g
 
-        if drift:
-            drift_offset = n_stations + (n_links if k else 0)
-            drift_column = drift_offset + link_id
-            A[row, drift_column] = -delta_t
+            # Scale and drift terms apply only to relative observations
+            if k:
+                scale_column = n_stations + link_id
+                A[row, scale_column] = -delta_g
 
-        L[row] = delta_g
+            if drift:
+                drift_offset = (
+                    n_stations
+                    + (n_links if k else 0)
+                )
+                drift_column = drift_offset + link_id
+                A[row, drift_column] = -delta_t
+
         weights[row] = obs_weight
 
     # ------------------------------------------------------------
