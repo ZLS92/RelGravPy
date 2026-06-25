@@ -2384,341 +2384,567 @@ def grav_drift_poly(
     )
 
 # -----------------------------------------------------------------------------
-def lsq_obs_adj(observations, n_stations, n_links=1, drift=False, k=False):
+def lsq_obs_adj(
+    observations,
+    n_stations,
+    n_links=1,
+    drift=False,
+    k=False,
+    absolute_weights=False
+):
     """
-    Performs least squares adjustment of relative gravity measurments, with optional estimation
-    of instrument scale factors (k) and time drift terms (d).
+    Perform a least-squares adjustment of relative gravity observations.
 
     Parameters
     ----------
     observations : list of tuples
-        Each observation is a tuple: (i, j, Δg_obs, ΔT, link_id, weight)
-        - i, j: indices of station pairs (0-based)
-        - Δg_obs: observed gravity difference between station j and i
-        - ΔT: time interval between observations (in seconds)
-        - link_id: ID of the loop (typically 0 if the network is unified)
-        - weight: weight of the observation (1/σ²)
+        Each observation must have the form:
+
+            (i, j, delta_g, delta_t, link_id, weight)
+
+        where:
+        - i, j are station indices;
+        - delta_g is the observed difference g_j - g_i, in mGal;
+        - delta_t is the elapsed time, in seconds;
+        - link_id identifies the network loop or block;
+        - weight is either an inverse physical variance or a relative weight.
 
     n_stations : int
-        Number of unique stations in the network.
+        Number of gravity stations.
 
     n_links : int, default=1
-        Number of network blocks or loops (each with independent k and/or d if enabled).
+        Number of network loops or blocks.
 
     drift : bool, default=False
-        If True, estimate drift terms d_m for each loop m.
+        Estimate one linear drift term for each link.
 
     k : bool, default=False
-        If True, estimate scale factors k_m for each loop m.
+        Estimate one scale-factor term for each link.
+
+    absolute_weights : bool, default=False
+        If True, weights are interpreted as inverse physical variances and
+        the covariance matrix is:
+
+            Cov(X) = inv(A.T P A)
+
+        If False, weights are interpreted as relative and the covariance
+        matrix is scaled by the a-posteriori variance factor:
+
+            Cov(X) = sigma0² inv(A.T P A)
 
     Returns
     -------
     X : np.ndarray
-        Vector of estimated unknowns. Format:
-        - First n_stations elements: gravity values at each station
-        - Followed by n_links scale factors k_m if k=True
-        - Followed by n_links drift terms d_m if drift=True
+        Estimated parameter vector.
 
     V : np.ndarray
-        Residual vector of the adjustment.
+        Residual vector.
 
     sigma0 : float
-        A posteriori standard deviation of unit weight.
+        A-posteriori standard deviation of unit weight.
 
-    Notes
-    -----
-    The number of estimated parameters varies depending on the options:
-        total_parameters = n_stations + (k * n_links) + (drift * n_links)
-
-    The design matrix A is built dynamically based on enabled options.
+    std_errors : np.ndarray
+        Standard errors of the estimated gravity values, in mGal.
     """
 
     n_obs = len(observations)
-    n_params = n_stations + (n_links if k else 0) + (n_links if drift else 0)
 
-    A = np.zeros((n_obs, n_params))
-    L = np.zeros(n_obs)
-    P = np.zeros((n_obs, n_obs))
+    if n_obs == 0:
+        raise ValueError("No observations were provided.")
 
-    # Build design matrix A, observation vector L, and weight matrix P
-    for idx, (i, j, delta_g, delta_t, link_id, weight) in enumerate(observations):
-        # Gravity values
-        A[idx, i] = 1          # +g_i
-        A[idx, j] = -1         # -g_j
+    if n_stations <= 0:
+        raise ValueError("'n_stations' must be greater than zero.")
 
-        # Scale factor term (optional)
+    if n_links <= 0:
+        raise ValueError("'n_links' must be greater than zero.")
+
+    n_params = (
+        n_stations
+        + (n_links if k else 0)
+        + (n_links if drift else 0)
+    )
+
+    A = np.zeros((n_obs, n_params), dtype=float)
+    L = np.zeros(n_obs, dtype=float)
+    weights = np.zeros(n_obs, dtype=float)
+
+    # ------------------------------------------------------------
+    # Build design matrix, observation vector and weights
+    # ------------------------------------------------------------
+    for row, observation in enumerate(observations):
+
+        if len(observation) != 6:
+            raise ValueError(
+                "Each observation must contain six elements: "
+                "(i, j, delta_g, delta_t, link_id, weight)."
+            )
+
+        i, j, delta_g, delta_t, link_id, obs_weight = observation
+
+        i = int(i)
+        j = int(j)
+        link_id = int(link_id)
+
+        delta_g = float(delta_g)
+        delta_t = float(delta_t)
+        obs_weight = float(obs_weight)
+
+        if not 0 <= i < n_stations:
+            raise ValueError(
+                f"Invalid station index i={i} at observation {row}."
+            )
+
+        if not 0 <= j < n_stations:
+            raise ValueError(
+                f"Invalid station index j={j} at observation {row}."
+            )
+
+        if not 0 <= link_id < n_links:
+            raise ValueError(
+                f"Invalid link_id={link_id} at observation {row}."
+            )
+
+        if not np.isfinite(delta_g):
+            raise ValueError(
+                f"Non-finite delta_g at observation {row}."
+            )
+
+        if not np.isfinite(delta_t):
+            raise ValueError(
+                f"Non-finite delta_t at observation {row}."
+            )
+
+        if not np.isfinite(obs_weight) or obs_weight <= 0.0:
+            raise ValueError(
+                f"Invalid weight at observation {row}: {obs_weight}."
+            )
+
+        # Observation equation:
+        # g_i - g_j + delta_g = v
+        A[row, i] += 1.0
+        A[row, j] -= 1.0
+
         if k:
-            A[idx, n_stations + link_id] = -delta_g
+            scale_column = n_stations + link_id
+            A[row, scale_column] = -delta_g
 
-        # Drift term (optional)
         if drift:
-            offset = n_stations + (n_links if k else 0)
-            A[idx, offset + link_id] = -delta_t
+            drift_offset = n_stations + (n_links if k else 0)
+            drift_column = drift_offset + link_id
+            A[row, drift_column] = -delta_t
 
-        # Observation and weight
-        L[idx] = delta_g
-        P[idx, idx] = weight
+        L[row] = delta_g
+        weights[row] = obs_weight
 
-    # Normal equation system: N X = u
-    N = A.T @ P @ A
-    u = -A.T @ P @ L
+    # ------------------------------------------------------------
+    # Normal equations
+    # ------------------------------------------------------------
+    PA = weights[:, np.newaxis] * A
+    PL = weights * L
 
-    # Solve system (must be full rank)
-    X = np.linalg.solve(N, u)
+    N = A.T @ PA
+    u = -A.T @ PL
 
+    rank = np.linalg.matrix_rank(N)
+
+    if rank < n_params:
+        raise np.linalg.LinAlgError(
+            "The normal matrix is rank deficient. Check network geometry, "
+            "absolute constraints and enabled drift/scale parameters."
+        )
+
+    N_inv = np.linalg.pinv(N)
+    X = N_inv @ u
+
+    # ------------------------------------------------------------
     # Residuals and variance factor
+    # ------------------------------------------------------------
     V = A @ X + L
-    sigma0_sq = (V.T @ P @ V) / (n_obs - n_params)
-    sigma0 = np.sqrt( sigma0_sq )
 
-    # Covariance matrix and standard errors (only for gravity estimates)
-    Cov = sigma0_sq * np.linalg.inv(N)
-    std_errors = np.sqrt(np.diag(Cov[:n_stations, :n_stations]))
+    dof = n_obs - n_params
+
+    if dof > 0:
+        weighted_sum = float(
+            np.sum(weights * V**2)
+        )
+
+        sigma0_sq = max(
+            weighted_sum / dof,
+            0.0
+        )
+
+        sigma0 = np.sqrt(sigma0_sq)
+
+    else:
+        sigma0_sq = np.nan
+        sigma0 = np.nan
+
+        if not absolute_weights:
+            raise ValueError(
+                "No degrees of freedom are available to estimate sigma0 "
+                "with relative weights."
+            )
+
+    # ------------------------------------------------------------
+    # Parameter covariance
+    # ------------------------------------------------------------
+    if absolute_weights:
+        covariance = N_inv
+    else:
+        covariance = sigma0_sq * N_inv
+
+    gravity_covariance = covariance[
+        :n_stations,
+        :n_stations
+    ]
+
+    gravity_variances = np.clip(
+        np.diag(gravity_covariance),
+        a_min=0.0,
+        a_max=None
+    )
+
+    std_errors = np.sqrt(gravity_variances)
 
     return X, V, sigma0, std_errors
 
+
 # -----------------------------------------------------------------------------
 def grav_net_lsqadj(
-    stations, gobs, datetime=None, date=None, time=None,
-    DateTimeFormat='datetime64[s]', weight=1.0, std=None, grav_abs=[], 
-    drift=False, drift_std=None, k=False, n_links=1, plot=False, 
-    max_time_gap=None, split_days=True, print_res_gt=0.02, 
-    max_time_net_gap=None, link_id=None, 
-    lon=None, lat=None, elev=None, save_file=None ):
-
+    stations,
+    gobs,
+    datetime=None,
+    date=None,
+    time=None,
+    DateTimeFormat='datetime64[s]',
+    weight=1.0,
+    std=None,
+    grav_abs=None,
+    drift=False,
+    drift_std=None,
+    k=False,
+    n_links=1,
+    plot=False,
+    max_time_gap=None,
+    split_days=True,
+    print_res_gt=0.02,
+    max_time_net_gap=None,
+    link_id=None,
+    lon=None,
+    lat=None,
+    elev=None,
+    save_file=None
+):
     """
-    Compensates a gravity network using observed gravity values, timestamps,
-    and station names. Allows optional absolute reference stations to be fixed.
+    Adjust a gravity network using sequential gravity differences.
 
     Parameters
     ----------
     stations : array-like of str
-        Station names corresponding to each gravity observation.
+        Station identifier associated with each observation.
 
     gobs : array-like of float
-        Observed gravity values (in mGal).
+        Gravity observations, in mGal.
 
     datetime : array-like, optional
-        Full datetime array in numpy.datetime64 format or ISO strings.
-        Required unless `date` and `time` are provided.
+        Observation timestamps.
 
-    date : array-like of str, optional
-        Date strings (e.g., '2025-03-06'). Used if `datetime` is not provided.
+    date, time : array-like, optional
+        Separate date and time values, used when `datetime` is None.
 
-    time : array-like of str, optional
-        Time strings (e.g., '14:30:00'). Used if `datetime` is not provided.
-
-    DateTimeFormat : str, default='datetime64[s]'
-        Format of the input time. Accepts 'datetime64[s]' or 'seconds'.
+    DateTimeFormat : {'datetime64[s]', 'seconds'}
+        Input time representation.
 
     weight : float, default=1.0
-        Weight applied to all observation pairs (1/σ²).
-        
-    std : array-like of float, optional
-        Standard uncertainty associated with each gravity observation, in mGal.
-        If provided, observation-pair weights are computed as the inverse
-        variance of each gravity difference.
+        Relative weight used when `std` and `drift_std` are both None.
 
-    grav_abs : list of str, optional
-        List of station names to fix as absolute gravity reference (e.g., ['CRS_Abs']).
-        If empty, the first station in time is fixed to 0.
+    std : array-like of float, optional
+        Standard uncertainty of each gravity observation, in mGal.
+
+    grav_abs : list, optional
+        Absolute gravity references. Each reference should be written as:
+
+            [station_name, gravity_value, standard_uncertainty]
+
+        Gravity and uncertainty must be expressed in mGal.
 
     drift : bool, default=False
-        If True, estimate drift terms for each network block.
+        Estimate drift inside the network adjustment.
 
     drift_std : array-like of float, optional
-        Standard uncertainty of the drift correction applied to each observation,
-        in mGal. If provided, it is combined in quadrature with `std`.
+        Standard uncertainty of the previously applied drift correction,
+        in mGal.
+
+        This implementation treats drift uncertainties at different epochs
+        as independent. If the full drift covariance matrix is available,
+        it should be propagated separately.
 
     k : bool, default=False
-        If True, estimate scale factors for each network block.
+        Estimate scale-factor terms.
 
     n_links : int, default=1
-        Number of network blocks or loops (each with independent k and/or d if enabled).
-    
+        Number of independent network links or loops.
+
     plot : bool, default=False
-        If True, generate diagnostic plots of the adjustment results.
+        Plot the residual histogram.
 
     max_time_gap : float, optional
-        Maximum allowed time gap (in seconds) between sequential observations
-        to be included in the adjustment. Observations with larger gaps are skipped.
-    
-    split_days : bool, default=True
-        If True, skips observation pairs that span different calendar days.
+        Skip consecutive observations separated by more than this number
+        of seconds.
 
-    print_res_gt : float, default=0.2
-        Threshold (in mGal) for printing large residuals after adjustment.
+    split_days : bool, default=True
+        Skip pairs belonging to different calendar days.
+
+    print_res_gt : float, optional
+        Print residuals larger than this threshold, in mGal.
 
     max_time_net_gap : float, optional
-        Maximum allowed time gap (in seconds) to keep observations in the same sub-network.
-        If exceeded, the dataset is split into separate sub-networks for adjustment.
-        
+        Split the dataset into sub-networks when consecutive observations
+        exceed this time gap.
+
     link_id : array-like of int, optional
-        Array of link IDs for each observation, used to assign observations to different network blocks.
-        
-    lon, lat, elev : array-like of float, optional
-        Geographic coordinates of each station, used for plotting and diagnostics.
-    
+        Link identifier associated with each observation.
+
+    lon, lat, elev : array-like, optional
+        Station coordinates.
+
     save_file : str, optional
-        Path to save the adjustment results (e.g., CSV file). If None, results are not saved.
+        Output CSV path.
 
     Returns
     -------
     g_est : np.ndarray
-        Estimated gravity values for each unique station.
+        Adjusted gravity values.
 
     unique_stations : np.ndarray
-        List of unique station names in the same order as `g_est`.
+        Station identifiers.
 
     residuals : np.ndarray
-        Residual vector of the least squares adjustment.
-    
+        Adjustment residuals.
+
     std_errors : np.ndarray
-        Standard errors for gravity estimates.
+        Standard errors of adjusted gravity values, in mGal.
 
     sigma0 : float
-        A posteriori standard deviation of unit weight.
+        A-posteriori standard deviation of unit weight.
 
-    Raises
-    ------
-    ValueError
-        If no valid datetime is provided or DateTimeFormat is unsupported.
-
-    Notes
-    -----
-    The adjustment uses pairwise Δg and ΔT values to build observation equations.
-    A least squares solver is used to compute the best-fit values.
+    grav_dict : dict
+        Dictionary containing adjusted results.
     """
 
-    # Handle datetime from separate date/time if needed
+    if grav_abs is None:
+        grav_abs = []
+
+    # Physical uncertainties are available when at least one of these
+    # arrays is supplied.
+    absolute_weights = (
+        std is not None
+        or drift_std is not None
+    )
+
+    # ------------------------------------------------------------
+    # Build datetime
+    # ------------------------------------------------------------
     if datetime is None:
 
         if date is None or time is None:
-            raise ValueError("If 'datetime' is None, 'date' and 'time' must be provided.")
-        datetime_str = np.char.add(np.array(date, dtype=str), 'T')
-        datetime_str = np.char.add(datetime_str, np.array(time, dtype=str))
+            raise ValueError(
+                "If 'datetime' is None, both 'date' and 'time' "
+                "must be provided."
+            )
+
+        datetime_str = np.char.add(
+            np.asarray(date, dtype=str),
+            'T'
+        )
+
+        datetime_str = np.char.add(
+            datetime_str,
+            np.asarray(time, dtype=str)
+        )
+
         datetime = datetime_str.astype('datetime64[s]')
-    
+
     else:
-        datetime = np.array(datetime)
-        if datetime.dtype.kind in {'U', 'S'}:
+        datetime = np.asarray(datetime)
+
+        if (
+            DateTimeFormat != 'seconds'
+            and datetime.dtype.kind in {'U', 'S', 'O'}
+        ):
             datetime = datetime.astype('datetime64[s]')
 
-    # Convert datetime to seconds since epoch
+    # ------------------------------------------------------------
+    # Convert time to seconds
+    # ------------------------------------------------------------
     if 'datetime64' in DateTimeFormat:
 
-        time_sec = (datetime - np.datetime64('1970-01-01T00:00:00')) / np.timedelta64(1, 's')
-    
-    elif DateTimeFormat == 'seconds':
-        time_sec = datetime.astype(float)
-    
-    else:
-        raise ValueError("Unsupported DateTimeFormat.")
-    
-    if link_id is None:
-        link_id = np.zeros( len(stations), dtype=int )
+        datetime = datetime.astype('datetime64[s]')
 
-    # Convert inputs to numpy arrays
-    stations = np.array(stations)
-    gobs = np.array(gobs)
-    link_id = np.array(link_id)
-    
+        time_sec = (
+            datetime - np.datetime64('1970-01-01T00:00:00')
+        ) / np.timedelta64(1, 's')
+
+        time_sec = np.asarray(time_sec, dtype=float)
+
+    elif DateTimeFormat == 'seconds':
+
+        time_sec = np.asarray(datetime, dtype=float)
+
+    else:
+        raise ValueError(
+            "Unsupported DateTimeFormat."
+        )
+
+    # ------------------------------------------------------------
+    # Convert and validate input arrays
+    # ------------------------------------------------------------
+    stations = np.asarray(stations)
     gobs = np.asarray(gobs, dtype=float)
 
+    n_data = len(gobs)
+
+    if len(stations) != n_data or len(time_sec) != n_data:
+        raise ValueError(
+            "'stations', 'gobs' and time arrays must have equal length."
+        )
+
+    if link_id is None:
+        link_id = np.zeros(n_data, dtype=int)
+    else:
+        link_id = np.asarray(link_id, dtype=int)
+
+        if len(link_id) != n_data:
+            raise ValueError(
+                "'link_id' must have the same length as 'gobs'."
+            )
+
+    if not np.isfinite(weight) or weight <= 0.0:
+        raise ValueError(
+            "'weight' must be finite and greater than zero."
+        )
+
     if std is not None:
+
         std = np.asarray(std, dtype=float)
 
-        if len(std) != len(gobs):
+        if len(std) != n_data:
             raise ValueError(
                 "'std' must have the same length as 'gobs'."
             )
 
-        if np.any(std < 0):
+        if np.any(~np.isfinite(std)) or np.any(std < 0.0):
             raise ValueError(
-                "'std' values must be non-negative."
+                "'std' must contain finite, non-negative values."
             )
 
     if drift_std is not None:
+
         drift_std = np.asarray(drift_std, dtype=float)
 
-        if len(drift_std) != len(gobs):
+        if len(drift_std) != n_data:
             raise ValueError(
                 "'drift_std' must have the same length as 'gobs'."
             )
 
-        if np.any(drift_std < 0):
+        if (
+            np.any(~np.isfinite(drift_std))
+            or np.any(drift_std < 0.0)
+        ):
             raise ValueError(
-                "'drift_std' values must be non-negative."
+                "'drift_std' must contain finite, non-negative values."
             )
 
-        # Combine std and drift_std in quadrature if both are provided
-        if std is not None:
-            combined_std = np.sqrt(std**2 + drift_std**2)
-        else:
-            combined_std = drift_std
-
+    # ------------------------------------------------------------
     # Sort all inputs chronologically
-    idx = np.argsort(time_sec)
+    # ------------------------------------------------------------
+    sort_idx = np.argsort(time_sec)
 
-    stations = stations[idx]
-    gobs = gobs[idx]
-    time_sec = time_sec[idx]
-    datetime = datetime[idx]
-    link_id = link_id[idx]
+    stations = stations[sort_idx]
+    gobs = gobs[sort_idx]
+    time_sec = time_sec[sort_idx]
+    link_id = link_id[sort_idx]
+
+    if DateTimeFormat != 'seconds':
+        datetime = datetime[sort_idx]
 
     if std is not None:
-        std = std[idx]
+        std = std[sort_idx]
 
     if drift_std is not None:
-        drift_std = drift_std[idx]
+        drift_std = drift_std[sort_idx]
 
     if lon is not None:
-        lon = np.asarray(lon)[idx]
+        lon = np.asarray(lon)[sort_idx]
 
     if lat is not None:
-        lat = np.asarray(lat)[idx]
+        lat = np.asarray(lat)[sort_idx]
 
     if elev is not None:
-        elev = np.asarray(elev)[idx]
+        elev = np.asarray(elev)[sort_idx]
 
-    # --- Check for network splits based on max_time_net_gap ---
-    # Find time gaps larger than max_time_net_gap (if specified)
+    # ------------------------------------------------------------
+    # Split into sub-networks
+    # ------------------------------------------------------------
     if max_time_net_gap is not None:
-        time_diffs = np.diff(time_sec)
-        split_indices = np.where(time_diffs > max_time_net_gap)[0] + 1
-    else:
-        split_indices = np.array([])  # No splits - single network
 
-    if len(split_indices) > 0:
-        print(f"Found {len(split_indices)} time gaps > {max_time_net_gap}s. Splitting into {len(split_indices)+1} sub-networks.")
-    
-    # Create sub-network indices (always create this structure, even for single network)
-    split_indices = np.concatenate(([0], split_indices, [len(stations)]))
-    
-    # Initialize result containers
+        time_differences = np.diff(time_sec)
+
+        internal_splits = np.where(
+            time_differences > max_time_net_gap
+        )[0] + 1
+
+    else:
+        internal_splits = np.array([], dtype=int)
+
+    if len(internal_splits) > 0:
+        print(
+            f"Found {len(internal_splits)} gaps greater than "
+            f"{max_time_net_gap} s. Splitting into "
+            f"{len(internal_splits) + 1} sub-networks."
+        )
+
+    split_indices = np.concatenate((
+        [0],
+        internal_splits,
+        [n_data]
+    ))
+
     all_g_est = []
     all_unique_stations = []
     all_residuals = []
     all_std_errors = []
     all_sigma0 = []
     all_observations = []
-    
-    # Process each sub-network (will be just one if no splits)
-    for i in range(len(split_indices) - 1):
-        start_idx = int( split_indices[i] )
-        end_idx = int( split_indices[i + 1] )
-        
-        if len(split_indices) > 2:  # Only print if there are actual splits
-            print(f"\nProcessing sub-network {i+1}/{len(split_indices)-1} (observations {start_idx}-{end_idx-1})")
-        
-        # Extract sub-network data
-        print( start_idx, end_idx )
+
+    # ------------------------------------------------------------
+    # Process sub-networks
+    # ------------------------------------------------------------
+    for network_index in range(len(split_indices) - 1):
+
+        start_idx = int(split_indices[network_index])
+        end_idx = int(split_indices[network_index + 1])
+
+        if end_idx - start_idx < 2:
+            continue
+
+        if len(split_indices) > 2:
+            print(
+                f"\nProcessing sub-network "
+                f"{network_index + 1}/{len(split_indices) - 1}: "
+                f"observations {start_idx}–{end_idx - 1}"
+            )
+
         sub_stations = stations[start_idx:end_idx]
         sub_gobs = gobs[start_idx:end_idx]
-        sub_datetime = datetime[start_idx:end_idx]
         sub_time_sec = time_sec[start_idx:end_idx]
         sub_link_id = link_id[start_idx:end_idx]
-        
+
+        if DateTimeFormat != 'seconds':
+            sub_datetime = datetime[start_idx:end_idx]
+        else:
+            sub_datetime = None
+
         sub_std = (
             None
             if std is None
@@ -2731,299 +2957,551 @@ def grav_net_lsqadj(
             else drift_std[start_idx:end_idx]
         )
 
-        # --- PROCESS SINGLE SUB-NETWORK ---
-        # Map station names to unique indices
-        # I.e., create a dictionary with 'station_name' : index
-        unique_stations = np.unique(sub_stations)
-        station_map = {s: i for i, s in enumerate(unique_stations)}
-        n_stations = len(unique_stations)
+        unique_sub_stations = np.unique(sub_stations)
 
-        # Build observations as Δg and ΔT between sequential measurements
+        station_map = {
+            station: index
+            for index, station in enumerate(unique_sub_stations)
+        }
+
+        n_sub_stations = len(unique_sub_stations)
+
         observations = []
-        for j in range( len(sub_gobs) - 1 ):
 
-            # Get subsequent station pairs and time differences
-            sta_i, sta_j = sub_stations[j], sub_stations[j + 1]
-            delta_t = sub_time_sec[j + 1] - sub_time_sec[j]
-            lid_i, lid_j = sub_link_id[j], sub_link_id[j + 1]
+        # --------------------------------------------------------
+        # Build sequential gravity differences
+        # --------------------------------------------------------
+        for j in range(len(sub_gobs) - 1):
 
-            # --- 1) skip links between different days ---
-            if split_days == True:
-                day_i = sub_datetime[j].astype('datetime64[D]')
-                day_j = sub_datetime[j+1].astype('datetime64[D]')
+            station_i = sub_stations[j]
+            station_j = sub_stations[j + 1]
+
+            delta_t = (
+                sub_time_sec[j + 1]
+                - sub_time_sec[j]
+            )
+
+            link_i = sub_link_id[j]
+            link_j = sub_link_id[j + 1]
+
+            if split_days and sub_datetime is not None:
+
+                day_i = sub_datetime[j].astype(
+                    'datetime64[D]'
+                )
+
+                day_j = sub_datetime[j + 1].astype(
+                    'datetime64[D]'
+                )
 
                 if day_i != day_j:
                     continue
 
-            # --- 2) split by max_time_gap ---
-            if max_time_gap is not None and delta_t > max_time_gap:
+            if (
+                max_time_gap is not None
+                and delta_t > max_time_gap
+            ):
                 continue
 
-            # --- 3) skip links between different link IDs ---
-            if lid_i != lid_j:
+            if link_i != link_j:
                 continue
 
-            # --- 4) build Δg ---
-            # if sta_i != sta_j:
-            #     idx_i = station_map[sta_i]
-            #     idx_j = station_map[sta_j]
-            #     delta_g = sub_gobs[j + 1] - sub_gobs[j]
-            #     observations.append((idx_i, idx_j, delta_g, delta_t, lid_i, weight))
-            
-            if sta_i != sta_j:
+            if station_i == station_j:
+                continue
 
-                idx_i = station_map[sta_i]
-                idx_j = station_map[sta_j]
+            index_i = station_map[station_i]
+            index_j = station_map[station_j]
 
-                delta_g = sub_gobs[j + 1] - sub_gobs[j]
+            delta_g = (
+                sub_gobs[j + 1]
+                - sub_gobs[j]
+            )
 
-                # Default weight used when no valid uncertainties are available
-                obs_weight = float(weight)
+            # Default relative weight
+            obs_weight = float(weight)
 
-                if sub_std is not None:
+            variance_delta = 0.0
+            physical_variance_available = False
 
-                    sigma_i_sq = sub_std[j] ** 2
-                    sigma_j_sq = sub_std[j + 1] ** 2
+            if sub_std is not None:
 
-                    # Optionally include uncertainty of the drift correction
-                    if sub_drift_std is not None:
-                        sigma_i_sq += sub_drift_std[j] ** 2
-                        sigma_j_sq += sub_drift_std[j + 1] ** 2
+                variance_delta += (
+                    sub_std[j] ** 2
+                    + sub_std[j + 1] ** 2
+                )
 
-                    sigma_delta_sq = sigma_i_sq + sigma_j_sq
+                physical_variance_available = True
+
+            if sub_drift_std is not None:
+
+                variance_delta += (
+                    sub_drift_std[j] ** 2
+                    + sub_drift_std[j + 1] ** 2
+                )
+
+                physical_variance_available = True
+
+            if physical_variance_available:
+
+                if (
+                    not np.isfinite(variance_delta)
+                    or variance_delta <= 0.0
+                ):
+                    raise ValueError(
+                        "Invalid variance for gravity difference "
+                        f"{station_i} -> {station_j}."
+                    )
+
+                obs_weight = 1.0 / variance_delta
+
+            observations.append((
+                index_i,
+                index_j,
+                delta_g,
+                delta_t,
+                int(link_i),
+                obs_weight
+            ))
+
+        # --------------------------------------------------------
+        # Absolute reference for this sub-network
+        # --------------------------------------------------------
+        sub_grav_abs = []
+
+        if len(grav_abs) == 0:
+
+            sub_grav_abs = [
+                [sub_stations[0], 0.0, None]
+            ]
+
+        else:
+
+            for absolute_station in grav_abs:
+
+                if isinstance(absolute_station, str):
+
+                    if absolute_station in unique_sub_stations:
+                        sub_grav_abs.append([
+                            absolute_station,
+                            0.0,
+                            None
+                        ])
+
+                elif isinstance(
+                    absolute_station,
+                    (list, tuple, np.ndarray)
+                ):
+
+                    if absolute_station[0] in unique_sub_stations:
+                        sub_grav_abs.append(
+                            list(absolute_station)
+                        )
+
+            if len(sub_grav_abs) == 0:
+
+                # This sub-network is not connected to an absolute station.
+                # Fix its first station to zero as a relative reference.
+                sub_grav_abs = [
+                    [sub_stations[0], 0.0, None]
+                ]
+
+        # --------------------------------------------------------
+        # Add reference pseudo-observations
+        # --------------------------------------------------------
+        for absolute_station in sub_grav_abs:
+
+            name = absolute_station[0]
+
+            gravity_value = (
+                float(absolute_station[1])
+                if len(absolute_station) > 1
+                else 0.0
+            )
+
+            gravity_error = (
+                absolute_station[2]
+                if len(absolute_station) > 2
+                else None
+            )
+
+            station_index = station_map[name]
+
+            if absolute_weights:
+
+                if gravity_error is None:
+                    # Strong numerical constraint for a relative fallback
+                    reference_weight = 1.0e12
+
+                else:
+                    gravity_error = float(gravity_error)
 
                     if (
-                        np.isfinite(sigma_delta_sq)
-                        and sigma_delta_sq > 0.0
+                        not np.isfinite(gravity_error)
+                        or gravity_error <= 0.0
                     ):
-                        obs_weight = 1.0 / sigma_delta_sq
+                        raise ValueError(
+                            f"Invalid uncertainty for absolute station "
+                            f"'{name}': {gravity_error}"
+                        )
 
-                observations.append(
-                    (
-                        idx_i,
-                        idx_j,
-                        delta_g,
-                        delta_t,
-                        lid_i,
-                        obs_weight
+                    reference_weight = (
+                        1.0 / gravity_error**2
                     )
-                )
-            
-        # Handle absolute reference stations for this sub-network
-        sub_grav_abs = []
-        if not grav_abs:
-            sub_grav_abs = [sub_stations[0]]
-        else:
-            # Only include absolute stations that exist in this sub-network
-            for abs_sta in grav_abs:
-                if isinstance(abs_sta, str):
-                    if abs_sta in unique_stations:
-                        sub_grav_abs.append(abs_sta)
-                elif isinstance(abs_sta, (list, tuple)):
-                    if abs_sta[0] in unique_stations:
-                        sub_grav_abs.append(abs_sta)
-            
-            # If no absolute stations found in this sub-network, use first station
-            if not sub_grav_abs:
-                sub_grav_abs = [sub_stations[0]]
 
-        # Add pseudo-observations to fix gravity at absolute stations
-        for abs_sta in sub_grav_abs:
-            if isinstance(abs_sta, str):
-                abs_sta = [abs_sta]
+            else:
+                # Relative mode: impose the datum practically exactly.
+                # Resulting standard errors represent internal precision only.
+                reference_weight = 1.0e12
 
-            name = abs_sta[0]
-            g_abs = abs_sta[1] if len(abs_sta) > 1 else 0.0
-            g_err = abs_sta[2] if len(abs_sta) > 2 else 1e-6  
+            observations.append((
+                station_index,
+                station_index,
+                gravity_value,
+                0.0,
+                0,
+                reference_weight
+            ))
 
-            if name in station_map:
-                idx_fixed = station_map[name]
-                observations.append((idx_fixed, idx_fixed, g_abs, 0.0, 0, 1.0 / g_err**2))
+        if len(observations) == 0:
+            raise ValueError(
+                f"No valid observations found in sub-network "
+                f"{network_index + 1}."
+            )
 
-        # Solve the network adjustment for this sub-network
-        X, residuals, sigma0, std_errors = lsq_obs_adj( 
-            observations, n_stations=n_stations, 
-            n_links=n_links, drift=drift, k=k )
-        
-        # Extract gravity estimates
-        g_est = X[:n_stations]
+        # --------------------------------------------------------
+        # Adjustment
+        # --------------------------------------------------------
+        (
+            X,
+            residuals,
+            sigma0,
+            sub_std_errors
+        ) = lsq_obs_adj(
+            observations,
+            n_stations=n_sub_stations,
+            n_links=n_links,
+            drift=drift,
+            k=k,
+            absolute_weights=absolute_weights
+        )
 
-        # If no absolute stations, shift so the first station = 0
-        if not grav_abs:
-            g_est -= g_est[0]
+        sub_g_est = X[:n_sub_stations]
 
-        # Store observations with their residuals for proper alignment
-        observations_with_residuals = []
-        for j, (obs, res) in enumerate(zip(observations, residuals)):
-            # Convert local station indices to global station names
-            i_local, j_local, delta_g, delta_t, link_idi, weight = obs
-            sta_i = unique_stations[i_local]
-            sta_j = unique_stations[j_local]
-            # Store both observation and residual together
-            observations_with_residuals.append({
-                'observation': (sta_i, sta_j, delta_g, delta_t, link_idi, weight),
-                'residual': res
+        all_g_est.append(sub_g_est)
+        all_unique_stations.append(unique_sub_stations)
+        all_residuals.append(residuals)
+        all_std_errors.append(sub_std_errors)
+        all_sigma0.append(sigma0)
+
+        for observation, residual in zip(
+            observations,
+            residuals
+        ):
+
+            (
+                local_i,
+                local_j,
+                delta_g,
+                delta_t,
+                observation_link,
+                observation_weight
+            ) = observation
+
+            all_observations.append({
+                'observation': (
+                    unique_sub_stations[local_i],
+                    unique_sub_stations[local_j],
+                    delta_g,
+                    delta_t,
+                    observation_link,
+                    observation_weight
+                ),
+                'residual': residual
             })
 
-        all_observations.extend(observations_with_residuals)
+    if len(all_g_est) == 0:
+        raise ValueError(
+            "No valid sub-network could be adjusted."
+        )
 
-        # Store results
-        all_g_est.append(g_est)
-        all_unique_stations.append(unique_stations)
-        all_residuals.append(residuals)
-        all_std_errors.append(std_errors)
-        all_sigma0.append(sigma0)
-    
-    # --- COMBINE RESULTS FROM ALL SUB-NETWORKS ---
-    if len(split_indices) > 2:
-        print(f"\nCombining results from {len(split_indices)-1} sub-networks...")
-    
-    # Get all unique stations across all sub-networks
-    all_stations_combined = set()
-    for sub_stations in all_unique_stations:
-        all_stations_combined.update(sub_stations)
-    unique_stations = np.array(sorted(all_stations_combined))
-    
-    # Initialize combined gravity estimates
-    g_est = np.full(len(unique_stations), np.nan)
-    std_errors = np.full(len(unique_stations), np.nan)
-    
-    # Map estimates from each sub-network to the combined result
-    for i, (sub_g_est, sub_unique_stations, sub_std_errors) in enumerate(zip(all_g_est, all_unique_stations, all_std_errors)):
-        
-        for j, station in enumerate(sub_unique_stations):
-            global_idx = np.where(unique_stations == station)[0][0]
-            
-            if np.isnan(g_est[global_idx]):
-                # First estimate for this station
-                g_est[global_idx] = sub_g_est[j]
-                std_errors[global_idx] = sub_std_errors[j]
+    # ------------------------------------------------------------
+    # Combine results from sub-networks
+    # ------------------------------------------------------------
+    all_station_names = set()
+
+    for sub_station_names in all_unique_stations:
+        all_station_names.update(sub_station_names)
+
+    unique_stations = np.asarray(
+        sorted(all_station_names)
+    )
+
+    g_est = np.full(
+        len(unique_stations),
+        np.nan,
+        dtype=float
+    )
+
+    std_errors = np.full(
+        len(unique_stations),
+        np.nan,
+        dtype=float
+    )
+
+    for (
+        sub_g_est,
+        sub_station_names,
+        sub_std_errors
+    ) in zip(
+        all_g_est,
+        all_unique_stations,
+        all_std_errors
+    ):
+
+        for local_index, station_name in enumerate(
+            sub_station_names
+        ):
+
+            global_index = np.where(
+                unique_stations == station_name
+            )[0][0]
+
+            new_value = sub_g_est[local_index]
+            new_error = sub_std_errors[local_index]
+
+            if np.isnan(g_est[global_index]):
+
+                g_est[global_index] = new_value
+                std_errors[global_index] = new_error
+
             else:
-                # Station appears in multiple sub-networks - use weighted average
-                # Weight by inverse of variance (1/std_error^2)
-                w1 = 1.0 / (std_errors[global_idx]**2)
-                w2 = 1.0 / (sub_std_errors[j]**2)
-                
-                # Weighted average of gravity estimates
-                g_est[global_idx] = (g_est[global_idx] * w1 + sub_g_est[j] * w2) / (w1 + w2)
-                
-                # Combined standard error
-                std_errors[global_idx] = 1.0 / np.sqrt(w1 + w2)
-    
-    # Extract aligned observations and residuals
-    aligned_observations = []
-    aligned_residuals = []
-    for obs_res in all_observations:
-        aligned_observations.append(obs_res['observation'])
-        aligned_residuals.append(obs_res['residual'])
-    residuals = np.array(aligned_residuals)
 
-    # # Combine residuals
-    # residuals = np.concatenate(all_residuals) if all_residuals else np.array([])
+                old_error = std_errors[global_index]
 
-    # Weighted average of sigma0 values (weighted by number of observations)
-    if all_sigma0:
-        weights_sigma0 = [len(res) for res in all_residuals]
-        total_weight = sum(weights_sigma0)
-        if total_weight > 0:
-            sigma0 = sum(s * w for s, w in zip(all_sigma0, weights_sigma0)) / total_weight
-        else:
-            sigma0 = all_sigma0[0] if all_sigma0 else 0.0
+                if (
+                    np.isfinite(old_error)
+                    and old_error > 0.0
+                    and np.isfinite(new_error)
+                    and new_error > 0.0
+                ):
+
+                    old_weight = 1.0 / old_error**2
+                    new_weight = 1.0 / new_error**2
+
+                    g_est[global_index] = (
+                        g_est[global_index] * old_weight
+                        + new_value * new_weight
+                    ) / (
+                        old_weight + new_weight
+                    )
+
+                    std_errors[global_index] = (
+                        1.0
+                        / np.sqrt(old_weight + new_weight)
+                    )
+
+                else:
+                    g_est[global_index] = np.nanmean([
+                        g_est[global_index],
+                        new_value
+                    ])
+
+    # ------------------------------------------------------------
+    # Collect residuals
+    # ------------------------------------------------------------
+    aligned_observations = [
+        item['observation']
+        for item in all_observations
+    ]
+
+    residuals = np.asarray([
+        item['residual']
+        for item in all_observations
+    ])
+
+    # ------------------------------------------------------------
+    # Combine sigma0 values
+    # ------------------------------------------------------------
+    valid_sigma0 = []
+
+    sigma0_weights = []
+
+    for sub_sigma0, sub_residuals in zip(
+        all_sigma0,
+        all_residuals
+    ):
+
+        if np.isfinite(sub_sigma0):
+            valid_sigma0.append(sub_sigma0)
+            sigma0_weights.append(len(sub_residuals))
+
+    if len(valid_sigma0) > 0:
+        sigma0 = np.average(
+            valid_sigma0,
+            weights=sigma0_weights
+        )
     else:
-        sigma0 = 0.0
-    
-    # --- COMMON CODE: Print large residuals and plotting ---
-    # Print large residuals
-    if print_res_gt is not None:
-        for r, obs in zip(residuals, aligned_observations):
-            sta_i, sta_j, delta_g, delta_t, link_idi, weight = obs
+        sigma0 = np.nan
 
-            if np.abs(r) > print_res_gt:
+    # ------------------------------------------------------------
+    # Print large residuals
+    # ------------------------------------------------------------
+    if print_res_gt is not None:
+
+        for residual, observation in zip(
+            residuals,
+            aligned_observations
+        ):
+
+            (
+                station_i,
+                station_j,
+                delta_g,
+                delta_t,
+                observation_link,
+                observation_weight
+            ) = observation
+
+            if np.abs(residual) > print_res_gt:
+
                 print(
-                    f"{sta_i} -> {sta_j} | "
-                    f"Res = {r:.5f} mGal | "
-                    f"Δg = {delta_g:.5f} | "
-                    f"ΔT = {delta_t:.1f} s"
+                    f"{station_i} -> {station_j} | "
+                    f"Res = {residual:.5f} mGal | "
+                    f"Δg = {delta_g:.5f} mGal | "
+                    f"ΔT = {delta_t:.1f} s | "
+                    f"w = {observation_weight:.6g}"
                 )
-                
-    # Build grav_dict with station info and estimates
-    # We take the first occurrence of each station 
-    # in the original sorted list to get its lon/lat/elev if available
-    station_first_idx = {}
-    for i, st in enumerate(stations):
-        if st not in station_first_idx:
-            station_first_idx[st] = i
+
+    # ------------------------------------------------------------
+    # Build output dictionary
+    # ------------------------------------------------------------
+    station_first_index = {}
+
+    for index, station_name in enumerate(stations):
+
+        if station_name not in station_first_index:
+            station_first_index[station_name] = index
+
     grav_dict = {}
+
     if lon is not None:
         grav_dict['Lon'] = np.round(
-            np.array([lon[station_first_idx[st]] for st in unique_stations], dtype=float),
+            np.asarray([
+                lon[station_first_index[station_name]]
+                for station_name in unique_stations
+            ], dtype=float),
             8
         )
 
     if lat is not None:
         grav_dict['Lat'] = np.round(
-            np.array([lat[station_first_idx[st]] for st in unique_stations], dtype=float),
+            np.asarray([
+                lat[station_first_index[station_name]]
+                for station_name in unique_stations
+            ], dtype=float),
             8
         )
 
     if elev is not None:
         grav_dict['Elevation'] = np.round(
-            np.array([elev[station_first_idx[st]] for st in unique_stations], dtype=float),
+            np.asarray([
+                elev[station_first_index[station_name]]
+                for station_name in unique_stations
+            ], dtype=float),
             3
         )
+
     grav_dict['StationID'] = unique_stations.copy()
     grav_dict['ObsG'] = g_est.copy()
     grav_dict['StdErr'] = std_errors.copy()
-            
-    # Save results to file if requested
+
+    # ------------------------------------------------------------
+    # Save results
+    # ------------------------------------------------------------
     if save_file is not None:
-        if grav_dict is not None and len(grav_dict) > 0:
-            with open(save_file, 'w') as f:
-                # Write header
-                header_line = ''
-                for key in grav_dict.keys():
-                    header_line += f"{key},"
-                f.write(header_line[:-1] + '\n')
-                for i in range(len(unique_stations)):
-                    line_i = ''
-                    for key in grav_dict.keys():
-                        line_i += f"{grav_dict[key][i]},"
-                    f.write(line_i[:-1] + '\n')
-        
-    
-    # Plot residuals histogram
-    if plot is True and len(residuals) > 0:
-        
-        # Separate residuals based on print_res_gt threshold
+
+        keys = list(grav_dict.keys())
+
+        with open(save_file, 'w') as output_file:
+
+            output_file.write(
+                ','.join(keys) + '\n'
+            )
+
+            for row in range(len(unique_stations)):
+
+                output_file.write(
+                    ','.join(
+                        str(grav_dict[key][row])
+                        for key in keys
+                    )
+                    + '\n'
+                )
+
+    # ------------------------------------------------------------
+    # Residual histogram
+    # ------------------------------------------------------------
+    if plot and len(residuals) > 0:
+
+        fig, ax = plt.subplots()
+
         if print_res_gt is not None:
-            residuals_normal = residuals[np.abs(residuals) <= print_res_gt]
-            residuals_large = residuals[np.abs(residuals) > print_res_gt]
+
+            normal_mask = (
+                np.abs(residuals) <= print_res_gt
+            )
+
+            residuals_normal = residuals[normal_mask]
+            residuals_large = residuals[~normal_mask]
+
         else:
             residuals_normal = residuals
-            residuals_large = []
-        
-        # Create histogram with automatic bins
-        bins = np.histogram_bin_edges(residuals, bins='auto')
-        
-        # Plot normal residuals
-        plt.hist(residuals_normal, bins=bins, edgecolor='k', alpha=0.7, label='Normal residuals')
-        
-        # Plot large residuals in red if any exist
-        if len(residuals_large) > 0:
-            plt.hist(residuals_large, bins=bins, color='red', edgecolor='k', alpha=0.7, label='Large residuals')
-        
-        # Check if we had sub-networks
-        title_suffix = ""
-        if len(split_indices) > 2:
-            title_suffix = f" (Combined from {len(split_indices)-1} sub-networks)"
-        
-        plt.title(f"Residuals distribution{title_suffix}")
-        plt.xlabel("Residual (mGal)")
-        plt.ylabel("Frequency")
-        plt.legend()
-        plt.grid(True)
+            residuals_large = np.asarray([])
 
-    return g_est, unique_stations, residuals, std_errors, sigma0, grav_dict
+        bins = np.histogram_bin_edges(
+            residuals,
+            bins='auto'
+        )
+
+        ax.hist(
+            residuals_normal,
+            bins=bins,
+            edgecolor='k',
+            alpha=0.7,
+            label='Normal residuals'
+        )
+
+        if len(residuals_large) > 0:
+
+            ax.hist(
+                residuals_large,
+                bins=bins,
+                edgecolor='k',
+                alpha=0.7,
+                label='Large residuals'
+            )
+
+        title = 'Residual distribution'
+
+        if len(split_indices) > 2:
+            title += (
+                f' – {len(split_indices) - 1} sub-networks'
+            )
+
+        ax.set_title(title)
+        ax.set_xlabel('Residual [mGal]')
+        ax.set_ylabel('Frequency')
+        ax.legend()
+        ax.grid(True)
+
+    return (
+        g_est,
+        unique_stations,
+        residuals,
+        std_errors,
+        sigma0,
+        grav_dict
+    )
 
 # -----------------------------------------------------------------------------
 def earth_tides( lat, lon, z=0, DateTime=None, 
