@@ -1,7 +1,16 @@
 """Reference regression tests for the standalone SH numerical building blocks."""
 import numpy as np
 import pytest
-from relgravpy import sh_core
+# Load the standalone numerical module without importing the entire RelGravPy
+# dependency stack. This test suite only requires numpy and pytest.
+from pathlib import Path
+import importlib.util
+
+_spec = importlib.util.spec_from_file_location(
+    "sh_core", Path(__file__).resolve().parents[1] / "relgravpy" / "sh_core.py"
+)
+sh_core = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(sh_core)
 
 
 def test_legendre_degree_two_at_equator():
