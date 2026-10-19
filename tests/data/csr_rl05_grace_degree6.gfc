@@ -1,7 +1,7 @@
 # CSR GRACE RL05 original UTCSR GSM-2_2002095-2002120_0021_UTCSR_0096_0005.
-# Extracted source GRCOF2 coefficients up to degree 6 (all 28 n,m).
-# Original model: fully normalized; inclusive permanent tide; April 2002.
-# Format converted from GRACE SHM GRCOF2 to static ICGEM gfc for testing ONLY.
+# Extracted from the original ICGEM .gfc coefficients up to degree 6 (all 28 n,m).
+# Original model: fully normalized, zero_tide; 2002-04-05 to 2002-04-30.
+# Original ICGEM .gfc header retained, reducing max_degree to 6 for testing ONLY.
 # Source: user-provided SH_synthesis_analysis.zip GRACE Matlab Toolbox / CSR RL05.
 begin_of_head
 product_type gravity_field
@@ -10,7 +10,7 @@ radius 0.6378136300E+07
 earth_gravity_constant 0.3986004415E+15
 max_degree 6
 norm fully_normalized
-tide_system unknown
+tide_system zero_tide
 errors formal
 end_of_head
 gfc 0 0 0.100000000000E+01 0.000000000000E+00 0.0E+00 0.0E+00
