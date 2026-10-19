@@ -25,60 +25,57 @@ MODEL_URLS = {
 DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "shm_data"
 
 
-def sh_read_gfc(path, lmax=None):
-    """Read static, fully normalized ICGEM .gfc coefficients and metadata.
 
-    Dynamic .gfct/.trnd/.asin/.acos records require an epoch and are rejected.
-    Coefficients are not silently renormalized.
+def sh_read_gfc(path, lmax=None):
+    """Stream static fully normalized ICGEM .gfc into degree/order arrays.
+
+    Dynamic components are not supported; use a time-epoch-aware model reader
+    for gfct/trnd/asin/acos records. Reject unsupported normalization.
     """
-    path = Path(path)
-    header = {}
-    records = []
-    in_head = True
-    dynamic = False
-    with path.open("rt", encoding="utf-8", errors="replace") as stream:
+    path=Path(path)
+    header={}
+    in_head=True
+    c=s=None
+    available=None
+    degree=None
+    dynamic=False
+    with path.open("rt",encoding="utf-8",errors="replace") as stream:
         for line in stream:
-            parts = line.strip().split()
-            if not parts or line.lstrip().startswith(("#", "%")):
+            parts=line.strip().split()
+            if not parts or parts[0].startswith(("#","%")):
                 continue
             if in_head:
-                if parts[0].lower() == "end_of_head":
-                    in_head = False
-                    continue
-                if len(parts) >= 2:
-                    header[parts[0].lower()] = " ".join(parts[1:])
+                if parts[0].lower()=="end_of_head":
+                    in_head=False
+                    norm=header.get("norm","").lower().replace("-","_")
+                    if norm not in ("fully_normalized","fully normalized",
+                                    "fullynormalized"):
+                        raise ValueError("Only fully_normalized ICGEM supported")
+                    available=int(header["max_degree"])
+                    degree=sh_resolve_degree(lmax,available)
+                    c=np.zeros((degree+1,degree+1),dtype=float)
+                    s=np.zeros_like(c)
+                elif len(parts)>1:
+                    header[parts[0].lower()]=" ".join(parts[1:])
                 continue
-            tag = parts[0].lower()
-            if tag in ("gfct", "trnd", "asin", "acos"):
-                dynamic = True
-            if tag != "gfc" or len(parts) < 5:
+            tag=parts[0].lower()
+            if tag in ("gfct","trnd","asin","acos"):
+                dynamic=True
+            if tag!="gfc" or len(parts)<5:
                 continue
-            n, m = int(parts[1]), int(parts[2])
-            if lmax is None or n <= lmax:
-                records.append((n, m, float(parts[3].replace("D","E")),
-                                float(parts[4].replace("D","E"))))
+            n,m=int(parts[1]),int(parts[2])
+            if n<=degree and 0<=m<=n:
+                c[n,m]=float(parts[3].replace("D","E").replace("d","e"))
+                s[n,m]=float(parts[4].replace("D","E").replace("d","e"))
     if in_head:
-        raise ValueError("ICGEM header missing end_of_head")
+        raise ValueError("ICGEM file missing end_of_head")
     if dynamic:
-        raise NotImplementedError("Time-variable ICGEM models require epoch selection")
-    norm = header.get("norm", "").lower().replace("-", "_")
-    if norm not in ("fully_normalized", "fully normalized", "fullynormalized"):
-        raise ValueError("Only fully_normalized ICGEM models are supported")
-    degree_available = int(header["max_degree"])
-    degree = degree_available if lmax is None else min(int(lmax), degree_available)
-    if lmax is not None and int(lmax) > degree_available:
-        warnings.warn(f"lmax={lmax} exceeds model degree {degree_available}; using {degree_available}",
-                      UserWarning, stacklevel=2)
-    c = np.zeros((degree+1, degree+1), dtype=np.float64)
-    s = np.zeros_like(c)
-    for n, m, cv, sv in records:
-        if n <= degree and m <= n:
-            c[n,m] = cv
-            s[n,m] = sv
-    return {"c":c, "s":s, "gm":float(header["earth_gravity_constant"].replace("D","E")),
+        raise NotImplementedError("Time-varying ICGEM coefficients require an epoch")
+    return {"c":c,"s":s,
+            "gm":float(header["earth_gravity_constant"].replace("D","E")),
             "radius":float(header["radius"].replace("D","E")),
-            "lmax":degree, "max_degree":degree_available,
-            "modelname":header.get("modelname", path.stem), "header":header}
+            "lmax":degree,"max_degree":available,
+            "modelname":header.get("modelname",path.stem),"header":header}
 
 
 def sh_download_model(name, directory=None, overwrite=False):
