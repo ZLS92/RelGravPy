@@ -51,16 +51,33 @@ Earth2014 `.bshc` files are read using an efficient memmap and truncated
 to the selected degree, although full-resolution synthesis is currently very
 slow and memory intensive.
 
-Important: this is a **reference kernel under development**, not a validated
-ICGEM-compatible geodesy engine. Its current `grav_dist` field is the radial
-contribution from degrees >=2 relative to the spherical monopole, **not yet the
-physical gravity disturbance relative to WGS84 normal gravity**. Its
-`grav_gradient` is the radial derivative of that degree>=2 field (Eötvös).
-The functions for geoid, absolute gravity and free-air anomaly have not yet been implemented. Earth2014 topography
-synthesis is available, but has not yet been numerically validated against
-independent reference points. Do not treat
-`surface="mean_sea_level"` as a precise geoid-height surface; it currently uses
-the WGS84 ellipsoid radius. Regional least-squares coefficient analysis may
-be ill-conditioned and is not equivalent to an exact global SH transform.
+Important: this is a **reference kernel under development**, not a
+numerically validated reproduction of ICGEM's calculation service.
 
-The numerical module does not depend on pyshtools or Numba. 
+Current synthesized gravity fields:
+- `potential`: disturbing potential T, m2/s2, with WGS84 even-zonal reference;
+- `geoid`: Bruns approximation T/gamma, m;
+- `grav_dist`: radial gravity disturbance (spherical approximation), mGal;
+- `free_air`: spherical gravity anomaly approximation, mGal;
+- `abs_grav`: normal gravity at height plus radial disturbance, mGal;
+- `grav_gradient`: radial derivative of the disturbance, Eotvos;
+- `topo`: Earth2014 SUR relief synthesized from .bshc, m.
+
+Important limitations:
+- Exact ellipsoidal components and tide/zero-degree conventions are not yet
+  reproduced. Do not use these results for precision geodesy or survey
+  calibration without comparison to independently computed ICGEM checkpoints.
+- `mean_sea_level` currently approximates the WGS84 ellipsoid, not an
+  iteratively computed geoid surface.
+- The Earth2014 SUR elevations are nominally relative to mean sea level;
+  `surface="topography"` uses them as approximate ellipsoidal heights
+  until a geoid-to-ellipsoid conversion is implemented.
+- No performance claim is made for degree 10,800. Processing may be extremely
+  slow or memory-intensive at that degree.
+- Regional least squares analyses can be ill-conditioned and are not the
+  equivalent of a global spectral inversion. For full global latitude/longitude
+  grids use the FFT/latitude-quadrature option, which is approximate on
+  equiangular latitude grids.
+- These large model datasets are intentionally excluded from standard Git.
+  An offline cache is available **after** the explicit downloads. The model
+  binaries have not been committed to this repository.
