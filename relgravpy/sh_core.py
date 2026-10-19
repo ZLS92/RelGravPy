@@ -305,6 +305,127 @@ def sh_analysis_core(lon, lat, values, lmax, radius=6378136.3,
                           if singular[-1] else np.inf)}
 
 
+
+EARTH2014_SUR_URL = ("https://ddfe.blazejbucha.com/models/Earth2014/"
+                     "data_1min/shcs_to10800/Earth2014.SUR2014.degree10800.bshc")
+
+
+def sh_download_topography(directory=None, overwrite=False):
+    """Retrieve the original Earth2014 SUR spherical harmonics (~933 MB).
+
+    This is a one-time explicit download for later offline work.
+    Dataset: Hirt & Rexer (2015), DOI 10.1016/j.jag.2015.03.001.
+    """
+    directory = Path(directory) if directory is not None else DEFAULT_DATA_DIR
+    directory.mkdir(parents=True, exist_ok=True)
+    dest = directory/"Earth2014.SUR2014.degree10800.bshc"
+    if dest.exists() and not overwrite:
+        return dest
+    tmp = dest.with_suffix(".bshc.part")
+    try:
+        with urlopen(EARTH2014_SUR_URL, timeout=120) as response, tmp.open("wb") as out:
+            while True:
+                chunk=response.read(1024*1024)
+                if not chunk:
+                    break
+                out.write(chunk)
+        if tmp.stat().st_size < 16:
+            raise IOError("Earth2014 download is empty or truncated")
+        tmp.replace(dest)
+    finally:
+        tmp.unlink(missing_ok=True)
+    return dest
+
+
+def sh_read_bshc(path, lmax=None):
+    """Read Curtin Earth2014 4-pi-normalized SHCs from a binary .bshc.
+
+    The file stores two float64 values (nmin,nmax), followed by all C(n,m)
+    and all S(n,m), each in ascending degree then order. Arrays are returned
+    in metres. Memmapping avoids loading the entire ~933MB file.
+    """
+    path=Path(path)
+    header=np.fromfile(path,dtype="<f8",count=2)
+    if len(header)!=2:
+        raise ValueError("Invalid .bshc header")
+    nmin,nmax=map(int,header)
+    if (nmin,nmax)!=(0,round(float(header[1]))) or nmax<0 or nmax>50000:
+        raise ValueError("Unexpected .bshc header or byte order")
+    total=(nmax+1)*(nmax+2)//2
+    expected=(2+2*total)*8
+    if path.stat().st_size!=expected:
+        raise ValueError(f"Wrong Earth2014 size: expected {expected} bytes")
+    degree=sh_resolve_degree(lmax,nmax)
+    raw=np.memmap(path,dtype="<f8",mode="r",offset=16,shape=(2*total,))
+    c=np.zeros((degree+1,degree+1))
+    s=np.zeros_like(c)
+    for n in range(degree+1):
+        i=n*(n+1)//2
+        c[n,:n+1]=raw[i:i+n+1]
+        s[n,:n+1]=raw[total+i:total+i+n+1]
+    return {"c":c,"s":s,"lmax":degree,"max_degree":nmax,
+            "modelname":"Earth2014 SUR2014","unit":"m"}
+
+
+def sh_scalar_synthesis(coeff, lon, lat, lmax=None, gentle_cut=None):
+    """Synthesize a fully normalized scalar field from dimensionful SHCs.
+
+    Longitude and latitude are 2-D meshgrids; return matching 2-D output.
+    This is appropriate for Earth2014 elevation coefficients (metres).
+    """
+    lon=np.asarray(lon,dtype=float)
+    lat=np.asarray(lat,dtype=float)
+    if lon.shape!=lat.shape or lon.ndim!=2:
+        raise ValueError("lon/lat must be matching 2-D grids")
+    degree=sh_resolve_degree(lmax,coeff["lmax"])
+    w=sh_taper(degree,gentle_cut)
+    out=np.empty_like(lon)
+    m=np.arange(degree+1)
+    cos_m=np.cos(m[:,None]*np.deg2rad(lon[0])[None,:])
+    sin_m=np.sin(m[:,None]*np.deg2rad(lon[0])[None,:])
+    cc,ss=coeff["c"],coeff["s"]
+    for i,phi in enumerate(lat[:,0]):
+        p=sh_legendre(phi,degree)
+        a=np.sum(p[:degree+1,:degree+1]*cc[:degree+1,:degree+1]*
+                 w[:,None],axis=0)
+        b=np.sum(p[:degree+1,:degree+1]*ss[:degree+1,:degree+1]*
+                 w[:,None],axis=0)
+        out[i]=a@cos_m+b@sin_m
+    return out
+
+
+def sh_synthesis_with_topography(model, limits, step, fields, lmax,
+                                 gentle_cut, height, surface, topo,
+                                 directory=None, topo_lmax=None):
+    """Synthesize available gravity fields, optionally adding Earth2014 topo.
+
+    Earth2014 is sought locally only; downloading it always requires a
+    separate explicit call. No hidden network I/O is performed.
+    """
+    if isinstance(fields,str):
+        fields=(fields,)
+    fields=tuple(fields)
+    if topo is None and (surface=="topography" or "topo" in fields):
+        directory=Path(directory) if directory is not None else DEFAULT_DATA_DIR
+        path=directory/"Earth2014.SUR2014.degree10800.bshc"
+        if not path.exists():
+            raise FileNotFoundError(
+                f"Earth2014 missing: {path}. Call sh_download_topography() once.")
+        lon,lat=sh_grid(limits,step)
+        elevation=sh_read_bshc(path,lmax=topo_lmax)
+        topo=sh_scalar_synthesis(elevation,lon,lat)
+    grav_fields=tuple(x for x in fields if x!="topo")
+    if grav_fields:
+        out=sh_synthesis_core(model,limits,step,lmax,gentle_cut,
+                              grav_fields,height,surface,topo)
+    else:
+        lon,lat=sh_grid(limits,step)
+        out={"lon":lon,"lat":lat}
+    if "topo" in fields:
+        out["topo"]=np.broadcast_to(topo,out["lon"].shape).copy()
+    return out
+
+
 class shm:
     """Read a local gravity SH model, or explicitly download an ICGEM .gfc."""
     def __init__(self, model, directory=None, download=False, lmax=None):
@@ -320,8 +441,9 @@ class shm:
 
     def synthesis(self, limits, step=1., fields=("grav_dist",), lmax=None,
                   gentle_cut=None, height=0., surface="sphere", topo=None):
-        return sh_synthesis_core(self.data,limits,step,lmax,gentle_cut,
-                                 fields,height,surface,topo)
+        return sh_synthesis_with_topography(
+            self.data, limits, step, fields, lmax, gentle_cut,
+            height, surface, topo, directory=self.directory)
 
 
 class shm_analysis:
