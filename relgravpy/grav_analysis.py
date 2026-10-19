@@ -3243,3 +3243,13 @@ def lsq_collocation(
     else :
 
         return d_t, aux
+
+# ======================================================================================
+# Spherical Harmonic Models
+# ======================================================================================
+# Algorithms live in sh_core.py to keep the numerical kernel independent of
+# the analysis class interface and to avoid additional runtime dependencies.
+from .sh_core import (shm, shm_analysis, sh_read_gfc, sh_download_model,
+                      sh_resolve_degree, sh_taper, sh_legendre, sh_grid,
+                      sh_ellipsoid_radius, sh_normal_gravity,
+                      sh_synthesis_core, sh_analysis_core)
