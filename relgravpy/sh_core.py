@@ -281,23 +281,42 @@ def sh_synthesis_core(model, limits, step, lmax=None, gentle_cut=None,
     dg=np.zeros_like(lon)
     grad=np.zeros_like(lon)
     for i in range(lat.shape[0]):
-        # The topography is allowed to vary in longitude: compute lat_gc
-        # and Legendre functions separately where necessary.
-        for j in range(lon.shape[1]):
-            p=sh_legendre(phi_gc[i,j],degree)
-            x=model["radius"]/r[i,j]
-            radial=1.0
+        if np.all(phi_gc[i] == phi_gc[i,0]):
+            # Constant geocentric latitude across the row: compute Legendre
+            # functions only once, then vectorize over longitude.
+            p=sh_legendre(phi_gc[i,0],degree)
+            radial=np.ones(lon.shape[1])
+            x=model["radius"]/r[i]
             for n in range(degree+1):
-                if n>0:
-                    radial*=x
-                harmonics=delta_c[n,:n+1]*trigc[:n+1,j]+delta_s[n,:n+1]*trigs[:n+1,j]
-                hnm=w[n]*radial*np.dot(p[n,:n+1],harmonics)
-                pot[i,j]+=hnm
-                dg[i,j]+=(n+1)*hnm
-                grad[i,j]+=(n+1)*(n+2)*hnm
-        pot[i,:]*=model["gm"]/r[i,:]
-        dg[i,:]*=model["gm"]/r[i,:]**2
-        grad[i,:]*=-model["gm"]/r[i,:]**3
+                if n:
+                    radial *= x
+                hnm=p[n,:n+1] @ (
+                    delta_c[n,:n+1,None]*trigc[:n+1] +
+                    delta_s[n,:n+1,None]*trigs[:n+1]
+                )
+                hnm=w[n]*radial*hnm
+                pot[i]+=hnm
+                dg[i]+=(n+1)*hnm
+                grad[i]+=(n+1)*(n+2)*hnm
+        else:
+            # Longitude-varying topography requires a distinct radius and
+            # geocentric latitude at each evaluation point.
+            for j in range(lon.shape[1]):
+                p=sh_legendre(phi_gc[i,j],degree)
+                x=model["radius"]/r[i,j]
+                radial=1.0
+                for n in range(degree+1):
+                    if n:
+                        radial*=x
+                    harmonics=(delta_c[n,:n+1]*trigc[:n+1,j]+
+                               delta_s[n,:n+1]*trigs[:n+1,j])
+                    hnm=w[n]*radial*np.dot(p[n,:n+1],harmonics)
+                    pot[i,j]+=hnm
+                    dg[i,j]+=(n+1)*hnm
+                    grad[i,j]+=(n+1)*(n+2)*hnm
+        pot[i]*=model["gm"]/r[i]
+        dg[i]*=model["gm"]/r[i]**2
+        grad[i]*=-model["gm"]/r[i]**3
     if "potential" in results:
         results["potential"]=pot  # m2/s2, disturbing potential
     if "grav_dist" in results:
@@ -498,10 +517,12 @@ class shm:
         self.data=sh_read_gfc(self.path,lmax=lmax)
 
     def synthesis(self, limits, step=1., fields=("grav_dist",), lmax=None,
-                  gentle_cut=None, height=0., surface="sphere", topo=None):
+                  gentle_cut=None, height=0., surface="ellipsoid", topo=None,
+                  topo_lmax=None):
         return sh_synthesis_with_topography(
             self.data, limits, step, fields, lmax, gentle_cut,
-            height, surface, topo, directory=self.directory)
+            height, surface, topo, directory=self.directory,
+            topo_lmax=topo_lmax)
 
 
 class shm_analysis:
