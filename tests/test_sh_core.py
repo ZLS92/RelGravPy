@@ -33,23 +33,25 @@ def test_linear_scalar_analysis_recovers_degree_one():
 
 
 def test_quadrupole_radial_field():
-    # Pure degree 2, order 0: compare with the analytical radial derivative.
+    # Pure perturbation of normal quadrupole, checked against analytical
+    # spherical derivatives; the reference C00 and even zonals are removed.
+    gm=sh_core.GM_WGS84
+    radius=sh_core.A_WGS84
     model = {
         "c": np.zeros((3,3)), "s": np.zeros((3,3)),
-        "gm": 3.986004418e14, "radius": 6378137.,
-        "lmax": 2
+        "gm": gm, "radius": radius, "lmax": 2
     }
-    model["c"][2,0] = 1e-6
+    model["c"][0,0] = 1.0
+    model["c"][2,0] = sh_core.sh_wgs84_normal_zonals(gm,radius,2)[2]+1e-6
     result = sh_core.sh_synthesis_core(
         model, [-5,5,0,0], step=5, lmax=2,
         fields=("potential","grav_dist","grav_gradient"), surface="sphere"
     )
-    expected_p20 = -np.sqrt(5.)/2
-    expected_potential = model["gm"]/model["radius"]*1e-6*expected_p20
+    expected_p20=-np.sqrt(5.)/2.
+    expected_potential=gm/radius*1e-6*expected_p20
     np.testing.assert_allclose(result["potential"], expected_potential)
     np.testing.assert_allclose(
-        result["grav_dist"],
-        expected_potential*3/model["radius"]*1e5)
+        result["grav_dist"], expected_potential*3/radius*1e5)
     np.testing.assert_allclose(
         result["grav_gradient"],
-        expected_potential*12/model["radius"]**2*1e9)
+        -expected_potential*12/radius**2*1e9)
