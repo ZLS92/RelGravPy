@@ -194,67 +194,125 @@ def sh_normal_gravity(lat):
     return 9.7803253359*(1+k*np.sin(phi)**2)/np.sqrt(1-e2*np.sin(phi)**2)
 
 
-def sh_synthesis_core(model, limits, step, lmax=None, gentle_cut=None,
-                      fields=("grav_dist",), height=0.0, surface="sphere",
-                      topo=None):
-    """Spherical approximation: T, radial disturbance, and radial gradient.
 
-    T uses degrees >=2 after subtraction of the reference model's
-    monopole/dipole; reference ellipsoid and centrifugal effects must be
-    handled separately for physical geoid or absolute-gravity products.
+def sh_wgs84_normal_zonals(gm, radius, lmax):
+    """Fully-normalized zonal coefficients of the WGS84 normal potential.
+
+    Coefficients follow the even-zonal J2n formula of physical geodesy.
+    Scaled to the GM and reference radius of the external .gfc model.
+    """
+    j2=1.08262982131e-3
+    e2=F_WGS84*(2-F_WGS84)
+    out=np.zeros(lmax+1)
+    for n in range(1,lmax//2+1):
+        k=2*n
+        j2n=((-1)**(n+1) * 3*(e2**n)/((k+1)*(k+3)) *
+             (1-n+5*n*j2/e2))
+        out[k]=-j2n/np.sqrt(2*k+1) * (GM_WGS84/gm) * (A_WGS84/radius)**k
+    return out
+
+
+def sh_geocentric_coordinates(lat, height):
+    """Geocentric latitude/radius for WGS84 geodetic latitude and height."""
+    ph=np.deg2rad(np.asarray(lat,dtype=float))
+    e2=F_WGS84*(2-F_WGS84)
+    N=A_WGS84/np.sqrt(1-e2*np.sin(ph)**2)
+    x=(N+height)*np.cos(ph)
+    z=(N*(1-e2)+height)*np.sin(ph)
+    return np.rad2deg(np.arctan2(z,x)),np.hypot(x,z)
+
+
+def sh_normal_gravity_height(lat, height):
+    """Second-order WGS84 normal gravity continuation above ellipsoid [m/s2]."""
+    ph=np.deg2rad(np.asarray(lat,dtype=float))
+    m=OMEGA_WGS84**2*A_WGS84**2*(A_WGS84*(1-F_WGS84))/GM_WGS84
+    q=1+F_WGS84+m-2*F_WGS84*np.sin(ph)**2
+    h=np.asarray(height,dtype=float)
+    return sh_normal_gravity(lat)*(1-2*q*h/A_WGS84+3*(h/A_WGS84)**2)
+
+
+def sh_synthesis_core(model, limits, step, lmax=None, gentle_cut=None,
+                      fields=("grav_dist",), height=0.0, surface="ellipsoid",
+                      topo=None):
+    """Spherical harmonic synthesis with WGS84 even-zonal normal-field removal.
+
+    Uses Bruns' formula for geoid undulation, radial gravity disturbance
+    and spherical gravity anomaly, and a second-order WGS84 height formula
+    for approximate absolute gravity. It does not reproduce the exact ICGEM
+    ellipsoidal computation (which includes spherical-to-ellipsoidal gravity
+    component projection, zero-degree geoid convention and tide systems).
     """
     if isinstance(fields,str):
         fields=(fields,)
-    allowed={"potential","grav_dist","grav_gradient"}
+    allowed={"potential","geoid","abs_grav","grav_dist","free_air","grav_gradient"}
     if set(fields)-allowed:
-        raise NotImplementedError("Reference spherical kernel supports only "+str(sorted(allowed)))
+        raise ValueError(f"Unsupported fields: {sorted(set(fields)-allowed)}")
     lon,lat=sh_grid(limits,step)
     degree=sh_resolve_degree(lmax,model["lmax"])
     w=sh_taper(degree,gentle_cut)
-    topo_array = np.zeros_like(lon) if topo is None else np.broadcast_to(topo,lon.shape)
-    if surface == "sphere":
-        rad=np.full_like(lon,model["radius"])+height
-    elif surface == "ellipsoid":
-        rad=sh_ellipsoid_radius(lat)+height
-    elif surface == "topography":
+    h=np.broadcast_to(np.asarray(height,dtype=float),lat.shape).copy()
+    if surface == "topography":
         if topo is None:
-            raise ValueError("surface='topography' needs topography heights in metres")
-        rad=sh_ellipsoid_radius(lat)+topo_array+height
-    elif surface == "mean_sea_level":
-        rad=sh_ellipsoid_radius(lat)+height
+            raise ValueError("topography surface requires explicit topo heights")
+        h += np.broadcast_to(topo,lat.shape)
+    elif surface not in ("ellipsoid","sphere","mean_sea_level"):
+        raise ValueError("Unknown surface")
+    if surface == "sphere":
+        r=np.full_like(lat,model["radius"])+h
+        phi_gc=lat.copy()
     else:
-        raise ValueError("surface must be sphere, ellipsoid, topography or mean_sea_level")
-    res={name:np.zeros_like(lon) for name in fields}
-    c,s=model["c"],model["s"]
+        # Approximate MSL by WGS84 ellipsoid: precise geoid is not obtained
+        # until the iterative surface geometry has been implemented.
+        phi_gc,r=sh_geocentric_coordinates(lat,h)
+
+    delta_c=model["c"][:degree+1,:degree+1].copy()
+    delta_s=model["s"][:degree+1,:degree+1]
+    delta_c[0,0] -= GM_WGS84/model["gm"]
+    reference=sh_wgs84_normal_zonals(model["gm"],model["radius"],degree)
+    for n in range(2,degree+1,2):
+        delta_c[n,0]-=reference[n]
+    # Degree 1 is kept if the ICGEM model's reference origin differs.
+    results={name:np.zeros_like(lon) for name in fields}
+    longs=np.deg2rad(lon[0])
     order=np.arange(degree+1)
-    longitude_rad=np.deg2rad(lon[0])
-    trigc=np.cos(order[:,None]*longitude_rad[None,:])
-    trigs=np.sin(order[:,None]*longitude_rad[None,:])
-    # Radius may vary by longitude over a topographic surface, hence per-point
-    # radial factors and no assumption of longitude-independent radii.
-    for i,latv in enumerate(lat[:,0]):
-        p=sh_legendre(latv,degree)
-        radial=(model["radius"]/rad[i])[None,:]**np.arange(degree+1)[:,None]
-        for m in range(degree+1):
-            ph= c[m:degree+1,m,None]*trigc[m]+s[m:degree+1,m,None]*trigs[m]
-            for j,n in enumerate(range(m,degree+1)):
-                if n<2:
-                    continue
-                scalar=w[n]*p[n,m]*ph[j]*radial[n]
-                if "potential" in res:
-                    res["potential"][i] += scalar
-                if "grav_dist" in res:
-                    res["grav_dist"][i] += (n+1)*scalar
-                if "grav_gradient" in res:
-                    res["grav_gradient"][i] += (n+1)*(n+2)*scalar
-        fac=model["gm"]/rad[i]
-        if "potential" in res:
-            res["potential"][i]*=fac
-        if "grav_dist" in res:
-            res["grav_dist"][i]*=fac/rad[i]*1e5
-        if "grav_gradient" in res:
-            res["grav_gradient"][i]*=fac/(rad[i]**2)*1e9
-    return {"lon":lon,"lat":lat,**res}
+    trigc=np.cos(order[:,None]*longs[None,:])
+    trigs=np.sin(order[:,None]*longs[None,:])
+    pot=np.zeros_like(lon)
+    dg=np.zeros_like(lon)
+    grad=np.zeros_like(lon)
+    for i in range(lat.shape[0]):
+        # The topography is allowed to vary in longitude: compute lat_gc
+        # and Legendre functions separately where necessary.
+        for j in range(lon.shape[1]):
+            p=sh_legendre(phi_gc[i,j],degree)
+            x=model["radius"]/r[i,j]
+            radial=1.0
+            for n in range(degree+1):
+                if n>0:
+                    radial*=x
+                harmonics=delta_c[n,:n+1]*trigc[:n+1,j]+delta_s[n,:n+1]*trigs[:n+1,j]
+                hnm=w[n]*radial*np.dot(p[n,:n+1],harmonics)
+                pot[i,j]+=hnm
+                dg[i,j]+=(n+1)*hnm
+                grad[i,j]+=(n+1)*(n+2)*hnm
+        pot[i,:]*=model["gm"]/r[i,:]
+        dg[i,:]*=model["gm"]/r[i,:]**2
+        grad[i,:]*=-model["gm"]/r[i,:]**3
+    if "potential" in results:
+        results["potential"]=pot  # m2/s2, disturbing potential
+    if "grav_dist" in results:
+        results["grav_dist"]=dg*1e5
+    if "geoid" in results:
+        results["geoid"]=pot/sh_normal_gravity(lat)
+    if "free_air" in results:
+        # Spherical approximation to the gravity anomaly, not identical
+        # to the ICGEM ellipsoidal free-air computation.
+        results["free_air"]=(dg-2*pot/r)*1e5
+    if "abs_grav" in results:
+        results["abs_grav"]=(sh_normal_gravity_height(lat,h)+dg)*1e5
+    if "grav_gradient" in results:
+        results["grav_gradient"]=grad*1e9
+    return {"lon":lon,"lat":lat,**results}
 
 
 def sh_analysis_core(lon, lat, values, lmax, radius=6378136.3,
