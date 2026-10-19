@@ -64,3 +64,33 @@ def test_quadrupole_radial_field():
     np.testing.assert_allclose(
         result["grav_gradient"],
         -expected_potential*12/radius**2*1e9)
+
+
+def test_wgs84_c20_reference():
+    # Published fully normalized WGS84 second zonal coefficient.
+    c20=sh_core.sh_wgs84_normal_zonals(
+        sh_core.GM_WGS84, sh_core.A_WGS84, 2)[2]
+    assert c20 == pytest.approx(-0.484166774985e-3, abs=5e-15)
+
+
+def test_global_fft_analysis_low_degrees():
+    # Independent closed-form l=0,1 reference field, on a 1-degree global grid.
+    lon=np.arange(-180.,180.,1.)
+    lat=np.linspace(-90.,90.,181)
+    xx,yy=np.meshgrid(lon,lat)
+    phi=np.deg2rad(yy)
+    lam=np.deg2rad(xx)
+    values=(5.+2.*np.sqrt(3.)*np.sin(phi)+
+            3.*np.sqrt(3.)*np.cos(phi)*np.cos(lam))
+    result=sh_core.sh_analysis_fft(xx,yy,values,lmax=1)
+    assert result["c"][0,0] == pytest.approx(5.,abs=1e-10)
+    assert result["c"][1,0] == pytest.approx(2.,abs=3e-4)
+    assert result["c"][1,1] == pytest.approx(3.,abs=3e-4)
+    assert result["s"][1,1] == pytest.approx(0.,abs=1e-10)
+
+
+def test_legendre_degree_3_analytic_equator():
+    p=sh_core.sh_legendre(0,3)
+    # No Condon-Shortley phase, 4-pi geodetic normalization.
+    assert p[3,0] == pytest.approx(0.,abs=1e-14)
+    assert p[3,1] == pytest.approx(-np.sqrt(42.)/4,abs=1e-14)
