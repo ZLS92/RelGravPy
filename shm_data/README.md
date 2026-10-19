@@ -35,13 +35,30 @@ result = model.synthesis(
 )
 ```
 
+For a topographic SH surface, explicitly download Earth2014 first:
+
+```python
+ga.sh_download_topography()  # ~933 MB, one-time download to shm_data
+model = ga.shm("EIGEN-6C4")   # offline
+result = model.synthesis(
+    limits=[8, 12, 44, 47], step=1.0, lmax=60,
+    fields=("topo", "grav_dist"),
+    surface="topography",
+)
+```
+
+Earth2014 `.bshc` files are read using an efficient memmap and truncated
+to the selected degree, although full-resolution synthesis is currently very
+slow and memory intensive.
+
 Important: this is a **reference kernel under development**, not a validated
 ICGEM-compatible geodesy engine. Its current `grav_dist` field is the radial
 contribution from degrees >=2 relative to the spherical monopole, **not yet the
 physical gravity disturbance relative to WGS84 normal gravity**. Its
 `grav_gradient` is the radial derivative of that degree>=2 field (Eötvös).
-The functions for geoid, absolute gravity and free-air anomaly and automatic
-Earth2014 topography synthesis have not yet been implemented. Do not treat
+The functions for geoid, absolute gravity and free-air anomaly have not yet been implemented. Earth2014 topography
+synthesis is available, but has not yet been numerically validated against
+independent reference points. Do not treat
 `surface="mean_sea_level"` as a precise geoid-height surface; it currently uses
 the WGS84 ellipsoid radius. Regional least-squares coefficient analysis may
 be ill-conditioned and is not equivalent to an exact global SH transform.
