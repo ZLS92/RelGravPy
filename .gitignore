@@ -27,3 +27,10 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Offline spherical harmonic model cache (large third-party datasets)
+shm_data/*.gfc
+shm_data/*.zip
+shm_data/*.bshc
+shm_data/*.part
+shm_data/*.npz
