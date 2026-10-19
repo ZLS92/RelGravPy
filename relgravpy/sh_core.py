@@ -18,6 +18,8 @@ GM_WGS84 = 3.986004418e14
 OMEGA_WGS84 = 7.292115e-5
 
 MODEL_URLS = {
+    "EIGEN-6C4": "https://icgem.gfz.de/getmodel/gfc/7fd8fe44aa1518cd79ca84300aef4b41ddb2364aef9e82b7cdaabdb60a9053f1/EIGEN-6C4.gfc",
+    "EIGENC4": "https://icgem.gfz.de/getmodel/gfc/7fd8fe44aa1518cd79ca84300aef4b41ddb2364aef9e82b7cdaabdb60a9053f1/EIGEN-6C4.gfc",
     "WHU-CASM-UGM2025_2159": "https://icgem.gfz.de/getmodel/gfc/82962bb8156bfbf074b8f97bf558ac0e0ee5e481c864a29441fb0f68ddb26be2/WHU-CASM-UGM2025_2159.gfc",
 }
 DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "shm_data"
@@ -86,7 +88,8 @@ def sh_download_model(name, directory=None, overwrite=False):
         raise KeyError(f"No verified direct download URL registered for {name!r}")
     directory = Path(directory) if directory is not None else DEFAULT_DATA_DIR
     directory.mkdir(parents=True, exist_ok=True)
-    dest = directory / (name + ".gfc")
+    canonical = "EIGEN-6C4" if name == "EIGENC4" else name
+    dest = directory / (canonical + ".gfc")
     if dest.exists() and not overwrite:
         return dest
     temp = dest.with_suffix(".gfc.part")
@@ -308,7 +311,7 @@ class shm:
         self.directory=Path(directory) if directory is not None else DEFAULT_DATA_DIR
         self.path=Path(model)
         if not self.path.is_file():
-            self.path=self.directory/(str(model)+".gfc")
+            self.path=self.directory/(("EIGEN-6C4" if str(model) == "EIGENC4" else str(model))+".gfc")
         if not self.path.is_file() and download:
             self.path=sh_download_model(str(model),self.directory)
         if not self.path.is_file():
