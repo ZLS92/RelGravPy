@@ -334,8 +334,61 @@ def sh_synthesis_core(model, limits, step, lmax=None, gentle_cut=None,
     return {"lon":lon,"lat":lat,**results}
 
 
+
+def sh_analysis_fft(lon, lat, values, lmax):
+    """Global scalar SH analysis using longitude FFT and latitude quadrature.
+
+    Requires a full 360-degree periodic longitude grid with no duplicate
+    endpoint, and latitude coverage from pole to pole. On equiangular
+    latitudes the area integral uses trapezoidal integration in sin(lat)
+    and is approximate, not an exact Gauss-Legendre transform.
+    """
+    lon=np.asarray(lon,dtype=float)
+    lat=np.asarray(lat,dtype=float)
+    values=np.asarray(values,dtype=float)
+    if not (lon.ndim==lat.ndim==values.ndim==2 and
+            lon.shape==lat.shape==values.shape):
+        raise ValueError("lon, lat and values must be matching 2-D grids")
+    ny,nx=values.shape
+    if nx < 2*lmax+1 or ny < lmax+1:
+        raise ValueError("Grid undersampled for requested degree")
+    if np.any(~np.isfinite(values)):
+        raise ValueError("FFT analysis does not accept NaNs")
+    lons=lon[0]
+    lats=lat[:,0]
+    step=np.diff(lons)
+    if not np.allclose(step,step[0],rtol=1e-7,atol=1e-10):
+        raise ValueError("Longitude grid must be regular")
+    if abs(abs(step[0])*nx-360)>1e-6:
+        raise ValueError("Longitude must span a complete 360-degree period")
+    if not (abs(np.min(lats)+90)<1e-6 and
+            abs(np.max(lats)-90)<1e-6):
+        raise ValueError("Latitude range must cover both poles")
+    if not np.allclose(lon,lons[None,:]) or not np.allclose(lat,lats[:,None]):
+        raise ValueError("Longitude/latitude must be separable meshgrid")
+    u=np.sin(np.deg2rad(lats))
+    du=np.abs(np.diff(u))
+    ww=np.zeros(ny)
+    ww[:-1]+=du/2.
+    ww[1:]+=du/2.
+    # The factor exp(-i m lambda0) accounts for arbitrary longitude start.
+    ft=np.fft.rfft(values,axis=1)/nx
+    mm=np.arange(lmax+1)
+    ft=ft[:,:lmax+1]*np.exp(-1j*mm[None,:]*np.deg2rad(lons[0]))
+    cc=np.zeros((lmax+1,lmax+1))
+    ss=np.zeros_like(cc)
+    for i,phi in enumerate(lats):
+        p=sh_legendre(phi,lmax)
+        for n in range(lmax+1):
+            cc[n,:n+1]+=.5*ww[i]*p[n,:n+1]*ft[i,:n+1].real
+            ss[n,1:n+1]-=.5*ww[i]*p[n,1:n+1]*ft[i,1:n+1].imag
+    return {"c":cc,"s":ss,"lmax":lmax,
+            "method":"fft_trapezoid","latitude_quadrature":"trapezoid"}
+
+
+
 def sh_analysis_core(lon, lat, values, lmax, radius=6378136.3,
-                     normalization="fully_normalized"):
+                     normalization="fully_normalized", method="auto"):
     """Least-squares scalar SH analysis on a gridded surface.
 
     For regional grids this solution is non-unique and potentially ill-
@@ -348,6 +401,17 @@ def sh_analysis_core(lon, lat, values, lmax, radius=6378136.3,
     values=np.asarray(values,dtype=float)
     if not (lon.shape==lat.shape==values.shape):
         raise ValueError("lon/lat/values shapes differ")
+    if method not in ("auto","lstsq","fft"):
+        raise ValueError("method must be 'auto', 'lstsq' or 'fft'")
+    if method in ("auto","fft"):
+        try:
+            result=sh_analysis_fft(lon,lat,values,int(lmax))
+        except ValueError:
+            if method=="fft":
+                raise
+        else:
+            result["radius"]=radius
+            return result
     mask=np.isfinite(lon)&np.isfinite(lat)&np.isfinite(values)
     if not np.any(mask):
         raise ValueError("No finite data")
@@ -363,6 +427,10 @@ def sh_analysis_core(lon, lat, values, lmax, radius=6378136.3,
             terms.append((n,m,"c"))
             if m:
                 terms.append((n,m,"s"))
+    if yy.size*k*8>512*1024**2:
+        raise MemoryError(
+            "Least-squares design matrix exceeds 512 MiB. Use a full "
+            "global grid and method='fft', or reduce lmax.")
     A=np.zeros((yy.size,k),float)
     for ii,latitude in enumerate(ylat):
         if latitude not in p_cache:
@@ -532,5 +600,6 @@ class shm_analysis:
         self.lat=np.asarray(lat)
         self.values=np.asarray(values)
 
-    def analyze(self, lmax):
-        return sh_analysis_core(self.lon,self.lat,self.values,lmax)
+    def analyze(self, lmax, method="auto"):
+        return sh_analysis_core(self.lon,self.lat,self.values,lmax,
+                                method=method)
