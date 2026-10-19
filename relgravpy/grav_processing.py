@@ -998,7 +998,6 @@ def line_remres( xyzl,
     # -------------------------------------------------------------------------
     # Plots
     if plot is True :
-
         plt.close("Data_Lev_Plot")
         plt.figure("Data_Lev_Plot", figsize=(9, 4))
 
@@ -1881,6 +1880,311 @@ def grav_drift_poly(
     return gobs_corr, drift_curv
 
 # -----------------------------------------------------------------------------
+
+# -----------------------------------------------------------------------------
+def grav_drift_slope(
+    stations,
+    gobs,
+    datetime=None,
+    date=None,
+    time=None,
+    deg=1,
+    DateTimeFormat='datetime64[s]',
+    ignore_st=None,
+    plot=False,
+    plt_datetitle='',
+    return_details=False,
+    ):
+    """
+    Estimate and remove instrumental drift using the USGS repeat-station
+    drift-rate ("slope") approach.
+
+    For each station occupied more than once, the drift rate is estimated from
+    each pair of consecutive occupations of that station:
+
+        drift_rate = (g2 - g1) / (t2 - t1)
+
+    The rate is assigned to the midpoint between the two occupations, following
+    the approach illustrated in figure 5 of Kennedy et al. (2021, USGS
+    Techniques and Methods 2-D4). A polynomial is then fitted to the drift-rate
+    estimates and analytically integrated to obtain cumulative drift through
+    time. The cumulative drift is set to zero at the first observation.
+
+    This differs from :func:`grav_drift_poly`, which fits a polynomial
+    directly to reconstructed drift control points. Here the polynomial is
+    fitted to the *drift rate*. Consequently:
+
+    - ``deg=0`` -> constant drift rate -> linear cumulative drift;
+    - ``deg=1`` -> linearly changing drift rate -> quadratic cumulative drift.
+
+    Parameters
+    ----------
+    stations : array-like
+        Station name/identifier for each gravity observation.
+
+    gobs : array-like of float
+        Observed gravity values in mGal.
+
+    datetime : array-like, optional
+        Full timestamps for each observation. Strings are converted to
+        ``numpy.datetime64[s]``. If None, both ``date`` and ``time`` must be
+        provided.
+
+    date, time : array-like of str, optional
+        Date and time arrays used only when ``datetime`` is None.
+
+    deg : int, default=1
+        Degree of the polynomial fitted to the drift-rate estimates.
+
+    DateTimeFormat : str, default='datetime64[s]'
+        Time representation. Supported values are a string containing
+        ``'datetime64'`` or ``'seconds'``.
+
+    ignore_st : sequence, optional
+        Stations excluded from drift-rate estimation.
+
+    plot : bool, default=False
+        If True, plot the repeat-station drift-rate estimates, fitted drift-rate
+        model, and cumulative drift curve.
+
+    plt_datetitle : str, default=''
+        Optional text appended to the plot title.
+
+    return_details : bool, default=False
+        If True, also return a dictionary containing the raw repeat-station
+        slopes and fitted polynomial coefficients.
+
+    Returns
+    -------
+    gobs_corr : numpy.ndarray
+        Drift-corrected gravity observations, in mGal.
+
+    drift_curv : numpy.ndarray
+        Estimated cumulative drift at each observation time, in mGal.
+
+    details : dict, optional
+        Returned only when ``return_details=True``. Contains the station names,
+        start/end indices, midpoint times, raw drift rates in mGal/hour,
+        modeled rates in mGal/hour, polynomial coefficients, and polynomial
+        degree.
+
+    Notes
+    -----
+    The slope method estimates only the continuous component of meter drift.
+    Abrupt tares are not explicitly represented and should be identified and
+    treated separately before, or during, network adjustment.
+
+    References
+    ----------
+    Kennedy, J.R., Pool, D.R., and Carruth, R.L., 2021, Procedures for field
+    data collection, processing, quality assurance and quality control, and
+    archiving of relative- and absolute-gravity surveys: U.S. Geological
+    Survey Techniques and Methods, book 2, chap. D4.
+    """
+
+    # ------------------------------------------------------------
+    # Build datetime / numerical time
+    # ------------------------------------------------------------
+    if datetime is None:
+        if date is None or time is None:
+            raise ValueError(
+                "If 'datetime' is None, 'date' and 'time' must be provided."
+            )
+        datetime_str = np.char.add(np.asarray(date, dtype=str), 'T')
+        datetime_str = np.char.add(datetime_str, np.asarray(time, dtype=str))
+        datetime = datetime_str.astype('datetime64[s]')
+    else:
+        datetime = np.asarray(datetime)
+        if datetime.dtype.kind in {'U', 'S'}:
+            datetime = datetime.astype('datetime64[s]')
+
+    if 'datetime64' in DateTimeFormat:
+        if not np.issubdtype(datetime.dtype, np.datetime64):
+            datetime = datetime.astype('datetime64[s]')
+        time_sec = (
+            datetime - np.datetime64('1970-01-01T00:00:00')
+        ) / np.timedelta64(1, 's')
+        time_sec = np.asarray(time_sec, dtype=float)
+    elif DateTimeFormat == 'seconds':
+        time_sec = np.asarray(datetime, dtype=float)
+    else:
+        raise ValueError(
+            "Unsupported DateTimeFormat. Use 'datetime64[s]' or 'seconds'."
+        )
+
+    # ------------------------------------------------------------
+    # Input checks and time sorting
+    # ------------------------------------------------------------
+    stations = np.asarray(stations)
+    gobs = np.asarray(gobs, dtype=float)
+
+    if stations.ndim != 1 or gobs.ndim != 1 or time_sec.ndim != 1:
+        raise ValueError("'stations', 'gobs', and time must be one-dimensional.")
+    if not (len(stations) == len(gobs) == len(time_sec)):
+        raise ValueError(
+            "'stations', 'gobs', and time arrays must have the same length."
+        )
+    if len(gobs) < 2:
+        raise ValueError("At least two gravity observations are required.")
+
+    deg = int(deg)
+    if deg < 0:
+        raise ValueError("'deg' must be >= 0.")
+
+    idx_sort = np.argsort(time_sec)
+    stations = stations[idx_sort]
+    gobs = gobs[idx_sort]
+    time_sec = time_sec[idx_sort]
+
+    ignore_st = set() if ignore_st is None else set(ignore_st)
+
+    # ------------------------------------------------------------
+    # Estimate drift rates from consecutive occupations of each
+    # repeated station. Rates are expressed in mGal/hour and located
+    # at the midpoint of the corresponding occupation pair.
+    # ------------------------------------------------------------
+    slope_station = []
+    slope_idx1 = []
+    slope_idx2 = []
+    slope_mid_sec = []
+    slope_rate = []
+
+    # Preserve first-occurrence station order instead of sorting station labels.
+    unique_stations = []
+    for s in stations:
+        if s not in unique_stations:
+            unique_stations.append(s)
+
+    for s in unique_stations:
+        if s in ignore_st:
+            continue
+
+        idxs = np.where(stations == s)[0]
+        if len(idxs) < 2:
+            continue
+
+        for i1, i2 in zip(idxs[:-1], idxs[1:]):
+            dt_sec = time_sec[i2] - time_sec[i1]
+
+            if not np.isfinite(dt_sec) or dt_sec <= 0:
+                continue
+            if not (np.isfinite(gobs[i1]) and np.isfinite(gobs[i2])):
+                continue
+
+            dt_hour = dt_sec / 3600.0
+            rate = (gobs[i2] - gobs[i1]) / dt_hour
+
+            slope_station.append(s)
+            slope_idx1.append(i1)
+            slope_idx2.append(i2)
+            slope_mid_sec.append(0.5 * (time_sec[i1] + time_sec[i2]))
+            slope_rate.append(rate)
+
+    slope_station = np.asarray(slope_station)
+    slope_idx1 = np.asarray(slope_idx1, dtype=int)
+    slope_idx2 = np.asarray(slope_idx2, dtype=int)
+    slope_mid_sec = np.asarray(slope_mid_sec, dtype=float)
+    slope_rate = np.asarray(slope_rate, dtype=float)
+
+    n_slopes = len(slope_rate)
+    if n_slopes == 0:
+        raise ValueError(
+            "No valid repeat-station pairs are available for slope drift "
+            "estimation."
+        )
+    if n_slopes < deg + 1:
+        raise ValueError(
+            f"Polynomial degree {deg} requires at least {deg + 1} valid "
+            f"drift-rate estimates; only {n_slopes} are available."
+        )
+
+    # ------------------------------------------------------------
+    # Fit drift-rate model in elapsed hours from the first observation.
+    # Working in hours keeps the polynomial numerically well scaled and
+    # matches the usual drift-rate units used in field practice.
+    # ------------------------------------------------------------
+    t0_sec = time_sec[0]
+    t_mid_hour = (slope_mid_sec - t0_sec) / 3600.0
+    t_all_hour = (time_sec - t0_sec) / 3600.0
+
+    rate_coeff = np.polyfit(t_mid_hour, slope_rate, deg=deg)
+    rate_model = np.polyval(rate_coeff, t_all_hour)
+
+    # Integrate drift rate [mGal/hour] over elapsed hours -> drift [mGal].
+    drift_coeff = np.polyint(rate_coeff)
+    drift_curv = np.polyval(drift_coeff, t_all_hour)
+    drift_curv -= np.polyval(drift_coeff, 0.0)
+
+    # ------------------------------------------------------------
+    # Apply drift correction
+    # ------------------------------------------------------------
+    gobs_corr = gobs - drift_curv
+
+    # ------------------------------------------------------------
+    # Optional plot, conceptually following USGS figure 5:
+    # drift-rate estimates at pair midpoints plus the integrated drift.
+    # ------------------------------------------------------------
+    if plot:
+        if 'datetime64' in DateTimeFormat:
+            x_all = np.array([
+                dt.datetime.fromtimestamp(t, dt.timezone.utc)
+                for t in time_sec
+            ])
+            x_mid = np.array([
+                dt.datetime.fromtimestamp(t, dt.timezone.utc)
+                for t in slope_mid_sec
+            ])
+            xlabel = 'DateTime'
+        else:
+            x_all = time_sec
+            x_mid = slope_mid_sec
+            xlabel = 'Time [s]'
+
+        fig, ax = plt.subplots(2, 1, figsize=(10, 8), sharex=True)
+
+        ax[0].plot(
+            x_mid, slope_rate, 'o',
+            label='Repeat-station slopes'
+        )
+        ax[0].plot(
+            x_all, rate_model, 'k--', linewidth=2,
+            label=f'Drift-rate model (deg={deg})'
+        )
+        ax[0].set_ylabel('Drift rate [mGal/hour]')
+        ax[0].grid(True)
+        ax[0].legend()
+
+        ax[1].plot(
+            x_all, drift_curv, 'k-', linewidth=2,
+            label='Cumulative drift'
+        )
+        ax[1].set_xlabel(xlabel)
+        ax[1].set_ylabel('Drift [mGal]')
+        ax[1].grid(True)
+        ax[1].legend()
+
+        fig.suptitle(f'USGS slope drift model {plt_datetitle}'.strip())
+        if 'datetime64' in DateTimeFormat:
+            fig.autofmt_xdate()
+        fig.tight_layout()
+
+    if return_details:
+        details = {
+            'station': slope_station,
+            'idx_start': slope_idx1,
+            'idx_end': slope_idx2,
+            'time_mid_sec': slope_mid_sec,
+            'drift_rate_mgal_h': slope_rate,
+            'model_rate_mgal_h': rate_model,
+            'rate_poly_coeff': rate_coeff,
+            'degree': deg,
+        }
+        return gobs_corr, drift_curv, details
+
+    return gobs_corr, drift_curv
+
+# -----------------------------------------------------------------------------
+
 def lsq_obs_adj(observations, n_stations, n_links=1, drift=False, k=False):
     """
     Performs least squares adjustment of relative gravity measurments, with optional estimation
@@ -2998,7 +3302,6 @@ def grav_net_lsqadj(
             estimate_new = float(
                 sub_g_est[local_index]
             )
-
             relative_std_new = float(
                 sub_relative_std[local_index]
             )
