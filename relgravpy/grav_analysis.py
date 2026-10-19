@@ -3252,4 +3252,6 @@ def lsq_collocation(
 from .sh_core import (shm, shm_analysis, sh_read_gfc, sh_download_model,
                       sh_resolve_degree, sh_taper, sh_legendre, sh_grid,
                       sh_ellipsoid_radius, sh_normal_gravity,
-                      sh_synthesis_core, sh_analysis_core)
+                      sh_synthesis_core, sh_analysis_core,
+                      sh_download_topography, sh_read_bshc,
+                      sh_scalar_synthesis, sh_synthesis_with_topography)
