@@ -95,6 +95,46 @@ def _geodetic_factors(lat, elevation):
             values[(n,m)] = -scale*(north_proj*(-dp)+up_proj*n*p)
     return values
 
+
+def _elastic_amplitudes(lat, degrees, orders, freq_deg_h):
+    """Wahr-Dehant-Zschau gravimetric factors including diurnal FCN."""
+    # Based on Dehant (1987), coefficients reported by ETERNA ETLOVE.
+    baseline=np.array((1.1576,1.1542,1.1600,
+                       1.0728,1.0728,1.0728,1.0728,
+                       1.0363,1.0363,1.0363,1.0363,1.0363))
+    plus=np.array((-0.0016,-0.0018,-0.0010,
+                   0.,0.,0.,-0.0010,
+                   0.,0.,0.,0.,-0.000315))
+    minus=np.array((0.0054,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.,0.))
+    # Geocentric angle from ETLOVE (GRS80).
+    phi=np.deg2rad(lat)
+    e2=6.69438002290e-3
+    dn=6378137./np.sqrt(1.-e2*np.sin(phi)**2)
+    psi=np.arctan2((dn*(1.-e2))*np.sin(phi),dn*np.cos(phi))
+    c2=np.sin(psi)**2
+    denom=3.*c2-1.
+    if abs(denom)<0.1:
+        denom=np.copysign(0.1,denom)
+    lp=np.array((
+       0.335410*(35*c2*c2-30*c2+3)/denom,
+       0.612372*(7*c2-3),
+       0.866025*(7*c2-1),
+       0.,0.,0.,
+       0.829156*(9*c2-1),
+       0.,0.,0.,0.,
+       0.806226*(11*c2-1)
+    ))
+    lm=np.zeros(12)
+    lm[0]=0.894427/denom
+    base=baseline+plus*lp+minus*lm
+    indices=degrees*(degrees+1)//2-3+orders
+    factors=base[indices]
+    diurnal=(degrees==2)&(orders==1)
+    w=freq_deg_h[diurnal]
+    factors[diurnal]+=-0.000625*(w-13.943036)/(15.073729-w)
+    return factors
+
+
 def _astronomy(jd, delta_tt):
     utc_c = (jd-2451545.)/36525.
     t = (jd+delta_tt/86400.-2451545.)/36525.
@@ -196,8 +236,25 @@ def earth_tides_tsoft(lat, lon, z=0, DateTime=None, *,
     for site in dict.fromkeys(zip(la,lo,he)):
         indexes = np.flatnonzero((la==site[0])&(lo==site[1])&(he==site[2]))
         geo = _geodetic_factors(site[0],site[2])
-        weights = np.array([geo[(int(n),int(m))] for n,m
-                            in zip(degree,args[:,0])])*factors
+        geometric = np.array([geo[(int(n),int(m))] for n,m
+                              in zip(degree,args[:,0])])
+        body = _elastic_amplitudes(site[0],degree,args[:,0],c[:,0])
+        # ETERNA/TSoft convention: divide all constituent body-tide
+        # factors in a group by its strongest constituent's factor.
+        # The externally supplied delta is the desired factor at
+        # that main constituent, not an arbitrary global multiplier.
+        base_groups = (np.array([[0.,10.,float(delta),0.]])
+                       if wavegroups is None else groups)
+        body_normalized = np.zeros_like(body)
+        amplitudes = np.hypot(c[:,1],c[:,2])*np.abs(geometric)
+        for low,high,amp,lead in base_groups:
+            mask=(c[:,0]/15.>=low-1e-10)&(c[:,0]/15.<=high+1e-10)
+            if not np.any(mask):
+                continue
+            members=np.flatnonzero(mask)
+            strongest=members[np.argmax(amplitudes[mask])]
+            body_normalized[mask]=body[mask]/body[strongest]
+        weights = geometric*factors*body_normalized
         for chunk in np.array_split(indexes,max(1,(len(indexes)+255)//256)):
             time = ts[chunk]
             jd = 2440587.5+time.astype("datetime64[ns]").astype("int64")/86400e9
