@@ -105,10 +105,22 @@ elevation in metres above the reference ellipsoid; output is positive-down
 gravity **effect** in mGal by default, or in uGal/nm/s2. The actual
 correction to add to uncorrected measurements is the **negative** effect.
 
-The default elastic gravimetric factor is the uniform approximation
-`delta=1.16`. TSoft lets the user specify different amplitude factors
-and phase leads for each wave group. To reproduce a particular TSoft
-configuration, supply the **same** factors (frequency in cycles/day):
+The default `delta=1.16` applies a single amplitude factor to all
+frequencies, while preserving internal Wahr–Dehant–Zschau elastic
+frequency response (including the diurnal resonance). For **TSoft
+settings from the published manual**, use the WDD frequency-band
+preset, which retains their distinct amplitude factors and phase leads
+(frequency in cycles/day):
+
+```python
+tide = gp.earth_tides_tsoft(
+    45.5, 10.2, 150, DateTime="2026-10-21T10:00:00",
+    wavegroups="tsoft_wdd", unit="nm/s2"
+)
+```
+
+To reproduce a *specific* TSoft configuration, you may instead supply
+your own four-column wave-group matrix:
 
 ```python
 groups = [
@@ -123,20 +135,25 @@ tide = gp.earth_tides_tsoft(
 )
 ```
 
-**Status:** this is an experimental standalone implementation; it has
-not yet passed a **direct numerical** comparison against a TSoft-exported
-synthetic time series. It currently does not include UT1-UTC from IERS,
-frequency-dependent internal-body resonance within wave groups,
-pole/LOD tides, ocean loading or atmospheric loading. Do **not**
-assume TSoft-level sub-µGal numerical agreement until independent
-benchmarking has been completed. The previous `earth_tides()` Longman
-method is unchanged.
+**Validation:** the standalone NumPy implementation was independently
+compared against ETERNA/PyGTide run exclusively in a separate CI job
+using the **same T87 catalogue** (not a RelGravPy dependency). On 49
+hourly samples at Karlsruhe, Jan 1–3, 2017, with one unscaled group
+and pole/LOD disabled, the resulting RMSE was **0.0282 nm/s²**
+(**0.00282 µGal**) with maximum absolute difference **0.0549 nm/s²**
+(**0.00549 µGal**). These figures demonstrate agreement with ETERNA,
+**not a direct TSoft output comparison**.
+
+The implementation does not include UT1−UTC from IERS, pole/LOD tides,
+ocean loading, or atmospheric loading. The previous `earth_tides()`
+Longman method is unchanged. Complete TSoft compatibility also depends
+on matching its tide parameter table and awaits a direct TSoft export.
 
 To compare against TSoft, export a CSV file with two columns,
 `utc,tsoft_nm_s2`, and run:
 
 ```bash
-python examples/compare_tsoft_t87.py my_tsoft.csv \
+python -m examples.compare_tsoft_t87 my_tsoft.csv \
   --lat 45.5 --lon 10.2 --height 150 --plot
 ```
 
