@@ -16,7 +16,10 @@ def run():
     df=pt.results()
     print("Reference columns:",list(df.columns),flush=True)
     times=df["UTC"].dt.tz_convert("UTC").dt.tz_localize(None).to_numpy()
-    ref=df["Tide [nm/s**2]"].to_numpy(dtype=float)
+    print("All ETERNA output sample:",df.head().to_string(index=False),flush=True)
+    ref=df["Signal [nm/s**2]"].to_numpy(dtype=float)
+    if not np.any(np.abs(ref)>1):
+        raise RuntimeError("Reference engine returned zero tide")
     got=earth_tides_tsoft(lat,lon,height,DateTime=times,
                           unit="nm/s2",delta=1.0)
     d=got-ref
