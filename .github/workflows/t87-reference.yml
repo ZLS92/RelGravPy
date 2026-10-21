@@ -24,4 +24,4 @@ jobs:
       - name: Install independent reference exclusively in CI
         run: python -m pip install numpy pygtide
       - name: Compare T87 with ETERNA (TSoft-compatible catalogue)
-        run: python -u tests/reference_t87_vs_eterna.py
+        run: PYTHONPATH=. python -u tests/reference_t87_vs_eterna.py
