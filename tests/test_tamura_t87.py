@@ -78,3 +78,12 @@ def test_utc_timezone_and_vectorization():
 def test_reject_invalid(kwargs):
     with pytest.raises(ValueError):
         earth_tides_tsoft(45.5,10.2,0,**kwargs)
+
+
+def test_tsoft_manual_wdd_preset():
+    kwargs=dict(lat=50.6092,lon=6.0067,z=100,DateTime="2017-01-01T12:00:00")
+    tide=earth_tides_tsoft(**kwargs,wavegroups="tsoft_wdd",unit="uGal")
+    assert np.isfinite(tide)
+    assert abs(tide)<500
+    with pytest.raises(ValueError):
+        earth_tides_tsoft(**kwargs,wavegroups="invalid-preset")
