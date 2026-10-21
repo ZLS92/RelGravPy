@@ -1,0 +1,29 @@
+name: Tamura T87 gravity tides
+
+on:
+  push:
+    paths:
+      - 'relgravpy/earth_tides_t87.py'
+      - 'relgravpy/data/tamurahw.dat'
+      - 'tests/test_tamura_t87.py'
+      - '.github/workflows/test-t87.yml'
+  pull_request:
+    paths:
+      - 'relgravpy/earth_tides_t87.py'
+      - 'relgravpy/data/tamurahw.dat'
+      - 'tests/test_tamura_t87.py'
+      - '.github/workflows/test-t87.yml'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install test dependencies
+        run: python -m pip install numpy pytest
+      - name: Validate Tamura catalogue and solver
+        run: python -m pytest -q tests/test_tamura_t87.py
