@@ -214,6 +214,8 @@ def earth_tides_tsoft(lat, lon, z=0, DateTime=None, *,
             raise ValueError('Unknown wavegroups preset; use "tsoft_wdd"')
         # WDD parameters from TSoft Manual 2.2.4, Example 3,
         # Wahr-Dehant-Defraigne (1999), reference station 50.6092 N.
+        # WDD manual lists overlapping 3.381379--3.381478 cpd bands;
+        # there are no T87 constituents in that gap, so close at 3.381378.
         wavegroups = [
             [0.000000,0.002427,1.00000,0.],
             [0.002428,0.249951,1.15787,0.],
@@ -225,7 +227,7 @@ def earth_tides_tsoft(lat, lon, z=0, DateTime=None, *,
             [1.007595,1.011099,1.17072,0.],
             [1.013689,1.216397,1.15636,0.],
             [1.719381,2.182843,1.16200,0.],
-            [2.753244,3.381478,1.07360,0.],
+            [2.753244,3.381378,1.07360,0.],
             [3.381379,4.347615,1.03900,0.],
         ]
     if wavegroups is None:
