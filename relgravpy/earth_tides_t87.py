@@ -173,9 +173,9 @@ def earth_tides_tsoft(lat, lon, z=0, DateTime=None, *,
     DateTime: scalar, array or numpy datetime64 in UTC; naive means UTC.
     Alternatively specify start, end (inclusive), step (seconds).
     delta: uniform elastic gravimetric amplitude factor (default 1.16).
-    wavegroups: optional Nx4 matrix (min_cpd,max_cpd,delta,lead_degrees);
-        controls the frequency-specific factors and phase leads used by
-        a TSoft tide configuration. Waves outside intervals are omitted.
+    wavegroups: optional Nx4 matrix (min_cpd,max_cpd,delta,lead_degrees),
+        or "tsoft_wdd" to use the published TSoft Manual WDD 1999 example.
+        Unlisted frequencies are omitted.
     unit: "nm/s2", "uGal" or "mGal" (default). Positive down denotes tide
         effect; correction=True changes its sign to a correction to add.
     Does not calculate ocean loading, polar motion or LOD tides.
@@ -209,6 +209,25 @@ def earth_tides_tsoft(lat, lon, z=0, DateTime=None, *,
     if unit not in ("nm/s2","uGal","mGal"):
         raise ValueError("unit must be nm/s2, uGal or mGal")
     args, degree, c = _catalogue()
+    if isinstance(wavegroups,str):
+        if wavegroups.lower() != "tsoft_wdd":
+            raise ValueError('Unknown wavegroups preset; use "tsoft_wdd"')
+        # WDD parameters from TSoft Manual 2.2.4, Example 3,
+        # Wahr-Dehant-Defraigne (1999), reference station 50.6092 N.
+        wavegroups = [
+            [0.000000,0.002427,1.00000,0.],
+            [0.002428,0.249951,1.15787,0.],
+            [0.721500,0.906315,1.15432,0.],
+            [0.921941,0.940487,1.15430,0.],
+            [0.958085,0.998028,1.14908,0.],
+            [0.999853,1.000147,1.13448,0.],
+            [1.005329,1.005623,1.27258,0.],
+            [1.007595,1.011099,1.17072,0.],
+            [1.013689,1.216397,1.15636,0.],
+            [1.719381,2.182843,1.16200,0.],
+            [2.753244,3.381478,1.07360,0.],
+            [3.381379,4.347615,1.03900,0.],
+        ]
     if wavegroups is None:
         if not np.isfinite(delta) or delta<=0:
             raise ValueError("delta must be positive and finite")
