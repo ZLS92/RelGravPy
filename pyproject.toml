@@ -19,4 +19,4 @@ dependencies = [
 ]
 
 [tool.setuptools.package-data]
-relgravpy = ["data/*.dat"]
+relgravpy = ["data/*.dat", "data/*.md", "data/*.txt"]
