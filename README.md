@@ -141,7 +141,11 @@ using the **same T87 catalogue** (not a RelGravPy dependency). On 49
 hourly samples at Karlsruhe, Jan 1–3, 2017, with one unscaled group
 and pole/LOD disabled, the resulting RMSE was **0.0282 nm/s²**
 (**0.00282 µGal**) with maximum absolute difference **0.0549 nm/s²**
-(**0.00549 µGal**). These figures demonstrate agreement with ETERNA,
+(**0.00549 µGal**). With the published **TSoft WDD** frequency
+bands and delta factors applied to both models, the independent ETERNA
+benchmark achieves **0.02761 nm/s² RMS (0.00276 µGal)** and a maximum
+difference of **0.05138 nm/s² (0.00514 µGal)** over the same 49 samples.
+These figures demonstrate agreement with ETERNA using TSoft parameters,
 **not a direct TSoft output comparison**.
 
 The implementation does not include UT1−UTC from IERS, pole/LOD tides,
