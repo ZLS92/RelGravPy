@@ -30,6 +30,10 @@ def run():
     print("reference max abs [nm/s2]:",np.max(np.abs(d)),flush=True)
     print("reference bias [nm/s2]:",np.mean(d),flush=True)
     print("reference Pearson r:",np.corrcoef(got,ref)[0,1],flush=True)
+    # Independent ETERNA reference numerical acceptance criterion (0.01 uGal).
+    assert np.sqrt(np.mean(d*d)) < 0.10, (
+        "T87 reference mismatch exceeds 0.1 nm/s2 (0.01 uGal)"
+    )
 
 if __name__=="__main__":
     run()
