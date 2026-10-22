@@ -4,6 +4,10 @@ on:
     paths:
       - 'tests/debug_zls_tamura_asit_20261020.py'
       - '.github/workflows/debug-zls-t87-20261020.yml'
+  pull_request:
+    paths:
+      - 'tests/debug_zls_tamura_asit_20261020.py'
+      - '.github/workflows/debug-zls-t87-20261020.yml'
   workflow_dispatch:
 jobs:
   numerical-comparison:
