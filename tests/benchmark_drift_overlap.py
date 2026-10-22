@@ -54,6 +54,10 @@ tide=np.array([0.050711,0.037241,0.030736,0.014904,
 t = hour * 3600
 g = g + tide
 _, d_overlap = grav_drift_overlap(st, g, t, deg=2)
+_, d_integrated = old(
+    st, g, datetime=t, DateTimeFormat="seconds", deg=2, alignment="overlap"
+)
+np.testing.assert_allclose(d_integrated, d_overlap, atol=1e-12)
 _, d_legacy = old(st, g, datetime=t, DateTimeFormat="seconds", deg=2)
 _, d_slope = slope(st, g, datetime=t, DateTimeFormat="seconds", deg=1)
 print("ASIT INRiM benchmark (tide-corrected gobs):")
