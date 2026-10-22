@@ -1601,7 +1601,9 @@ def grav_drift_poly(
     plt_datetitle = '',
     tare = None,
     shift_point = 'first',
-    ref_curve = 'piecewise'
+    ref_curve = 'piecewise',
+    alignment = 'sequential',
+    return_details = False,
     ):
     """
     Computes a continuous instrumental drift correction curve based on repeated
@@ -1653,6 +1655,20 @@ def grav_drift_poly(
         - 'mid': use the mean of all repeated measurements at the station.
         - 'first': use the first measurement at the station.
     
+    alignment : {'sequential', 'overlap'}, default='sequential'
+        'sequential' preserves the original Monnet-inspired sequential
+        vertical registration. 'overlap' registers *all* repeated-station
+        curves simultaneously from piecewise-linear interpolation over
+        common time windows, then fits the polynomial. This is NOT a
+        gravity-network adjustment. It requires a connected temporal overlap
+        graph and does not currently support tares; disconnected intervals
+        raise an informative ValueError rather than extrapolating.
+    return_details : bool, default=False
+        Supported for alignment='overlap' only. Return alignment shifts,
+        pairwise consistency residuals, and polynomial diagnostics. Registration
+        shifts are nuisance offsets, not adjusted station gravities. Unlike
+        the legacy algorithm, the overlap method returns the original row order.
+
     Returns
     -------
 
@@ -1691,6 +1707,19 @@ def grav_drift_poly(
     stations = np.asarray(stations)
     gobs = np.asarray(gobs)
     time_sec = np.asarray(time_sec)
+
+    if alignment == 'overlap':
+        from .drift_alignment import grav_drift_overlap
+        return grav_drift_overlap(
+            stations, gobs, time_sec, deg=deg, ignore_st=ignore_st,
+            tare=tare, plot=plot, plt_datetitle=plt_datetitle,
+            return_details=return_details,
+            datetime_axis=('datetime64' in DateTimeFormat),
+        )
+    if alignment != 'sequential':
+        raise ValueError("alignment must be 'sequential' or 'overlap'")
+    if return_details:
+        raise ValueError("return_details is supported only by alignment='overlap'")
 
     idx_sort = np.argsort(time_sec)
     stations = stations[idx_sort]

@@ -1,0 +1,29 @@
+name: Overlap drift alignment regression
+on:
+  push:
+    paths:
+      - 'relgravpy/drift_alignment.py'
+      - 'relgravpy/grav_processing.py'
+      - 'tests/test_drift_overlap.py'
+      - 'tests/benchmark_drift_overlap.py'
+      - '.github/workflows/drift-overlap.yml'
+  pull_request:
+    paths:
+      - 'relgravpy/drift_alignment.py'
+      - 'relgravpy/grav_processing.py'
+      - 'tests/test_drift_overlap.py'
+      - '.github/workflows/drift-overlap.yml'
+  workflow_dispatch:
+jobs:
+  test-overlap-registration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: python -m pip install numpy scipy pytest
+      - name: Run overlap graph tests (no GIS dependencies)
+        run: PYTHONPATH=. python -m pytest -q -s tests/test_drift_overlap.py
+      - name: Compare against existing poly and slope methods
+        run: PYTHONPATH=. python -u tests/benchmark_drift_overlap.py
