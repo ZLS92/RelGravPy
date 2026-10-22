@@ -1,0 +1,19 @@
+name: DEBUG Tamura vs ZLS Turin 2026-10-20
+on:
+  push:
+    paths:
+      - 'tests/debug_zls_tamura_asit_20261020.py'
+      - '.github/workflows/debug-zls-t87-20261020.yml'
+  workflow_dispatch:
+jobs:
+  numerical-comparison:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install only NumPy
+        run: python -m pip install numpy
+      - name: Compare user-provided ZLS and standalone Tamura
+        run: PYTHONPATH=. python -u tests/debug_zls_tamura_asit_20261020.py
