@@ -8,4 +8,6 @@ setup(
     description = 'A Python package for processing relative gravity data for geophysical applications.',
     packages = find_packages(),
     install_requires=[],
+    package_data={'relgravpy': ['data/*.dat', 'data/*.md', 'data/*.txt']},
+    include_package_data=True,
     )

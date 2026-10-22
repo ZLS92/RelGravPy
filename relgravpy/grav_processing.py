@@ -11,6 +11,7 @@ Created on Mon Sep 16 13:55:41 2019
 from collections import namedtuple
 from . import utils as utl
 from . import plot as lz_plot
+from .earth_tides_t87 import earth_tides_tsoft
 # import lszpy.te_harmonica as te_hm
 
 

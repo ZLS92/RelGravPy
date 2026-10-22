@@ -17,3 +17,6 @@ dependencies = [
     "pandas",
     "matplotlib"
 ]
+
+[tool.setuptools.package-data]
+relgravpy = ["data/*.dat", "data/*.md", "data/*.txt"]

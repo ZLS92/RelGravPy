@@ -1,0 +1,27 @@
+name: Independent Tamura T87 reference (optional)
+on:
+  push:
+    paths:
+      - 'relgravpy/earth_tides_t87.py'
+      - 'relgravpy/data/tamurahw.dat'
+      - 'tests/reference_t87_vs_eterna.py'
+      - '.github/workflows/t87-reference.yml'
+  pull_request:
+    paths:
+      - 'relgravpy/earth_tides_t87.py'
+      - 'relgravpy/data/tamurahw.dat'
+      - 'tests/reference_t87_vs_eterna.py'
+      - '.github/workflows/t87-reference.yml'
+  workflow_dispatch:
+jobs:
+  reference-only:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install independent reference exclusively in CI
+        run: python -m pip install numpy pygtide
+      - name: Compare T87 with ETERNA (TSoft-compatible catalogue)
+        run: PYTHONPATH=. python -u tests/reference_t87_vs_eterna.py
