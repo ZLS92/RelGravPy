@@ -85,7 +85,7 @@ def grav_drift_overlap(stations, gobs, time_sec, *, deg=1,
             knots = np.union1d(
                 np.concatenate(([lo, hi],
                     first["time"][(first["time"] > lo) & (first["time"] < hi)])),
-                second["time"][(second["time"] > lo) & (second["time"] < hi)])
+                second["time"][(second["time"] > lo) & (second["time"] < hi)]
             )
             diffs = np.interp(knots, first["time"], first["value"])
             diffs -= np.interp(knots, second["time"], second["value"])
