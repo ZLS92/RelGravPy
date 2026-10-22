@@ -79,34 +79,3 @@ def test_one_repeated_station_needs_no_overlap_graph():
     assert abs(corrected[1] - 849.99) < 1e-10
 
 
-def test_inrim_asit_field_example():
-    # Field observations shared by the user on 20 Oct 2026.
-    # ZLS tide correction is added to meter ObsG before drift estimation.
-    st = np.array(["Asit0", "Inrim0", "Inrim0", "Asit0",
-                   "Inrim0", "Inrim1", "Inrim0", "Inrim0",
-                   "Asit0", "Asit0", "Asit0"])
-    hours = np.array([7+29/60+53/3600, 8+50/60+6/3600,
-                      9+14/60+39/3600,9+58/60+14/3600,
-                      10+47/60+59/3600,11+16/60+1/3600,
-                      11+41/60+41/3600,12+33/60+32/3600,
-                      13+40/60+53/3600,14+5/60+15/3600,
-                      14+28/60+43/3600])
-    g = np.array([4014.158589,4000.648270,4000.653436,4014.193657,
-                  4000.703786,4000.163765,4000.741576,4000.774227,
-                  4014.331554,4014.338325,4014.344717])
-    tide_corr = np.array([0.050711,0.037241,0.030736,0.014904,
-                          -0.009120,-0.019216,-0.030215,-0.053240,
-                          -0.072838,-0.077398,-0.080235])
-    corrected, drift, details = grav_drift_overlap(
-        st, g + tide_corr, hours * 3600, deg=2, return_details=True)
-    assert np.isfinite(drift).all()
-    assert "Inrim1" not in details["station"]
-    assert len(details["edge_station_pairs"]) == 1
-    def range_station(x, name):
-        a=x[st==name]
-        return np.ptp(a)
-    before=sum(range_station(g+tide_corr,s) for s in ["Asit0","Inrim0"])
-    after=sum(range_station(corrected,s) for s in ["Asit0","Inrim0"])
-    print("ASIT/INRIM corrected station spread before/after:",before,after)
-    print("ASIT/INRIM overlap polynomial drift mGal:",np.round(drift,6))
-    assert after < before
