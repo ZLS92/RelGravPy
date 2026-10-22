@@ -36,36 +36,6 @@ def dispersion(g, st):
 
 
 old, slope = _previous_methods()
-st = np.array(["Asit0", "Inrim0", "Inrim0", "Asit0",
-               "Inrim0", "Inrim1", "Inrim0", "Inrim0",
-               "Asit0", "Asit0", "Asit0"])
-hour = np.array([7+29/60+53/3600, 8+50/60+6/3600,
-                 9+14/60+39/3600,9+58/60+14/3600,
-                 10+47/60+59/3600,11+16/60+1/3600,
-                 11+41/60+41/3600,12+33/60+32/3600,
-                 13+40/60+53/3600,14+5/60+15/3600,
-                 14+28/60+43/3600])
-g=np.array([4014.158589,4000.648270,4000.653436,4014.193657,
-            4000.703786,4000.163765,4000.741576,4000.774227,
-            4014.331554,4014.338325,4014.344717])
-tide=np.array([0.050711,0.037241,0.030736,0.014904,
-              -0.009120,-0.019216,-0.030215,-0.053240,
-              -0.072838,-0.077398,-0.080235])
-t = hour * 3600
-g = g + tide
-_, d_overlap = grav_drift_overlap(st, g, t, deg=2)
-_, d_integrated = old(
-    st, g, datetime=t, DateTimeFormat="seconds", deg=2, alignment="overlap"
-)
-np.testing.assert_allclose(d_integrated, d_overlap, atol=1e-12)
-_, d_legacy = old(st, g, datetime=t, DateTimeFormat="seconds", deg=2)
-_, d_slope = slope(st, g, datetime=t, DateTimeFormat="seconds", deg=1)
-print("ASIT INRiM benchmark (tide-corrected gobs):")
-for name, curv in [("none",np.zeros(len(t))),("overlap deg2",d_overlap),
-                   ("sequential deg2",d_legacy),("slope deg1",d_slope)]:
-    print(name, "drift mGal:",np.round(curv,6).tolist(),
-          "within-station RMS mGal:",round(dispersion(g-curv,st),7))
-
 # Nonlinear synthetic with 3 repeatedly measured stations + one singleton.
 times = np.array([0.,1.,2.,3.,4.,5.,6.,7.,8.,9.])
 st = np.array(["A","B","C","A","B","C","Q","A","B","C"])
@@ -73,6 +43,9 @@ baseline = np.array([{"A":1000.,"B":1020.,"C":970.,"Q":1900.}[s] for s in st])
 true = 0.015 * times + 0.0004 * times**2
 g = baseline + true
 _, da = grav_drift_overlap(st,g,times*3600,deg=2)
+_, d_public = old(st,g,datetime=times*3600,
+                  DateTimeFormat="seconds",deg=2,alignment="overlap")
+np.testing.assert_allclose(da, d_public, atol=1e-12)
 _, db = old(st,g,datetime=times*3600,DateTimeFormat="seconds",deg=2)
 _, dc = slope(st,g,datetime=times*3600,DateTimeFormat="seconds",deg=1)
 print("Quadratic synthetic (no noise, known true drift):")
