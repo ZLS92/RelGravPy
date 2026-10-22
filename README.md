@@ -76,7 +76,52 @@ git clone https://github.com/ZLS92/RelGravPy.git
 cd RelGravPy
 conda env create --file relgravpy.yaml -n relgravpy
 conda activate relgravpy
+```
 
+### Experimental station-overlap drift alignment
+
+`grav_drift_poly()` now offers an **opt-in** station-curve registration mode.
+The original sequential (Monnet-inspired) alignment remains the default.
+
+```python
+from relgravpy import grav_processing as gp
+
+# gobs must first have consistent tide and other time-dependent reductions.
+g_corr, drift, diagnostic = gp.grav_drift_poly(
+    stations=df["Station ID"].to_numpy(),
+    gobs=df["g_reduced"].to_numpy(),
+    datetime=df["Datetime64"].to_numpy(),
+    deg=2,
+    alignment="overlap",
+    return_details=True,
+    plot=True,
+)
+```
+
+For every pair of repeated stations with **overlapping observation windows**,
+we linearly interpolate their separate observation histories **only inside
+that overlap**. The time-averaged difference supplies a pairwise vertical
+registration offset. A small weighted least-squares problem reconciles these
+offsets across the connected overlap graph, before fitting a polynomial to
+the registered curves. Unlike the original order-dependent alignment, no
+unobserved station-curve extrapolation is used. This does estimate nuisance
+vertical station offsets (not an absolute or constrained gravity-network
+adjustment), so these offsets must **not** be interpreted as final adjusted
+station gravities. Weighting by overlap/sampling density is heuristic, not
+formal uncertainty propagation.
+
+The new option returns predictions in the **original observation row order**.
+A disconnected overlap graph raises `ValueError` rather than silently
+extrapolating; single-occupation stations receive a drift correction but do
+not constrain the model. The optional `tare` parameter is **not supported**
+in this experimental alignment mode. The legacy options `shift_point` and
+`ref_curve` apply only to the default `alignment="sequential"` mode.
+
+This is a **pre-network-adjustment drift reduction**, not a replacement for
+the later gravity-network adjustment. The drift estimate still comes from
+some of the same readings used in the subsequent adjustment, so the two
+stages are statistically correlated; full uncertainty propagation or a
+joint adjustment is needed for formal station covariance estimates.
 
 ### Tamura (1987) theoretical gravity tide — experimental
 
@@ -152,8 +197,8 @@ and pole/LOD disabled, the resulting RMSE was **0.0282 nm/s²**
 (**0.00282 µGal**) with maximum absolute difference **0.0549 nm/s²**
 (**0.00549 µGal**). With the published **TSoft WDD** frequency
 bands and delta factors applied to both models, the independent ETERNA
-benchmark achieves **0.02761 nm/s² RMS (0.00276 µGal)** and a maximum
-difference of **0.05138 nm/s² (0.00514 µGal)** over the same 49 samples.
+benchmark after the K1-band correction achieves **0.03203 nm/s² RMS (0.00320 µGal)** and a maximum
+difference below **0.1 nm/s² (0.01 µGal)** over the same 49 samples.
 These figures demonstrate agreement with ETERNA using TSoft parameters,
 **not a direct TSoft output comparison**.
 
