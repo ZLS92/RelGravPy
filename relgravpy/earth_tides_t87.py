@@ -174,7 +174,8 @@ def earth_tides_tsoft(lat, lon, z=0, DateTime=None, *,
     Alternatively specify start, end (inclusive), step (seconds).
     delta: uniform elastic gravimetric amplitude factor (default 1.16).
     wavegroups: optional Nx4 matrix (min_cpd,max_cpd,delta,lead_degrees),
-        or "tsoft_wdd" to use the published TSoft Manual WDD 1999 example.
+        or "tsoft_wdd" for the TSoft Manual WDD 1999 example with its
+        erroneous/missing K1 frequency band restored.
         Unlisted frequencies are omitted.
     unit: "nm/s2", "uGal" or "mGal" (default). Positive down denotes tide
         effect; correction=True changes its sign to a correction to add.
@@ -214,15 +215,21 @@ def earth_tides_tsoft(lat, lon, z=0, DateTime=None, *,
             raise ValueError('Unknown wavegroups preset; use "tsoft_wdd"')
         # WDD parameters from TSoft Manual 2.2.4, Example 3,
         # Wahr-Dehant-Defraigne (1999), reference station 50.6092 N.
-        # WDD manual lists overlapping 3.381379--3.381478 cpd bands;
-        # there are no T87 constituents in that gap, so close at 3.381378.
+        # TSoft Manual Example 3 erroneously labels the narrow S1 band
+        # 0.999853--1.000147 cpd as K1; it omits the actual K1 band
+        # 1.001825--1.003651 cpd. TSoft's own changelog documents
+        # an older K1-frequency error. Restore K1 explicitly, otherwise
+        # the theoretical diurnal tide is severely underestimated.
+        # The printed manual also lists overlapping high-frequency
+        # intervals 3.381379--3.381478 cpd; no T87 waves fall inside.
         wavegroups = [
             [0.000000,0.002427,1.00000,0.],
             [0.002428,0.249951,1.15787,0.],
             [0.721500,0.906315,1.15432,0.],
             [0.921941,0.940487,1.15430,0.],
             [0.958085,0.998028,1.14908,0.],
-            [0.999853,1.000147,1.13448,0.],
+            [0.999853,1.000147,1.13448,0.],  # S1
+            [1.001825,1.003651,1.13448,0.],  # K1
             [1.005329,1.005623,1.27258,0.],
             [1.007595,1.011099,1.17072,0.],
             [1.013689,1.216397,1.15636,0.],

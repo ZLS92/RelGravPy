@@ -105,6 +105,15 @@ elevation in metres above the reference ellipsoid; output is positive-down
 gravity **effect** in mGal by default, or in uGal/nm/s2. The actual
 correction to add to uncorrected measurements is the **negative** effect.
 
+**TSoft manual discrepancy:** its printed WDD Example 3 calls
+0.999853–1.000147 cycles/day the "K1" band; this is actually the
+**S1** band. The physical K1 wave is around **1.00274 cycles/day**
+and its omission previously led to underestimated diurnal tides.
+The `"tsoft_wdd"` preset now explicitly includes K1
+(1.001825–1.003651 cycles/day) with the theoretical WDD factor
+1.13448. This correction is necessary for physically meaningful
+predictions and agrees with TSoft's historical K1 bug notice.
+
 The default `delta=1.16` applies a single amplitude factor to all
 frequencies, while preserving internal Wahr–Dehant–Zschau elastic
 frequency response (including the diurnal resonance). For **TSoft
