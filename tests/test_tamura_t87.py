@@ -87,3 +87,24 @@ def test_tsoft_manual_wdd_preset():
     assert abs(tide)<500
     with pytest.raises(ValueError):
         earth_tides_tsoft(**kwargs,wavegroups="invalid-preset")
+
+
+def test_wdd_preset_includes_k1(monkeypatch):
+    """Regression: major K1 band must not be discarded by the WDD preset."""
+    import relgravpy.earth_tides_t87 as t87
+
+    args, degree, coefficients = t87._catalogue()
+    # Test only the K1 constituent at about 1.002738 cycles per day.
+    k1 = np.abs(coefficients[:, 0] / 15. - 1.00273791) < 1.e-5
+    assert np.any(k1)
+    monkeypatch.setattr(t87, "_catalogue",
+                        lambda: (args[k1], degree[k1], coefficients[k1]))
+    _, prediction = t87.earth_tides_tsoft(
+        lat=45, lon=7, z=0,
+        start="2026-10-20T00:00:00",
+        end="2026-10-20T23:00:00",
+        step=3600,
+        wavegroups="tsoft_wdd",
+        unit="mGal")
+    assert np.all(np.isfinite(prediction))
+    assert np.ptp(prediction) > 0.02  # K1 spans tens of microGal.
