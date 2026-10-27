@@ -10,7 +10,6 @@ import sys
 import numpy as np
 import pytest
 
-from relgravpy import _sh_fast
 from relgravpy import shm_tools as sh
 
 
@@ -44,7 +43,7 @@ def test_numba_and_numpy_agree_on_irregular_coordinates(monkeypatch,surface):
                 surface=surface,topo=topo,
                 height_reference="ellipsoid",lmax=8)
     auto = sh.sh_synthesis_core(model,**opts)
-    monkeypatch.setattr(_sh_fast,"_compiled_accumulator",None)
+    monkeypatch.setattr(sh,"_compiled_accumulator",None)
     numpy_only = sh.sh_synthesis_core(model,**opts)
     for field in fields:
         np.testing.assert_allclose(
@@ -104,9 +103,9 @@ def test_missing_numba_does_not_block_import_or_synthesis():
     """A fresh Python process must work without importable Numba."""
     script = (
         "import sys; sys.modules['numba'] = None; "
-        "from relgravpy import _sh_fast, shm_tools as sh; "
+        "from relgravpy import shm_tools as sh; "
         "import numpy as np; "
-        "assert _sh_fast._compiled_accumulator is None; "
+        "assert sh._compiled_accumulator is None; "
         "c=np.array([[1.0]]); "
         "model=dict(c=c,s=np.zeros_like(c),gm=sh.GM_WGS84,"
         "radius=sh.A_WGS84,lmax=0); "
@@ -125,14 +124,14 @@ def test_failed_jit_compilation_falls_back(monkeypatch):
     """Numba compilation failures are warnings, not fatal runtime errors."""
     def broken(*args):
         raise RuntimeError("simulated incompatible numba installation")
-    monkeypatch.setattr(_sh_fast,"_compiled_accumulator",broken)
-    monkeypatch.setattr(_sh_fast,"_numba_failed",False)
+    monkeypatch.setattr(sh,"_compiled_accumulator",broken)
+    monkeypatch.setattr(sh,"_numba_failed",False)
     with pytest.warns(RuntimeWarning,match="using NumPy"):
         result = sh.sh_synthesis_core(
             _model(3),lon=np.array([0.,10.]),lat=np.array([0.,20.]),
             fields=("grav_dist",),height_reference="ellipsoid")
     assert np.isfinite(result["grav_dist"]).all()
-    assert _sh_fast._numba_failed
+    assert sh._numba_failed
 
 
 @pytest.mark.parametrize("latitude,longitude", [(0.,0.),(43.2,12.1),(85.,-80.)])
