@@ -7,7 +7,14 @@ setup(
     author_email = 'lzampa@ogs.it',
     description = 'A Python package for processing relative gravity data for geophysical applications.',
     packages = find_packages(),
-    install_requires=[],
+    install_requires=[
+        'numpy',
+        'scipy',
+        'pandas',
+        'matplotlib',
+        'pyproj',
+        'contextily',
+    ],
     package_data={'relgravpy': ['data/*.dat', 'data/*.md', 'data/*.txt']},
     include_package_data=True,
     )

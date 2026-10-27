@@ -78,6 +78,9 @@ conda env create --file relgravpy.yaml -n relgravpy
 conda activate relgravpy
 ```
 
+Per i notebook cartografici (basemap OSM, riproiezioni) l'ambiente include anche
+`contextily` e `pyproj`.
+
 ### Experimental station-overlap drift alignment
 
 `grav_drift_poly()` now offers an **opt-in** station-curve registration mode.

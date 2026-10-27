@@ -19,6 +19,7 @@ dependencies:
   - gdal
   - proj
   - pyproj
+  - contextily
   - shapely
 
   # Utility

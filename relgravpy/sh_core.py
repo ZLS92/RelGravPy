@@ -228,38 +228,65 @@ def sh_normal_gravity_height(lat, height):
     return sh_normal_gravity(lat)*(1-2*q*h/A_WGS84+3*(h/A_WGS84)**2)
 
 
-def sh_synthesis_core(model, limits, step, lmax=None, gentle_cut=None,
+def sh_synthesis_core(model, limits=None, step=1., lmax=None, gentle_cut=None,
                       fields=("grav_dist",), height=0.0, surface="ellipsoid",
-                      topo=None):
+                      topo=None, lon=None, lat=None, height_reference="geoid",
+                      geoid_undulation=0.0):
     """Spherical harmonic synthesis with WGS84 even-zonal normal-field removal.
 
-    Uses Bruns' formula for geoid undulation, radial gravity disturbance
-    and spherical gravity anomaly, and a second-order WGS84 height formula
-    for approximate absolute gravity. It does not reproduce the exact ICGEM
-    ellipsoidal computation (which includes spherical-to-ellipsoidal gravity
-    component projection, zero-degree geoid convention and tide systems).
+    Supports both regular grids from limits/step and user-defined lon/lat arrays.
+    The default height convention is geoid-referenced (H), converted internally to
+    ellipsoidal height h = H + N when height_reference='geoid'.
     """
     if isinstance(fields,str):
         fields=(fields,)
     allowed={"potential","geoid","abs_grav","grav_dist","free_air","grav_gradient"}
     if set(fields)-allowed:
         raise ValueError(f"Unsupported fields: {sorted(set(fields)-allowed)}")
-    lon,lat=sh_grid(limits,step)
+
+    if lon is not None or lat is not None:
+        if lon is None or lat is None:
+            raise ValueError("Both lon and lat must be provided for a custom grid")
+        lon=np.asarray(lon,dtype=float)
+        lat=np.asarray(lat,dtype=float)
+        if lon.ndim == 1 and lat.ndim == 1:
+            lon,lat=np.meshgrid(lon,lat)
+        elif lon.shape != lat.shape:
+            raise ValueError("lon and lat must have matching shapes")
+    else:
+        if limits is None:
+            raise ValueError("Either limits or explicit lon/lat must be provided")
+        lon,lat=sh_grid(limits,step)
+
     degree=sh_resolve_degree(lmax,model["lmax"])
     w=sh_taper(degree,gentle_cut)
+
     h=np.broadcast_to(np.asarray(height,dtype=float),lat.shape).copy()
     if surface == "topography":
         if topo is None:
             raise ValueError("topography surface requires explicit topo heights")
-        h += np.broadcast_to(topo,lat.shape)
+        topo_arr=np.asarray(topo,dtype=float)
+        if topo_arr.shape == ():
+            h = h + topo_arr
+        else:
+            h = h + np.broadcast_to(topo_arr,lat.shape)
     elif surface not in ("ellipsoid","sphere","mean_sea_level"):
         raise ValueError("Unknown surface")
+
+    if height_reference == "geoid":
+        N=np.asarray(geoid_undulation,dtype=float)
+        if N.shape == ():
+            N=np.full_like(h, N, dtype=float)
+        elif N.shape != h.shape:
+            N=np.broadcast_to(N, h.shape)
+        h = h + N
+    elif height_reference != "ellipsoid":
+        raise ValueError("height_reference must be 'geoid' or 'ellipsoid'")
+
     if surface == "sphere":
         r=np.full_like(lat,model["radius"])+h
         phi_gc=lat.copy()
     else:
-        # Approximate MSL by WGS84 ellipsoid: precise geoid is not obtained
-        # until the iterative surface geometry has been implemented.
         phi_gc,r=sh_geocentric_coordinates(lat,h)
 
     delta_c=model["c"][:degree+1,:degree+1].copy()
@@ -268,61 +295,86 @@ def sh_synthesis_core(model, limits, step, lmax=None, gentle_cut=None,
     reference=sh_wgs84_normal_zonals(model["gm"],model["radius"],degree)
     for n in range(2,degree+1,2):
         delta_c[n,0]-=reference[n]
-    # Degree 1 is kept if the ICGEM model's reference origin differs.
     results={name:np.zeros_like(lon) for name in fields}
-    longs=np.deg2rad(lon[0])
-    order=np.arange(degree+1)
-    trigc=np.cos(order[:,None]*longs[None,:])
-    trigs=np.sin(order[:,None]*longs[None,:])
     pot=np.zeros_like(lon)
     dg=np.zeros_like(lon)
     grad=np.zeros_like(lon)
-    for i in range(lat.shape[0]):
-        if np.all(phi_gc[i] == phi_gc[i,0]):
-            # Constant geocentric latitude across the row: compute Legendre
-            # functions only once, then vectorize over longitude.
-            p=sh_legendre(phi_gc[i,0],degree)
-            radial=np.ones(lon.shape[1])
-            x=model["radius"]/r[i]
-            for n in range(degree+1):
-                if n:
-                    radial *= x
-                hnm=p[n,:n+1] @ (
-                    delta_c[n,:n+1,None]*trigc[:n+1] +
-                    delta_s[n,:n+1,None]*trigs[:n+1]
-                )
-                hnm=w[n]*radial*hnm
-                pot[i]+=hnm
-                dg[i]+=(n+1)*hnm
-                grad[i]+=(n+1)*(n+2)*hnm
-        else:
-            # Longitude-varying topography requires a distinct radius and
-            # geocentric latitude at each evaluation point.
-            for j in range(lon.shape[1]):
-                p=sh_legendre(phi_gc[i,j],degree)
-                x=model["radius"]/r[i,j]
-                radial=1.0
+
+    if lon.ndim == 2 and lon.shape[0] > 0 and lon.shape[1] > 0:
+        for i in range(lat.shape[0]):
+            if np.all(phi_gc[i] == phi_gc[i,0]):
+                p=sh_legendre(phi_gc[i,0],degree)
+                radial=np.ones(lon.shape[1])
+                x=model["radius"]/r[i]
+                longs=np.deg2rad(lon[0])
+                order=np.arange(degree+1)
+                trigc=np.cos(order[:,None]*longs[None,:])
+                trigs=np.sin(order[:,None]*longs[None,:])
                 for n in range(degree+1):
                     if n:
-                        radial*=x
-                    harmonics=(delta_c[n,:n+1]*trigc[:n+1,j]+
-                               delta_s[n,:n+1]*trigs[:n+1,j])
-                    hnm=w[n]*radial*np.dot(p[n,:n+1],harmonics)
-                    pot[i,j]+=hnm
-                    dg[i,j]+=(n+1)*hnm
-                    grad[i,j]+=(n+1)*(n+2)*hnm
-        pot[i]*=model["gm"]/r[i]
-        dg[i]*=model["gm"]/r[i]**2
-        grad[i]*=-model["gm"]/r[i]**3
+                        radial *= x
+                    hnm=p[n,:n+1] @ (
+                        delta_c[n,:n+1,None]*trigc[:n+1] +
+                        delta_s[n,:n+1,None]*trigs[:n+1]
+                    )
+                    hnm=w[n]*radial*hnm
+                    pot[i]+=hnm
+                    dg[i]+=(n+1)*hnm
+                    grad[i]+=(n+1)*(n+2)*hnm
+            else:
+                for j in range(lon.shape[1]):
+                    p=sh_legendre(phi_gc[i,j],degree)
+                    x=model["radius"]/r[i,j]
+                    radial=1.0
+                    lam=np.deg2rad(lon[i,j])
+                    m=np.arange(degree+1)
+                    trigc=np.cos(m*lam)
+                    trigs=np.sin(m*lam)
+                    for n in range(degree+1):
+                        if n:
+                            radial*=x
+                        harmonics=(delta_c[n,:n+1]*trigc[:n+1] +
+                                   delta_s[n,:n+1]*trigs[:n+1])
+                        hnm=w[n]*radial*np.dot(p[n,:n+1],harmonics)
+                        pot[i,j]+=hnm
+                        dg[i,j]+=(n+1)*hnm
+                        grad[i,j]+=(n+1)*(n+2)*hnm
+            pot[i]*=model["gm"]/r[i]
+            dg[i]*=model["gm"]/r[i]**2
+            grad[i]*=-model["gm"]/r[i]**3
+    else:
+        for idx in np.ndindex(lon.shape):
+            lam=np.deg2rad(lon[idx])
+            phi=lat[idx]
+            h0=h[idx]
+            phi_gc0,r0=sh_geocentric_coordinates(phi,h0)
+            p=sh_legendre(phi_gc0,degree)
+            radial=1.0
+            x=model["radius"]/r0
+            pot0=0.0; dg0=0.0; grad0=0.0
+            for n in range(degree+1):
+                if n:
+                    radial*=x
+                m=np.arange(n+1)
+                trigc=np.cos(m*lam)
+                trigs=np.sin(m*lam)
+                harmonics=(delta_c[n,:n+1]*trigc[:n+1] +
+                           delta_s[n,:n+1]*trigs[:n+1])
+                hnm=w[n]*radial*np.dot(p[n,:n+1],harmonics)
+                pot0 += hnm
+                dg0 += (n+1)*hnm
+                grad0 += (n+1)*(n+2)*hnm
+            pot[idx] = pot0*model["gm"]/r0
+            dg[idx] = dg0*model["gm"]/r0**2
+            grad[idx] = -model["gm"]/r0**3
+
     if "potential" in results:
-        results["potential"]=pot  # m2/s2, disturbing potential
+        results["potential"]=pot
     if "grav_dist" in results:
         results["grav_dist"]=dg*1e5
     if "geoid" in results:
         results["geoid"]=pot/sh_normal_gravity(lat)
     if "free_air" in results:
-        # Spherical approximation to the gravity anomaly, not identical
-        # to the ICGEM ellipsoidal free-air computation.
         results["free_air"]=(dg-2*pot/r)*1e5
     if "abs_grav" in results:
         results["abs_grav"]=(sh_normal_gravity_height(lat,h)+dg)*1e5
@@ -536,17 +588,49 @@ def sh_scalar_synthesis(coeff, lon, lat, lmax=None, gentle_cut=None):
     return out
 
 
-def sh_synthesis_with_topography(model, limits, step, fields, lmax,
-                                 gentle_cut, height, surface, topo,
-                                 directory=None, topo_lmax=None):
+def sh_synthesis_with_topography(model, limits=None, step=1., fields=("grav_dist",),
+                                 lmax=None, gentle_cut=None, height=0., surface="ellipsoid",
+                                 topo=None, directory=None, topo_lmax=None, lon=None, lat=None,
+                                 height_reference="geoid", geoid_undulation=0.0):
     """Synthesize available gravity fields, optionally adding Earth2014 topo.
 
-    Earth2014 is sought locally only; downloading it always requires a
-    separate explicit call. No hidden network I/O is performed.
+    Both the legacy limits/step grid and a user-defined lon/lat custom grid are
+    supported. When lon/lat are provided, z is interpreted with the selected
+    height_reference convention (default: geoid).
     """
     if isinstance(fields,str):
         fields=(fields,)
     fields=tuple(fields)
+
+    if lon is not None or lat is not None:
+        if lon is None or lat is None:
+            raise ValueError("Both lon and lat must be provided for a custom grid")
+        if topo is None and (surface=="topography" or "topo" in fields):
+            raise ValueError("topography surface requires explicit topo values for custom grids")
+        grav_fields=tuple(x for x in fields if x!="topo")
+        if grav_fields:
+            out=sh_synthesis_core(model, limits=limits, step=step, lmax=lmax,
+                                  gentle_cut=gentle_cut, fields=grav_fields,
+                                  height=height, surface=surface, topo=topo,
+                                  lon=np.asarray(lon,dtype=float),
+                                  lat=np.asarray(lat,dtype=float),
+                                  height_reference=height_reference,
+                                  geoid_undulation=geoid_undulation)
+        else:
+            lon_arr=np.asarray(lon,dtype=float)
+            lat_arr=np.asarray(lat,dtype=float)
+            if lon_arr.ndim == 1 and lat_arr.ndim == 1:
+                lon_arr,lat_arr=np.meshgrid(lon_arr,lat_arr)
+            out={"lon":lon_arr,"lat":lat_arr}
+        if "topo" in fields:
+            topo_arr=np.asarray(topo,dtype=float)
+            if topo_arr.shape == ():
+                topo_arr=np.full_like(np.asarray(lon,dtype=float), topo_arr, dtype=float)
+            if topo_arr.shape != out["lon"].shape:
+                topo_arr=np.broadcast_to(topo_arr, out["lon"].shape)
+            out["topo"]=topo_arr.copy()
+        return out
+
     if topo is None and (surface=="topography" or "topo" in fields):
         directory=Path(directory) if directory is not None else DEFAULT_DATA_DIR
         path=directory/"Earth2014.SUR2014.degree10800.bshc"
@@ -559,12 +643,104 @@ def sh_synthesis_with_topography(model, limits, step, fields, lmax,
     grav_fields=tuple(x for x in fields if x!="topo")
     if grav_fields:
         out=sh_synthesis_core(model,limits,step,lmax,gentle_cut,
-                              grav_fields,height,surface,topo)
+                              grav_fields,height,surface,topo,
+                              height_reference=height_reference,
+                              geoid_undulation=geoid_undulation)
     else:
         lon,lat=sh_grid(limits,step)
         out={"lon":lon,"lat":lat}
     if "topo" in fields:
         out["topo"]=np.broadcast_to(topo,out["lon"].shape).copy()
+    return out
+
+def gravity_on_points(
+    model,
+    lon,
+    lat,
+    z,
+    *,
+    lmax=None,
+    gentle_cut=None,
+    field="grav_dist",
+    height_reference="geoid",
+    geoid_undulation=0.0
+):
+    """
+    Calcola gravità da un modello SH su una griglia di punti definiti manualmente.
+
+    Parameters
+    ----------
+    model : dict
+        Dati del modello SH (es. model.data)
+    lon, lat, z : array-like
+        Coordinate geografiche e quota. shape compatibile.
+    height_reference : {"geoid", "ellipsoid"}
+        "geoid" => z è quota ortometrica H, viene convertita in h = H + N
+        "ellipsoid" => z è quota ellissoidica h
+    geoid_undulation : float or array-like
+        Ondulazione del geoide N in metri. default=0
+    """
+    lon = np.asarray(lon, dtype=float)
+    lat = np.asarray(lat, dtype=float)
+    z = np.asarray(z, dtype=float)
+
+    if lon.shape != lat.shape or lon.shape != z.shape:
+        raise ValueError("lon, lat e z devono avere la stessa forma")
+
+    N = np.asarray(geoid_undulation, dtype=float)
+    if N.shape == ():
+        N = np.full_like(z, N, dtype=float)
+    elif N.shape != z.shape:
+        raise ValueError("geoid_undulation deve essere scalare o avere forma uguale a z")
+
+    degree = min(lmax if lmax is not None else model["lmax"], model["lmax"])
+    w = sh_taper(degree, gentle_cut)
+
+    out = np.zeros_like(lon, dtype=float)
+
+    c = model["c"][:degree + 1, :degree + 1].copy()
+    s = model["s"][:degree + 1, :degree + 1].copy()
+
+    for idx in np.ndindex(lon.shape):
+        lam = lon[idx]
+        phi = lat[idx]
+
+        # converte quota in quota ellissoidica h
+        if height_reference == "geoid":
+            H = z[idx]
+            h = H + N[idx]
+        elif height_reference == "ellipsoid":
+            h = z[idx]
+        else:
+            raise ValueError("height_reference deve essere 'geoid' o 'ellipsoid'")
+
+        phi_gc, r = sh_geocentric_coordinates(phi, h)
+
+        pot = 0.0
+        dg = 0.0
+
+        for n in range(degree + 1):
+            p = sh_legendre(phi_gc, degree)[n, :n + 1]
+            m = np.arange(n + 1)
+            trig_c = np.cos(m * np.deg2rad(lam))
+            trig_s = np.sin(m * np.deg2rad(lam))
+            harm = c[n, :n + 1] * trig_c + s[n, :n + 1] * trig_s
+
+            radial = (model["radius"] / r) ** n if n else 1.0
+            hnm = w[n] * radial * np.dot(p, harm)
+            pot += hnm
+            dg += (n + 1) * hnm
+
+        if field == "grav_dist":
+            out[idx] = dg * 1e5
+        elif field == "potential":
+            out[idx] = pot * model["gm"] / r
+        elif field == "abs_grav":
+            # approssimazione elementare: normal gravity + disturbance
+            out[idx] = (dg * 1e5) + 9.81e5
+        else:
+            raise ValueError("field non supportato: grav_dist, potential, abs_grav")
+
     return out
 
 
@@ -581,13 +757,16 @@ class shm:
             raise FileNotFoundError(f"Model unavailable offline: {self.path}")
         self.data=sh_read_gfc(self.path,lmax=lmax)
 
-    def synthesis(self, limits, step=1., fields=("grav_dist",), lmax=None,
+    def synthesis(self, limits=None, step=1., fields=("grav_dist",), lmax=None,
                   gentle_cut=None, height=0., surface="ellipsoid", topo=None,
-                  topo_lmax=None):
+                  topo_lmax=None, lon=None, lat=None, height_reference="geoid",
+                  geoid_undulation=0.0):
+
         return sh_synthesis_with_topography(
-            self.data, limits, step, fields, lmax, gentle_cut,
-            height, surface, topo, directory=self.directory,
-            topo_lmax=topo_lmax)
+            self.data, limits=limits, step=step, fields=fields, lmax=lmax,
+            gentle_cut=gentle_cut, height=height, surface=surface, topo=topo,
+            directory=self.directory, topo_lmax=topo_lmax, lon=lon, lat=lat,
+            height_reference=height_reference, geoid_undulation=geoid_undulation)
 
 
 class shm_analysis:
@@ -600,3 +779,5 @@ class shm_analysis:
     def analyze(self, lmax, method="auto"):
         return sh_analysis_core(self.lon,self.lat,self.values,lmax,
                                 method=method)
+
+

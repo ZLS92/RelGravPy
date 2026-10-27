@@ -15,7 +15,9 @@ dependencies = [
     "numpy",
     "scipy",
     "pandas",
-    "matplotlib"
+    "matplotlib",
+    "pyproj",
+    "contextily"
 ]
 
 [tool.setuptools.package-data]
