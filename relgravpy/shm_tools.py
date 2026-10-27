@@ -572,33 +572,40 @@ def sh_synthesis_core(model, limits=None, step=1., lmax=None, gentle_cut=None,
     reference=sh_wgs84_normal_zonals(model["gm"],model["radius"],degree)
     for n in range(2,degree+1,2):
         delta_c[n,0]-=reference[n]
+    need_pot = any(name in fields for name in ("potential", "geoid", "free_air"))
+    need_dg = any(name in fields for name in ("grav_dist", "free_air", "abs_grav"))
+    need_grad = "grav_gradient" in fields
+
     results={name:np.zeros_like(lon) for name in fields}
-    pot=np.zeros_like(lon)
-    dg=np.zeros_like(lon)
-    grad=np.zeros_like(lon)
+    pot=np.zeros_like(lon) if need_pot else None
+    dg=np.zeros_like(lon) if need_dg else None
+    grad=np.zeros_like(lon) if need_grad else None
 
     if lon.ndim == 2 and lon.shape[0] > 0 and lon.shape[1] > 0:
+        longs=np.deg2rad(lon[0])
+        order=np.arange(degree+1)
+        trigc_row=np.cos(order[:,None]*longs[None,:])
+        trigs_row=np.sin(order[:,None]*longs[None,:])
 
         for i in range(lat.shape[0]):
             if np.all(phi_gc[i] == phi_gc[i,0]):
                 p=sh_legendre(phi_gc[i,0],degree)
                 radial=np.ones(lon.shape[1])
                 x=model["radius"]/r[i]
-                longs=np.deg2rad(lon[0])
-                order=np.arange(degree+1)
-                trigc=np.cos(order[:,None]*longs[None,:])
-                trigs=np.sin(order[:,None]*longs[None,:])
                 for n in range(degree+1):
                     if n:
                         radial *= x
                     hnm=p[n,:n+1] @ (
-                        delta_c[n,:n+1,None]*trigc[:n+1] +
-                        delta_s[n,:n+1,None]*trigs[:n+1]
+                        delta_c[n,:n+1,None]*trigc_row[:n+1] +
+                        delta_s[n,:n+1,None]*trigs_row[:n+1]
                     )
                     hnm=w[n]*radial*hnm
-                    pot[i]+=hnm
-                    dg[i]+=(n+1)*hnm
-                    grad[i]+=(n+1)*(n+2)*hnm
+                    if need_pot:
+                        pot[i]+=hnm
+                    if need_dg:
+                        dg[i]+=(n+1)*hnm
+                    if need_grad:
+                        grad[i]+=(n+1)*(n+2)*hnm
             else:
 
                 for j in range(lon.shape[1]):
@@ -606,9 +613,8 @@ def sh_synthesis_core(model, limits=None, step=1., lmax=None, gentle_cut=None,
                     x=model["radius"]/r[i,j]
                     radial=1.0
                     lam=np.deg2rad(lon[i,j])
-                    m=np.arange(degree+1)
-                    trigc=np.cos(m*lam)
-                    trigs=np.sin(m*lam)
+                    trigc=np.cos(order*lam)
+                    trigs=np.sin(order*lam)
 
                     for n in range(degree+1):
                         if n:
@@ -616,13 +622,20 @@ def sh_synthesis_core(model, limits=None, step=1., lmax=None, gentle_cut=None,
                         harmonics=(delta_c[n,:n+1]*trigc[:n+1] +
                                    delta_s[n,:n+1]*trigs[:n+1])
                         hnm=w[n]*radial*np.dot(p[n,:n+1],harmonics)
-                        pot[i,j]+=hnm
-                        dg[i,j]+=(n+1)*hnm
-                        grad[i,j]+=(n+1)*(n+2)*hnm
-            pot[i]*=model["gm"]/r[i]
-            dg[i]*=model["gm"]/r[i]**2
-            grad[i]*=-model["gm"]/r[i]**3
+                        if need_pot:
+                            pot[i,j]+=hnm
+                        if need_dg:
+                            dg[i,j]+=(n+1)*hnm
+                        if need_grad:
+                            grad[i,j]+=(n+1)*(n+2)*hnm
+            if need_pot:
+                pot[i]*=model["gm"]/r[i]
+            if need_dg:
+                dg[i]*=model["gm"]/r[i]**2
+            if need_grad:
+                grad[i]*=-model["gm"]/r[i]**3
     else:
+        order=np.arange(degree+1)
 
         for idx in np.ndindex(lon.shape):
             lam=np.deg2rad(lon[idx])
@@ -634,21 +647,26 @@ def sh_synthesis_core(model, limits=None, step=1., lmax=None, gentle_cut=None,
             x=model["radius"]/r0
             pot0=0.0; dg0=0.0; grad0=0.0
 
+            trigc=np.cos(order*lam)
+            trigs=np.sin(order*lam)
             for n in range(degree+1):
                 if n:
                     radial*=x
-                m=np.arange(n+1)
-                trigc=np.cos(m*lam)
-                trigs=np.sin(m*lam)
                 harmonics=(delta_c[n,:n+1]*trigc[:n+1] +
                            delta_s[n,:n+1]*trigs[:n+1])
                 hnm=w[n]*radial*np.dot(p[n,:n+1],harmonics)
-                pot0 += hnm
-                dg0 += (n+1)*hnm
-                grad0 += (n+1)*(n+2)*hnm
-            pot[idx] = pot0*model["gm"]/r0
-            dg[idx] = dg0*model["gm"]/r0**2
-            grad[idx] = -model["gm"]/r0**3
+                if need_pot:
+                    pot0 += hnm
+                if need_dg:
+                    dg0 += (n+1)*hnm
+                if need_grad:
+                    grad0 += (n+1)*(n+2)*hnm
+            if need_pot:
+                pot[idx] = pot0*model["gm"]/r0
+            if need_dg:
+                dg[idx] = dg0*model["gm"]/r0**2
+            if need_grad:
+                grad[idx] = -model["gm"]/r0**3
 
     # Store computed results in the output dictionary
     if "potential" in results:
@@ -1283,5 +1301,4 @@ class shm_analysis:
         """
         return sh_analysis_core(self.lon,self.lat,self.values,lmax,
                                 method=method)
-
 

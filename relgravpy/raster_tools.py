@@ -144,7 +144,23 @@ def raster_copy( src_ds, new_name='copy', extension='tif', suffix='',
 # -----------------------------------------------------------------------------
 def xy2rasterIdx( raster, x, y, prjcode=4326, close=False ):
     """
-    Get pixel index at specific map coordinates (x, y)
+    Convert map coordinates to raster pixel indices.
+
+    Parameters
+    ----------
+    raster : str or gdal.Dataset
+        Raster path or already opened GDAL dataset.
+    x, y : float or array-like
+        Coordinate(s) in the CRS identified by ``prjcode``.
+    prjcode : int, default=4326
+        EPSG code of the input coordinates.
+    close : bool, default=False
+        If True and ``raster`` is a path, close/unlink temporary dataset.
+
+    Returns
+    -------
+    row, col : list[int], list[int]
+        Raster row/column indices for each input coordinate pair.
     """
     if type(raster) == str :
         raster = gdal.Open(raster)
@@ -152,6 +168,7 @@ def xy2rasterIdx( raster, x, y, prjcode=4326, close=False ):
         
     rprj = raster_prjcode( raster )
 
+    # Reproject the input coordinates to raster CRS when needed.
     if rprj != utl.prj_( prjcode ).srs :
         x, y = utl.prjxy( prjcode, rprj, x, y )
 
@@ -163,6 +180,7 @@ def xy2rasterIdx( raster, x, y, prjcode=4326, close=False ):
     col = []
     row = []
 
+    # Map coordinates to integer pixel indices.
     for i, j in zip( x, y ):
         px, py = map(int, gdal.ApplyGeoTransform( inv_gt, i, j ) )
         col.append(px)
@@ -177,8 +195,29 @@ def xy2rasterIdx( raster, x, y, prjcode=4326, close=False ):
 # -----------------------------------------------------------------------------
 def xy2rasterVal( raster, x, y, prjcode=4326, band=1, close=False ) :
     """
-    Extract gdal_raster values at x, y coordinates
-    Return (1) Raster value (2) 
+    Extract raster values at map coordinates.
+
+    Parameters
+    ----------
+    raster : str or gdal.Dataset
+        Raster path or already opened GDAL dataset.
+    x, y : float or array-like
+        Coordinate(s) in the CRS identified by ``prjcode``. ``x`` and ``y``
+        must have matching shapes when array-like.
+    prjcode : int, default=4326
+        EPSG code of the input coordinates.
+    band : int, default=1
+        Raster band index (1-based GDAL convention).
+    close : bool, default=False
+        If True and ``raster`` is a path, close/unlink temporary dataset.
+
+    Returns
+    -------
+    r_val : float or np.ndarray
+        Raster value(s) at the requested coordinate(s). If ``x``/``y`` are
+        arrays, ``r_val`` is reshaped to the same shape.
+    row, col : list[int], list[int]
+        Raster row/column indices used for sampling.
     """
 
     if type( raster ) == str:
@@ -187,11 +226,22 @@ def xy2rasterVal( raster, x, y, prjcode=4326, band=1, close=False ) :
 
     r_array = raster.GetRasterBand( band ).ReadAsArray()
     
+    # Preserve input shape so sampled values can be returned in the same layout.
+    x_shape = None
+    y_shape = None
     if type(x) not in ( int, float ) :
+        x = np.asarray(x)
+        x_shape = x.shape
         x = x.ravel()
     if type(y) not in ( int, float ) :
+        y = np.asarray(y)
+        y_shape = y.shape
         y = y.ravel()
+
+    if ( x_shape is not None ) and ( y_shape is not None ) and ( x_shape != y_shape ) :
+        raise ValueError( 'x and y must have the same shape' )
         
+    # Convert coordinates to pixel indices in raster CRS/grid space.
     row, col = xy2rasterIdx( raster, x, y, prjcode=prjcode )
 
     r_val = r_array[ row, col ]
@@ -201,8 +251,9 @@ def xy2rasterVal( raster, x, y, prjcode=4326, band=1, close=False ) :
         raster = None
         raster = path_name
 
-    if type(x) not in ( int, float ) :    
-        r_val = r_val.reshape( x.shape )
+    # Restore original 2D (or nD) layout of input coordinates.
+    if x_shape is not None:
+        r_val = np.asarray( r_val ).reshape( x_shape )
     
     return r_val, row, col
 
