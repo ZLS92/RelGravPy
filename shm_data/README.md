@@ -81,3 +81,38 @@ Important limitations:
 - These large model datasets are intentionally excluded from standard Git.
   An offline cache is available **after** the explicit downloads. The model
   binaries have not been committed to this repository.
+
+## Fast synthesis and optional Numba support
+
+`shm.synthesis()` uses one fused degree/order numerical algorithm for all
+geographic grids and arbitrary point locations. The engine evaluates the
+fully normalized associated Legendre functions without building a separate
+full matrix at every station; variable elevations and non-separable grids
+are supported.
+
+Install RelGravPy normally **without requiring Numba**:
+
+```bash
+pip install .
+```
+
+For optional JIT acceleration (recommended for large surveys), use:
+
+```bash
+pip install ".[fast]"
+# Or in an existing conda environment:
+conda install -c conda-forge numba
+```
+
+If Numba cannot be installed, is incompatible with the current environment,
+or fails to compile the numerical kernel, **all spherical harmonic synthesis
+functions continue to operate using the NumPy fallback**. There is no backend
+argument to select and no required configuration. Numba may introduce a
+one-time compilation delay at the first synthesis call; subsequent calls
+reuse the compiled function when the environment allows caching.
+
+The compiled and uncompiled implementations share the same recurrence and
+physical units. Numerically they are compared against independent SciPy
+reference values and regression tests. High-degree synthesis still requires
+careful numerical and runtime validation; Numba improves speed, not the
+underlying geodetic approximation of the gravity model.
