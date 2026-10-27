@@ -10,7 +10,6 @@ import sys
 import numpy as np
 import pytest
 
-from relgravpy import _sh_fast
 from relgravpy import shm_tools as sh
 
 
@@ -104,9 +103,9 @@ def test_missing_numba_does_not_block_import_or_synthesis():
     """A fresh Python process must work without importable Numba."""
     script = (
         "import sys; sys.modules['numba'] = None; "
-        "from relgravpy import _sh_fast, shm_tools as sh; "
+        "from relgravpy import shm_tools as sh; "
         "import numpy as np; "
-        "assert _sh_fast._compiled_accumulator is None; "
+        "assert sh._compiled_accumulator is None; "
         "c=np.array([[1.0]]); "
         "model=dict(c=c,s=np.zeros_like(c),gm=sh.GM_WGS84,"
         "radius=sh.A_WGS84,lmax=0); "
@@ -132,7 +131,7 @@ def test_failed_jit_compilation_falls_back(monkeypatch):
             _model(3),lon=np.array([0.,10.]),lat=np.array([0.,20.]),
             fields=("grav_dist",),height_reference="ellipsoid")
     assert np.isfinite(result["grav_dist"]).all()
-    assert _sh_fast._numba_failed
+    assert sh._numba_failed
 
 
 @pytest.mark.parametrize("latitude,longitude", [(0.,0.),(43.2,12.1),(85.,-80.)])
