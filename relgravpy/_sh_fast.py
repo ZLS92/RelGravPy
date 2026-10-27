@@ -113,9 +113,14 @@ def _accumulate_points(lon, phi, radius, c, s, weight, model_radius):
     return sums
 
 
-# Compile the same scalar recurrence in parallel across independent points.
-_compiled_accumulator = (njit(cache=True, parallel=True)(_accumulate_points)
-                         if njit is not None else None)
+# Compile the same recurrence across independent points when possible.
+# Initializing the JIT decorator can itself fail if Numba is partly broken;
+# treat that exactly like a missing optional dependency.
+try:
+    _compiled_accumulator = (njit(cache=True, parallel=True)(_accumulate_points)
+                             if njit is not None else None)
+except Exception:
+    _compiled_accumulator = None
 _numba_failed = False
 
 
