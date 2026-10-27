@@ -491,8 +491,36 @@ def sh_synthesis_core(model, limits=None, step=1., lmax=None, gentle_cut=None,
 
     Returns
     -------
-    dict
-        Dictionary with keys ``"lon"``, ``"lat"`` and any requested field names.
+    dict[str, numpy.ndarray]
+        Longitude and latitude at the evaluation points are returned in
+        degrees under ``"lon"`` and ``"lat"``. Every requested field has
+        exactly the same shape as the evaluation coordinates:
+
+        - ``potential``: disturbing potential, m**2/s**2.
+        - ``geoid``: Bruns approximation to geoid height, metres.
+        - ``grav_dist``: spherical radial gravity disturbance, mGal.
+        - ``free_air``: approximate spherical gravity anomaly, mGal.
+        - ``abs_grav``: normal gravity plus radial disturbance, mGal.
+        - ``grav_gradient``: radial gravity derivative, Eotvos.
+
+    Notes
+    -----
+    The numerical series is evaluated by the single fused engine in
+    ``_sh_fast``. The 4-pi normalized Legendre recurrence is shared by a
+    Numba-compiled implementation (when usable) and a pure-NumPy fallback.
+    Both support irregular coordinate arrays and variable ellipsoidal
+    heights; Numba is not required at installation or runtime.
+
+    Unless an explicit undulation is provided, the default
+    ``height_reference='geoid'`` requires an additional preliminary
+    geoid synthesis to convert the supplied heights to ellipsoidal
+    heights. This may increase runtime compared with
+    ``height_reference='ellipsoid'``, which must only be selected when
+    the supplied heights actually use that datum.
+
+    Radial disturbances, derivatives, and geoid heights are approximate:
+    exact ellipsoidal ICGEM gravity components and tide/zero-degree
+    conventions are not reproduced by this reference gravity model.
     """
     if isinstance(fields,str):
         fields=(fields,)
@@ -1189,9 +1217,19 @@ class shm:
 
         Returns
         -------
-        dict
-            Dictionary containing the synthesized field arrays and the associated
-            longitude/latitude grids.
+        dict[str, numpy.ndarray]
+            Coordinate arrays ``lon``/``lat`` (degrees) and the requested
+            gravity fields at the same coordinates. Units: ``potential``
+            in m**2/s**2; ``geoid`` and ``topo`` in metres;
+            ``grav_dist``, ``free_air``, ``abs_grav`` in mGal;
+            ``grav_gradient`` in Eotvos.
+
+        Notes
+        -----
+        The numerical engine uses Numba automatically if operational,
+        otherwise a NumPy implementation of the same recurrence.
+        No ``backend`` argument or Numba installation is required.
+        Select the correct height datum with ``height_reference``.
         """
 
         grid = sh_synthesis(
