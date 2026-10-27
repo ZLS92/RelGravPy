@@ -15,6 +15,8 @@ setup(
         'pyproj',
         'contextily',
     ],
+    # Optional fast compilation. Base installs always work without Numba.
+    extras_require={'fast': ['numba>=0.59']},
     package_data={'relgravpy': ['data/*.dat', 'data/*.md', 'data/*.txt']},
     include_package_data=True,
     )
