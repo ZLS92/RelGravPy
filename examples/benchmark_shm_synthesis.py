@@ -16,7 +16,6 @@ from time import perf_counter
 import numpy as np
 
 from relgravpy import shm_tools as sh
-from relgravpy import _sh_fast
 
 
 def _synthetic_model(degree):
@@ -63,7 +62,7 @@ def main():
     lon = rng.uniform(-180,180,args.points)
     lat = rng.uniform(-75,75,args.points)
 
-    compiled = _sh_fast._compiled_accumulator
+    compiled = sh._compiled_accumulator
     if compiled is not None:
         # Warm up the JIT before benchmarking. Compiled code is cached when
         # supported, but first-call compilation is machine/environment-specific.
@@ -77,10 +76,10 @@ def main():
 
     try:
         # Simulate unavailable Numba without affecting the public API.
-        _sh_fast._compiled_accumulator = None
+        sh._compiled_accumulator = None
         numpy_sec,numpy_only = _time_synthesis(model,lon,lat,args.repeats)
     finally:
-        _sh_fast._compiled_accumulator = compiled
+        sh._compiled_accumulator = compiled
 
     print(f"Degree: {args.degree}; points: {args.points}")
     print(f"NumPy fallback median: {numpy_sec:.6f} s")
