@@ -230,3 +230,29 @@ comparison to TSoft with identical T87 catalogues reported an RMSE
 of 0.022 nm/s² and a maximum absolute discrepancy of 0.054 nm/s²
 (Karlsruhe, January 2017). These are *not* measured results for
 RelGravPy; see Rau (2018), PyGTide user guide, Figure 2.
+
+## Fast spherical-harmonic synthesis (optional Numba)
+
+`shm.synthesis()` automatically uses a fused spherical-harmonic summation
+kernel. Installing Numba accelerates large problems, but is **not required**
+for RelGravPy to install or work: an equivalent NumPy implementation is used
+automatically when Numba is absent or incompatible.
+
+```bash
+pip install .          # Standard installation, no Numba requirement
+pip install ".[fast]"   # Optional Numba acceleration
+```
+
+You can also add Numba later using `conda install -c conda-forge numba`.
+Do not use the `[fast]` extra if Numba cannot be resolved in the environment;
+the standard installation and spherical-harmonic calculations still work.
+No backend selection is necessary.
+
+For a reproducible speed and numerical agreement check, run:
+
+```bash
+python -m examples.benchmark_shm_synthesis --degree 120 --points 400
+```
+
+Details about supported gravity-field units, approximations and Earth2014
+data remain in [the spherical harmonic model notes](shm_data/README.md).
