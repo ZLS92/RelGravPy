@@ -473,7 +473,34 @@ def sh_wgs84_normal_zonals(gm, radius, lmax):
 
 
 def sh_geocentric_coordinates(lat, height):
-    """Geocentric latitude/radius for WGS84 geodetic latitude and height."""
+    """Convert WGS84 geodetic latitude and ellipsoidal height to spherical coordinates.
+    
+    Parameters
+    ----------
+    lat : float or array_like
+        Geodetic latitude in degrees.
+    height : float or array_like
+        Height above the WGS84 ellipsoid, in metres; broadcastable
+        against lat.
+    
+    Returns
+    -------
+    latitude_gc : numpy.ndarray or numpy.float64
+        Geocentric latitude in degrees.
+    radius : numpy.ndarray or numpy.float64
+        Distance from Earth's centre, in metres. Both outputs
+        have the shape broadcast from lat and height.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_geocentric_coordinates
+    >>> phi, radius = sh_geocentric_coordinates(45., 0.)
+    >>> bool(phi < 45.)
+    True
+    
+    Notes
+    -----
+    The longitude coordinate is unchanged by this conversion."""
     ph=np.deg2rad(np.asarray(lat,dtype=float))
     e2=F_WGS84*(2-F_WGS84)
     N=A_WGS84/np.sqrt(1-e2*np.sin(ph)**2)
@@ -483,7 +510,34 @@ def sh_geocentric_coordinates(lat, height):
 
 
 def sh_normal_gravity_height(lat, height):
-    """Second-order WGS84 normal gravity continuation above ellipsoid [m/s2]."""
+    """Approximate WGS84 normal gravity at nonzero ellipsoidal height.
+    
+    Applies the second-order height continuation of Somigliana
+    normal gravity, rather than an exact high-altitude solution.
+    
+    Parameters
+    ----------
+    lat : float or array_like
+        WGS84 geodetic latitude, in degrees.
+    height : float or array_like
+        Ellipsoidal height, in metres, broadcastable with lat.
+    
+    Returns
+    -------
+    numpy.ndarray or numpy.float64
+        Normal gravity at height, in m/s**2.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_normal_gravity_height
+    >>> bool(sh_normal_gravity_height(45., 100.) <
+    ...      sh_normal_gravity_height(45., 0.))
+    True
+    
+    Notes
+    -----
+    This near-surface approximation is not an exact ellipsoidal
+    gravity solution at arbitrary altitude."""
     ph=np.deg2rad(np.asarray(lat,dtype=float))
     m=OMEGA_WGS84**2*A_WGS84**2*(A_WGS84*(1-F_WGS84))/GM_WGS84
     q=1+F_WGS84+m-2*F_WGS84*np.sin(ph)**2
@@ -494,14 +548,88 @@ def sh_normal_gravity_height(lat, height):
 def sh_synthesis_core(model, limits, step, lmax=None, gentle_cut=None,
                       fields=("grav_dist",), height=0.0, surface="ellipsoid",
                       topo=None):
-    """Spherical harmonic synthesis with WGS84 even-zonal normal-field removal.
-
-    Uses Bruns' formula for geoid undulation, radial gravity disturbance
-    and spherical gravity anomaly, and a second-order WGS84 height formula
-    for approximate absolute gravity. It does not reproduce the exact ICGEM
-    ellipsoidal computation (which includes spherical-to-ellipsoidal gravity
-    component projection, zero-degree geoid convention and tide systems).
-    """
+    """Synthesize gravity-related fields from normalized spherical harmonics.
+    
+    Subtracts WGS84 degree-zero and even-zonal normal-field
+    coefficients, evaluates the disturbing potential T, and
+    computes spherical radial derivatives. Uses Bruns' approximation
+    for geoid undulation and second-order WGS84 normal-gravity
+    continuation for an approximate absolute gravity.
+    
+    Parameters
+    ----------
+    model : dict
+        Coefficient dictionary from sh_read_gfc(), with 'c', 's'
+        dimensionless 4-pi fully normalized arrays (no
+        Condon-Shortley phase), 'gm' in m**3/s**2, 'radius'
+        in metres, and 'lmax' as an integer.
+    limits : sequence of four floats
+        Geographic [lon_min, lon_max, lat_min, lat_max] in degrees.
+    step : float or (float, float)
+        Longitude/latitude grid spacing in degrees.
+    lmax : int or None, optional
+        Maximum synthesized degree; None uses model['lmax'].
+    gentle_cut : int or None, optional
+        Last untapered degree before cosine roll-off; None
+        disables tapering.
+    fields : str or sequence of str, optional
+        Any subset of 'potential', 'geoid', 'abs_grav',
+        'grav_dist', 'free_air' and 'grav_gradient'.
+    height : float or array_like, optional
+        Height offset in metres, broadcastable to the output grid.
+    surface : {'ellipsoid', 'sphere', 'mean_sea_level', 'topography'}
+        'ellipsoid': WGS84 ellipsoid plus height;
+        'sphere': model reference sphere plus height (grid latitude
+        treated as geocentric);
+        'mean_sea_level': currently approximated by the ellipsoid;
+        'topography': ellipsoid plus height plus topo (approximate).
+    topo : array_like or None, optional
+        Topographic heights in metres, broadcastable to the grid.
+        Required for surface='topography'. Heights are treated as
+        approximate ellipsoidal heights (no geoid conversion).
+    
+    Returns
+    -------
+    dict[str, numpy.ndarray]
+        'lon', 'lat' : arrays of shape (nlat, nlon)
+            Geographic meshgrid coordinates in degrees.
+        Requested field arrays, all with matching 2-D shape:
+        'potential' : disturbing potential T, m**2/s**2.
+        'geoid' : Bruns approximation T/gamma, metres.
+        'grav_dist' : spherical radial gravity disturbance, mGal.
+        'free_air' : spherical anomaly (dg - 2T/r), mGal.
+        'abs_grav' : gamma(height) + dg, in mGal (approximate).
+        'grav_gradient' : radial derivative of the disturbance,
+            in Eotvos (1 E = 1e-9 s**-2).
+    
+    Raises
+    ------
+    ValueError
+        For unsupported fields or surface types, invalid geographic
+        bounds, or missing topography when required.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from relgravpy.sh_core import (
+    ...     sh_synthesis_core, A_WGS84, GM_WGS84)
+    >>> c = np.array([[1.]])
+    >>> model = {"c": c, "s": np.zeros_like(c), "gm": GM_WGS84,
+    ...          "radius": A_WGS84, "lmax": 0}
+    >>> result = sh_synthesis_core(
+    ...     model, [10, 12, 45, 45], 1, lmax=0,
+    ...     fields=("potential", "grav_dist"), surface="sphere")
+    >>> np.allclose(result["potential"], 0.0)
+    True
+    
+    Notes
+    -----
+    This is a reference spherical/approximate ellipsoidal kernel,
+    NOT an exact ICGEM geodetic gravity calculator. In particular,
+    the radial disturbance is not an ellipsoidal component
+    projection; geoid zero-degree conventions and tide systems
+    are not fully implemented. Full degree-10800 synthesis can
+    be computationally expensive."""
     if isinstance(fields,str):
         fields=(fields,)
     allowed={"potential","geoid","abs_grav","grav_dist","free_air","grav_gradient"}
