@@ -724,13 +724,61 @@ def sh_synthesis_core(model, limits, step, lmax=None, gentle_cut=None,
 
 
 def sh_analysis_fft(lon, lat, values, lmax):
-    """Global scalar SH analysis using longitude FFT and latitude quadrature.
-
-    Requires a full 360-degree periodic longitude grid with no duplicate
-    endpoint, and latitude coverage from pole to pole. On equiangular
-    latitudes the area integral uses trapezoidal integration in sin(lat)
-    and is approximate, not an exact Gauss-Legendre transform.
-    """
+    """Analyze a global scalar field with longitude FFT and latitude quadrature.
+    
+    Longitude harmonics are extracted using a real FFT. Latitude
+    integration is trapezoidal in sin(latitude), so results on
+    equiangular grids are APPROXIMATE and not equivalent to exact
+    Gauss-Legendre spherical harmonic analysis.
+    
+    Parameters
+    ----------
+    lon, lat : array_like, shape (nlat, nlon)
+        Matching separable 2-D geographic meshgrids in degrees.
+        Longitude must have uniform spacing covering exactly 360
+        degrees, without a duplicated endpoint. Latitude must
+        reach both -90 and +90 degrees.
+    values : array_like, shape (nlat, nlon)
+        Scalar values on the grid, all finite; their units carry
+        over to the recovered harmonic coefficients.
+    lmax : int
+        Largest estimated degree. Requires nlon >= 2*lmax+1
+        and nlat >= lmax+1.
+    
+    Returns
+    -------
+    dict
+        'c', 's' : ndarray, shape (lmax+1, lmax+1)
+            Fully normalized, no-Condon-Shortley cosine and sine
+            coefficients in the units of values; m > n entries are zero.
+        'lmax' : int
+            Analyzed maximum degree.
+        'method' : str
+            Always 'fft_trapezoid'.
+        'latitude_quadrature' : str
+            Always 'trapezoid'.
+    
+    Raises
+    ------
+    ValueError
+        For dimension/shape mismatches, insufficient sampling,
+        nonfinite values, missing poles, non-separable meshgrids,
+        or an incomplete/nonuniform longitude period.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from relgravpy.sh_core import sh_analysis_fft
+    >>> lon, lat = np.meshgrid(np.arange(-180., 180., 1.),
+    ...                        np.linspace(-90., 90., 181))
+    >>> fit = sh_analysis_fft(lon, lat, np.full(lon.shape, 5.), 0)
+    >>> np.isclose(fit["c"][0, 0], 5.)
+    True
+    
+    Notes
+    -----
+    Use sh_analysis_core(method='lstsq') for regional grids.
+    The FFT approximation is not an exact spectral inversion."""
     lon=np.asarray(lon,dtype=float)
     lat=np.asarray(lat,dtype=float)
     values=np.asarray(values,dtype=float)
@@ -777,11 +825,77 @@ def sh_analysis_fft(lon, lat, values, lmax):
 
 def sh_analysis_core(lon, lat, values, lmax, radius=6378136.3,
                      normalization="fully_normalized", method="auto"):
-    """Least-squares scalar SH analysis on a gridded surface.
-
-    For regional grids this solution is non-unique and potentially ill-
-    conditioned. Use global sampling for a defensible transform.
-    """
+    """Estimate normalized real scalar SH coefficients from grid samples.
+    
+    Selects a global FFT/quadrature analysis when possible, or
+    solves a dense linear least-squares system. This analyzes an
+    arbitrary scalar field: it does not apply gravity-specific
+    radial continuation or reference-potential subtraction.
+    
+    Parameters
+    ----------
+    lon, lat, values : array_like
+        Matching arrays of geographic longitude, latitude
+        (degrees) and scalar samples. Least squares uses only
+        entries where all three are finite. Coefficients retain
+        the physical units of values.
+    lmax : int
+        Maximum SH degree. Least squares fits (lmax+1)**2
+        real sine/cosine coefficients.
+    radius : float, optional
+        Reference radius metadata, in metres (default 6378136.3).
+        Does NOT enter the scalar design matrix.
+    normalization : str, optional
+        Only 'fully_normalized' is supported.
+    method : {'auto', 'fft', 'lstsq'}, optional
+        'fft' requires a full global, regular, pole-to-pole grid;
+        'lstsq' uses the sample design matrix;
+        'auto' first tries FFT and falls back on least squares
+        when the grid does not satisfy FFT geometry requirements.
+    
+    Returns
+    -------
+    dict
+        'c', 's' : ndarray, shape (lmax+1, lmax+1)
+            Dimensionful fully normalized scalar SH coefficients.
+        'lmax' : int
+            Maximum degree used.
+        'radius' : float
+            Provided reference-radius metadata, in metres.
+        For least squares, also returns 'rank' (int),
+        'residuals' (ndarray) and 'condition' (float estimated
+        from the design-matrix singular values).
+        For FFT, also returns 'method'='fft_trapezoid' and
+        'latitude_quadrature'='trapezoid'.
+    
+    Raises
+    ------
+    ValueError
+        For inconsistent shapes, unsupported settings, no finite
+        samples, too few samples, or invalid FFT grid geometry.
+    MemoryError
+        If the dense least-squares design matrix exceeds 512 MiB.
+    
+    Warns
+    -----
+    UserWarning
+        If the least-squares design matrix is rank deficient.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from relgravpy.sh_core import sh_analysis_core, sh_grid
+    >>> lon, lat = sh_grid([-180, 150, -60, 60], 30)
+    >>> fit = sh_analysis_core(lon, lat, np.full(lon.shape, 7.),
+    ...                        0, method="lstsq")
+    >>> np.isclose(fit["c"][0, 0], 7.)
+    True
+    
+    Notes
+    -----
+    Regional SH analysis may be nonunique or severely ill-conditioned
+    even with more data than unknowns. The FFT method provides an
+    approximate, not exact, equiangular-latitude transform."""
     if normalization!="fully_normalized":
         raise ValueError("Only fully_normalized supported")
     lon=np.asarray(lon,dtype=float)
