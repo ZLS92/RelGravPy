@@ -958,11 +958,42 @@ EARTH2014_SUR_URL = ("https://ddfe.blazejbucha.com/models/Earth2014/"
 
 
 def sh_download_topography(directory=None, overwrite=False):
-    """Retrieve the original Earth2014 SUR spherical harmonics (~933 MB).
-
-    This is a one-time explicit download for later offline work.
-    Dataset: Hirt & Rexer (2015), DOI 10.1016/j.jag.2015.03.001.
-    """
+    """Explicitly download Earth2014 SUR2014 binary topography coefficients.
+    
+    Downloads the original high-degree .bshc model (about 933 MB)
+    to the offline cache. A temporary .part file is used to avoid
+    replacing an existing dataset before the transfer completes.
+    
+    Parameters
+    ----------
+    directory : str, pathlib.Path, or None, optional
+        Destination cache directory; None means DEFAULT_DATA_DIR.
+    overwrite : bool, optional
+        Whether to replace an existing file. Default False.
+    
+    Returns
+    -------
+    pathlib.Path
+        Path to 'Earth2014.SUR2014.degree10800.bshc'.
+    
+    Raises
+    ------
+    OSError
+        On a network or filesystem failure.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_download_topography
+    >>> path = sh_download_topography(directory="shm_data")
+    >>> path.suffix
+    '.bshc'
+    
+    Notes
+    -----
+    This call performs network I/O unless the file is already cached.
+    There is no automatic download from synthesis functions.
+    Source: Hirt and Rexer (2015), DOI 10.1016/j.jag.2015.03.001.
+    The implementation checks only a minimum file size, not a checksum."""
     directory = Path(directory) if directory is not None else DEFAULT_DATA_DIR
     directory.mkdir(parents=True, exist_ok=True)
     dest = directory/"Earth2014.SUR2014.degree10800.bshc"
@@ -985,12 +1016,53 @@ def sh_download_topography(directory=None, overwrite=False):
 
 
 def sh_read_bshc(path, lmax=None):
-    """Read Curtin Earth2014 4-pi-normalized SHCs from a binary .bshc.
-
-    The file stores two float64 values (nmin,nmax), followed by all C(n,m)
-    and all S(n,m), each in ascending degree then order. Arrays are returned
-    in metres. Memmapping avoids loading the entire ~933MB file.
-    """
+    """Load Earth2014 SUR2014 scalar harmonics from its binary .bshc format.
+    
+    The little-endian binary file stores (nmin, nmax) as two float64
+    numbers followed by packed triangular C coefficients and then S
+    coefficients, both ordered by ascending degree and order. A
+    memory map avoids eagerly reading the full source file.
+    
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        Local Earth2014 SUR2014 .bshc file.
+    lmax : int or None, optional
+        Maximum degree to retain; None uses the file maximum.
+        Larger requests are clipped with a UserWarning.
+    
+    Returns
+    -------
+    dict
+        'c', 's' : ndarray, shape (L+1, L+1)
+            Fully normalized scalar height coefficients in metres.
+            Entries with order m > degree n are zero.
+        'lmax', 'max_degree' : int
+            Retained and file-maximum degrees.
+        'modelname' : str
+            Always 'Earth2014 SUR2014'.
+        'unit' : str
+            Always 'm'.
+    
+    Raises
+    ------
+    ValueError
+        If the binary header is invalid or its expected byte count
+        disagrees with the actual file size.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_read_bshc
+    >>> topo = sh_read_bshc(
+    ...     "shm_data/Earth2014.SUR2014.degree10800.bshc",
+    ...     lmax=120)
+    >>> topo["c"].shape
+    (121, 121)
+    
+    Notes
+    -----
+    This is a topographic HEIGHT model, not an ICGEM gravity model.
+    The file format is incompatible with .gfc gravity coefficients."""
     path=Path(path)
     header=np.fromfile(path,dtype="<f8",count=2)
     if len(header)!=2:
@@ -1015,11 +1087,51 @@ def sh_read_bshc(path, lmax=None):
 
 
 def sh_scalar_synthesis(coeff, lon, lat, lmax=None, gentle_cut=None):
-    """Synthesize a fully normalized scalar field from dimensionful SHCs.
-
-    Longitude and latitude are 2-D meshgrids; return matching 2-D output.
-    This is appropriate for Earth2014 elevation coefficients (metres).
-    """
+    """Synthesize a scalar field from dimensionful SH coefficients.
+    
+    Computes a real spherical harmonic expansion using 4-pi
+    normalization and no Condon-Shortley phase. Coefficient
+    units are preserved; Earth2014 SUR2014 yields elevations in m.
+    
+    Parameters
+    ----------
+    coeff : dict
+        'c', 's' 2-D coefficient arrays and 'lmax' available degree.
+        Coefficients carry the intended output unit.
+    lon, lat : array_like, shape (nlat, nlon)
+        Matching 2-D geographic grids in degrees. Latitude is
+        assumed constant across each row; longitude must have
+        the same columns for every row.
+    lmax : int or None, optional
+        Maximum synthesized degree; None uses coeff['lmax'].
+    gentle_cut : int or None, optional
+        Last untapered degree for an optional cosine taper.
+    
+    Returns
+    -------
+    numpy.ndarray, shape (nlat, nlon)
+        Scalar synthesis in coefficient units, e.g. metres
+        when coeff contains Earth2014 height harmonics.
+    
+    Raises
+    ------
+    ValueError
+        If lon and lat are not equally shaped 2-D arrays.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from relgravpy.sh_core import sh_scalar_synthesis, sh_grid
+    >>> lon, lat = sh_grid([0, 2, 0, 1], 1)
+    >>> coeff = {"c": np.array([[100.]]),
+    ...          "s": np.array([[0.]]), "lmax": 0}
+    >>> np.allclose(sh_scalar_synthesis(coeff, lon, lat), 100.)
+    True
+    
+    Notes
+    -----
+    Meshgrid row/column separability is assumed, not independently
+    validated. This computes no gravity-specific radial derivatives."""
     lon=np.asarray(lon,dtype=float)
     lat=np.asarray(lat,dtype=float)
     if lon.shape!=lat.shape or lon.ndim!=2:
@@ -1044,11 +1156,74 @@ def sh_scalar_synthesis(coeff, lon, lat, lmax=None, gentle_cut=None):
 def sh_synthesis_with_topography(model, limits, step, fields, lmax,
                                  gentle_cut, height, surface, topo,
                                  directory=None, topo_lmax=None):
-    """Synthesize available gravity fields, optionally adding Earth2014 topo.
-
-    Earth2014 is sought locally only; downloading it always requires a
-    separate explicit call. No hidden network I/O is performed.
-    """
+    """Synthesize gravity outputs while optionally including Earth2014 relief.
+    
+    If the caller requests the 'topo' field or sets the surface
+    to 'topography', missing heights are synthesized from a locally
+    cached Earth2014 SUR2014 .bshc file. No implicit download occurs.
+    
+    Parameters
+    ----------
+    model : dict
+        Gravity coefficients and metadata accepted by
+        sh_synthesis_core().
+    limits : sequence of four floats
+        [lon_min, lon_max, lat_min, lat_max] in degrees.
+    step : float or (float, float)
+        Geographic grid spacing in degrees.
+    fields : str or sequence of str
+        Gravity field names accepted by sh_synthesis_core(),
+        optionally with 'topo' for elevation in metres.
+    lmax : int or None
+        Maximum gravity-model synthesis degree.
+    gentle_cut : int or None
+        Last untapered gravity-model harmonic degree.
+    height : float or array_like
+        Height offset in metres, broadcastable to the grid.
+    surface : str
+        Surface accepted by sh_synthesis_core(), including
+        'ellipsoid', 'sphere', 'mean_sea_level', or 'topography'.
+    topo : array_like or None
+        Explicit topographic heights in metres, broadcastable to
+        the geographic grid, or None to use the local Earth2014 cache.
+    directory : str, pathlib.Path, or None, optional
+        Cache directory for Earth2014, default DEFAULT_DATA_DIR.
+    topo_lmax : int or None, optional
+        Maximum degree of Earth2014 height harmonics, independent
+        of the gravity model degree lmax.
+    
+    Returns
+    -------
+    dict[str, numpy.ndarray]
+        'lon', 'lat' grids in geographic degrees; all requested
+        gravity fields in sh_synthesis_core() units; additionally
+        'topo' in metres when requested. All values are 2-D grids.
+    
+    Raises
+    ------
+    FileNotFoundError
+        If Earth2014 is required but absent from the offline cache.
+    ValueError
+        For invalid gravity field names or surface geometry.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from relgravpy.sh_core import (
+    ...     sh_synthesis_with_topography, GM_WGS84, A_WGS84)
+    >>> model = {"c": np.array([[1.]]), "s": np.array([[0.]]),
+    ...          "gm": GM_WGS84, "radius": A_WGS84, "lmax": 0}
+    >>> out = sh_synthesis_with_topography(
+    ...     model, [10, 11, 45, 45], 1, ("topo",), 0,
+    ...     None, 0., "topography", [[100., 101.]])
+    >>> out["topo"].tolist()
+    [[100.0, 101.0]]
+    
+    Notes
+    -----
+    Earth2014 SUR heights are nominally mean-sea-level elevations;
+    this kernel presently treats them as approximate ellipsoidal
+    heights without a geoid-to-ellipsoid correction."""
     if isinstance(fields,str):
         fields=(fields,)
     fields=tuple(fields)
