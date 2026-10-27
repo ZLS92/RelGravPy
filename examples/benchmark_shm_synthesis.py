@@ -2,7 +2,7 @@
 
 Run from the repository root with::
 
-    python examples/benchmark_shm_synthesis.py --degree 120 --points 400
+    python -m examples.benchmark_shm_synthesis --degree 120 --points 400
 
 Benchmarks use deterministic *synthetic* spherical harmonic coefficients, not
 an observational validation data set. Both modes call the same public-facing
