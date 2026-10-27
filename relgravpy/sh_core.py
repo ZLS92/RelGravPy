@@ -27,11 +27,55 @@ DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "shm_data"
 
 
 def sh_read_gfc(path, lmax=None):
-    """Stream static fully normalized ICGEM .gfc into degree/order arrays.
-
-    Dynamic components are not supported; use a time-epoch-aware model reader
-    for gfct/trnd/asin/acos records. Reject unsupported normalization.
-    """
+    """Read a static, fully normalized ICGEM gravity model from a .gfc file.
+    
+    Only 'gfc' records are supported. The presence of time-varying
+    'gfct', 'trnd', 'asin', or 'acos' records raises NotImplementedError.
+    Coefficients are read incrementally from the text file.
+    
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        Path to a local ICGEM .gfc file.
+    lmax : int or None, optional
+        Highest degree retained. None uses the file's max_degree;
+        requests above that limit are clipped with a warning.
+    
+    Returns
+    -------
+    dict
+        'c', 's' : ndarray, shape (L+1, L+1)
+            Dimensionless fully normalized cosine/sine coefficients,
+            with m > n entries zero.
+        'gm' : float
+            Model GM in m**3/s**2.
+        'radius' : float
+            Model reference radius in metres.
+        'lmax', 'max_degree' : int
+            Retained and advertised maximum degree.
+        'modelname' : str
+            Header model name, or the file stem.
+        'header' : dict[str, str]
+            Original header values indexed by lowercase keys.
+    
+    Raises
+    ------
+    ValueError
+        When 'end_of_head' is missing or normalization is not
+        'fully_normalized'.
+    NotImplementedError
+        If time-dependent coefficient records are present.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_read_gfc
+    >>> model = sh_read_gfc("shm_data/EIGEN-6C4.gfc", lmax=60)
+    >>> model["c"].shape
+    (61, 61)
+    
+    Notes
+    -----
+    This parser does not reconcile tide systems or reference frames."""
     path=Path(path)
     header={}
     in_head=True
@@ -79,7 +123,45 @@ def sh_read_gfc(path, lmax=None):
 
 
 def sh_download_model(name, directory=None, overwrite=False):
-    """Download a verified ICGEM model file for durable offline use."""
+    """Explicitly download a registered ICGEM model to an offline cache.
+    
+    The transfer first writes a temporary .part file and then renames
+    it to the destination. No checksum validation is performed.
+    
+    Parameters
+    ----------
+    name : str
+        Registered MODEL_URLS key, e.g. 'EIGEN-6C4', its alias
+        'EIGENC4', or 'WHU-CASM-UGM2025_2159'.
+    directory : str, pathlib.Path, or None, optional
+        Cache directory; defaults to DEFAULT_DATA_DIR.
+    overwrite : bool, optional
+        Whether to replace an already cached file. Default False.
+    
+    Returns
+    -------
+    pathlib.Path
+        Location of the .gfc file. 'EIGENC4' uses the canonical
+        filename 'EIGEN-6C4.gfc'.
+    
+    Raises
+    ------
+    KeyError
+        If no download URL is registered for name.
+    OSError
+        On filesystem or download failure.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_download_model
+    >>> path = sh_download_model("EIGEN-6C4", "shm_data")
+    >>> path.name
+    'EIGEN-6C4.gfc'
+    
+    Notes
+    -----
+    The first download requires internet access. Reusing a cached file
+    does not establish its authenticity or check its completeness."""
     name = str(name)
     if name not in MODEL_URLS:
         raise KeyError(f"No verified direct download URL registered for {name!r}")
@@ -106,6 +188,38 @@ def sh_download_model(name, directory=None, overwrite=False):
 
 
 def sh_resolve_degree(requested, available):
+    """Limit a requested maximum degree to the available model degree.
+    
+    Parameters
+    ----------
+    requested : int or None
+        Requested maximum degree; None selects all available degrees.
+        Converted to int when supplied.
+    available : int
+        Largest harmonic degree offered by the model.
+    
+    Returns
+    -------
+    int
+        Effective degree, min(requested, available).
+    
+    Raises
+    ------
+    ValueError
+        If requested is negative.
+    
+    Warns
+    -----
+    UserWarning
+        If requested exceeds available, before clipping it.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_resolve_degree
+    >>> sh_resolve_degree(120, 360)
+    120
+    >>> sh_resolve_degree(None, 360)
+    360"""
     if requested is None:
         return int(available)
     requested = int(requested)
@@ -118,7 +232,34 @@ def sh_resolve_degree(requested, available):
 
 
 def sh_taper(lmax, gentle_cut=None):
-    """Cosine taper equal to one through gentle_cut, reaching zero at lmax."""
+    """Create a cosine taper across spherical harmonic degrees.
+    
+    Weights are one through gentle_cut, then smoothly decay to
+    zero at lmax. With gentle_cut=None, all weights equal one.
+    
+    Parameters
+    ----------
+    lmax : int
+        Highest degree; output indices range from 0 to lmax.
+    gentle_cut : int or None, optional
+        Last untapered degree, satisfying 0 <= gentle_cut < lmax.
+    
+    Returns
+    -------
+    numpy.ndarray, shape (lmax+1,)
+        Dimensionless spectral weights indexed by degree.
+    
+    Raises
+    ------
+    ValueError
+        If gentle_cut is outside its valid range.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_taper
+    >>> weights = sh_taper(10, gentle_cut=6)
+    >>> weights[6], weights[10]
+    (1.0, 0.0)"""
     w = np.ones(lmax+1)
     if gentle_cut is None:
         return w
@@ -131,11 +272,33 @@ def sh_taper(lmax, gentle_cut=None):
 
 
 def sh_legendre(latitude_deg, lmax):
-    """Fully normalized geodetic associated Legendre functions at one latitude.
-
-    Pnm has the 4-pi normalization and no Condon-Shortley phase. The
-    three-term recurrence avoids factorial ratios and their overflow.
-    """
+    """Evaluate 4-pi fully normalized associated Legendre functions.
+    
+    The recurrence does NOT apply the Condon-Shortley (-1)**m
+    phase. It avoids factorial ratios, but the full triangular
+    array still scales quadratically with the maximum degree.
+    
+    Parameters
+    ----------
+    latitude_deg : float
+        Angular latitude in degrees, geodetic or geocentric as
+        appropriate to the surrounding synthesis geometry.
+    lmax : int
+        Maximum polynomial degree and order.
+    
+    Returns
+    -------
+    numpy.ndarray, shape (lmax+1, lmax+1)
+        P[n, m] (dimensionless), for 0 <= m <= n <= lmax.
+        Entries with m > n are zero. For example,
+        P[1, 1] = sqrt(3)*cos(latitude).
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from relgravpy.sh_core import sh_legendre
+    >>> np.isclose(sh_legendre(0., 1)[1, 1], np.sqrt(3.))
+    True"""
     u = np.sin(np.deg2rad(float(latitude_deg)))
     v = np.cos(np.deg2rad(float(latitude_deg)))
     p = np.zeros((lmax+1, lmax+1), dtype=float)
@@ -162,7 +325,35 @@ def sh_legendre(latitude_deg, lmax):
 
 
 def sh_grid(limits, step):
-    """Geographic grid: [lon_min, lon_max, lat_min, lat_max], step degrees."""
+    """Construct a regular geographic longitude/latitude meshgrid.
+    
+    Parameters
+    ----------
+    limits : sequence of four numbers
+        Bounds [lon_min, lon_max, lat_min, lat_max], in degrees.
+        Latitude must lie within [-90, 90]; bounds must be ordered.
+    step : float or sequence of two floats
+        Positive spacing in degrees, either a scalar or
+        (longitude_step, latitude_step).
+    
+    Returns
+    -------
+    lon, lat : tuple of numpy.ndarray
+        Matching 2-D meshgrids (nlat, nlon), in degrees. Rows
+        share latitude and columns share longitude. The upper
+        bound is included if within the grid endpoint tolerance.
+    
+    Raises
+    ------
+    ValueError
+        For invalid limits or spacing.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_grid
+    >>> lon, lat = sh_grid([10, 12, 44, 45], (1, 0.5))
+    >>> lon.shape, lat.shape
+    ((3, 3), (3, 3))"""
     lon0,lon1,lat0,lat1 = map(float, limits)
     if not (-90 <= lat0 <= lat1 <= 90 and lon0 <= lon1):
         raise ValueError("Invalid geographic limits")
@@ -175,7 +366,29 @@ def sh_grid(limits, step):
 
 
 def sh_ellipsoid_radius(lat):
-    """Geocentric distance of WGS84 ellipsoid at geodetic latitude."""
+    """Compute geocentric distance to the WGS84 ellipsoid surface.
+    
+    Parameters
+    ----------
+    lat : float or array_like
+        WGS84 geodetic latitude in degrees.
+    
+    Returns
+    -------
+    numpy.ndarray or numpy.float64
+        Geocentric radius of the ellipsoid at lat, in metres,
+        retaining the input array shape.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_ellipsoid_radius, A_WGS84
+    >>> round(float(sh_ellipsoid_radius(0.))) == round(A_WGS84)
+    True
+    
+    Notes
+    -----
+    This is not the prime-vertical radius of curvature N and
+    does not include ellipsoidal height."""
     phi = np.deg2rad(np.asarray(lat, dtype=float))
     b = A_WGS84*(1-F_WGS84)
     cp,sp = np.cos(phi),np.sin(phi)
@@ -184,7 +397,28 @@ def sh_ellipsoid_radius(lat):
 
 
 def sh_normal_gravity(lat):
-    """Somigliana normal gravity on WGS84 ellipsoid, m/s2."""
+    """Compute normal gravity on WGS84 using Somigliana's formula.
+    
+    Parameters
+    ----------
+    lat : float or array_like
+        Geodetic latitude in degrees.
+    
+    Returns
+    -------
+    numpy.ndarray or numpy.float64
+        Normal gravity at zero ellipsoidal height, m/s**2,
+        with the same shape as lat.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_normal_gravity
+    >>> round(float(sh_normal_gravity(0.)), 6)
+    9.780325
+    
+    See Also
+    --------
+    sh_normal_gravity_height : Second-order gravity continuation in height."""
     phi = np.deg2rad(np.asarray(lat, dtype=float))
     e2 = F_WGS84*(2-F_WGS84)
     k = 0.00193185265241
@@ -193,11 +427,40 @@ def sh_normal_gravity(lat):
 
 
 def sh_wgs84_normal_zonals(gm, radius, lmax):
-    """Fully-normalized zonal coefficients of the WGS84 normal potential.
-
-    Coefficients follow the even-zonal J2n formula of physical geodesy.
-    Scaled to the GM and reference radius of the external .gfc model.
-    """
+    """Generate WGS84 even-zonal normal-potential SH coefficients.
+    
+    The WGS84 J2n expansion is converted to fully normalized
+    C[2n,0] and rescaled to an external gravity model's GM and
+    reference radius. These terms can be subtracted from the
+    model zonals to calculate the disturbing potential.
+    
+    Parameters
+    ----------
+    gm : float
+        External gravity model GM in m**3/s**2.
+    radius : float
+        External model reference radius in metres.
+    lmax : int
+        Maximum degree to generate.
+    
+    Returns
+    -------
+    numpy.ndarray, shape (lmax+1,)
+        Dimensionless 4-pi normalized C[n,0] terms. Index zero
+        and all odd-degree indices equal zero.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import (
+    ...     sh_wgs84_normal_zonals, GM_WGS84, A_WGS84)
+    >>> c = sh_wgs84_normal_zonals(GM_WGS84, A_WGS84, 2)
+    >>> round(c[2], 9)
+    -0.000484167
+    
+    Notes
+    -----
+    The reference coefficients follow the constants hardcoded in
+    this module and do not correct model-specific tide conventions."""
     j2=1.08262982131e-3
     e2=F_WGS84*(2-F_WGS84)
     out=np.zeros(lmax+1)
