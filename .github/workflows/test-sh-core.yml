@@ -1,29 +1,45 @@
-name: Spherical harmonics reference tests
+name: Spherical harmonics synthesis regression tests
 
 on:
   push:
     paths:
-      - 'relgravpy/sh_core.py'
+      - 'relgravpy/_sh_fast.py'
+      - 'relgravpy/shm_tools.py'
       - 'tests/test_sh_core.py'
       - 'tests/test_sh_csr_scipy.py'
+      - 'tests/test_shm_fast.py'
       - 'tests/data/csr_rl05_grace_degree6.gfc'
+      - 'pyproject.toml'
+      - 'setup.py'
       - '.github/workflows/test-sh-core.yml'
   pull_request:
     paths:
-      - 'relgravpy/sh_core.py'
+      - 'relgravpy/_sh_fast.py'
+      - 'relgravpy/shm_tools.py'
       - 'tests/test_sh_core.py'
+      - 'tests/test_sh_csr_scipy.py'
+      - 'tests/test_shm_fast.py'
+      - 'pyproject.toml'
+      - 'setup.py'
       - '.github/workflows/test-sh-core.yml'
   workflow_dispatch:
 
 jobs:
-  test-sh-core:
+  test-shm:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        optional-numba: [false, true]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
-      - name: Install independent SH test dependencies
+      - name: Install required test dependencies
         run: python -m pip install numpy scipy pytest
-      - name: Validate standalone SH kernel
-        run: python -m pytest -q -s tests/test_sh_core.py tests/test_sh_csr_scipy.py
+      - name: Install optional Numba accelerator
+        if: matrix.optional-numba
+        run: python -m pip install 'numba>=0.59'
+      - name: Validate gravity synthesis with and without Numba
+        run: python -m pytest -q -s tests/test_sh_core.py tests/test_sh_csr_scipy.py tests/test_shm_fast.py
