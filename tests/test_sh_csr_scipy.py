@@ -13,12 +13,9 @@ import numpy as np
 import pytest
 from scipy.special import lpmv
 
+from relgravpy import shm_tools as sh
 ROOT = Path(__file__).resolve().parents[1]
-SPEC = importlib.util.spec_from_file_location("sh_core_under_test", ROOT / "relgravpy" / "sh_core.py")
-sh = importlib.util.module_from_spec(SPEC)
-SPEC.loader.exec_module(sh)
 DATA = ROOT / "tests" / "data" / "csr_rl05_grace_degree6.gfc"
-
 
 def independent_fully_normalized_legendre(n, m, latitude):
     """Unnormalized SciPy associated Legendre -> geodetic 4pi normalization."""
@@ -71,7 +68,7 @@ def test_csr_l6_spherical_fields_vs_scipy(height):
     fields=("potential","grav_dist","free_air","grav_gradient")
     result=sh.sh_synthesis_core(model,limits,step=(45,30),
                                 lmax=6,fields=fields,height=height,
-                                surface="sphere")
+                                surface="sphere",height_reference="ellipsoid")
     keys=("potential","grav_dist","free_air","grav_gradient")
     deltas=[]
     for i,j in np.ndindex(result["lat"].shape):

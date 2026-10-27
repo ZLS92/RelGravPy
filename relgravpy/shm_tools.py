@@ -33,6 +33,8 @@ from urllib.request import urlopen
 import warnings
 import numpy as np
 
+from ._sh_fast import accumulate as _sh_fast_accumulate
+
 # WGS84 reference constants
 A_WGS84 = 6378137.0
 F_WGS84 = 1.0 / 298.257223563
@@ -489,8 +491,36 @@ def sh_synthesis_core(model, limits=None, step=1., lmax=None, gentle_cut=None,
 
     Returns
     -------
-    dict
-        Dictionary with keys ``"lon"``, ``"lat"`` and any requested field names.
+    dict[str, numpy.ndarray]
+        Longitude and latitude at the evaluation points are returned in
+        degrees under ``"lon"`` and ``"lat"``. Every requested field has
+        exactly the same shape as the evaluation coordinates:
+
+        - ``potential``: disturbing potential, m**2/s**2.
+        - ``geoid``: Bruns approximation to geoid height, metres.
+        - ``grav_dist``: spherical radial gravity disturbance, mGal.
+        - ``free_air``: approximate spherical gravity anomaly, mGal.
+        - ``abs_grav``: normal gravity plus radial disturbance, mGal.
+        - ``grav_gradient``: radial gravity derivative, Eotvos.
+
+    Notes
+    -----
+    The numerical series is evaluated by the single fused engine in
+    ``_sh_fast``. The 4-pi normalized Legendre recurrence is shared by a
+    Numba-compiled implementation (when usable) and a pure-NumPy fallback.
+    Both support irregular coordinate arrays and variable ellipsoidal
+    heights; Numba is not required at installation or runtime.
+
+    Unless an explicit undulation is provided, the default
+    ``height_reference='geoid'`` requires an additional preliminary
+    geoid synthesis to convert the supplied heights to ellipsoidal
+    heights. This may increase runtime compared with
+    ``height_reference='ellipsoid'``, which must only be selected when
+    the supplied heights actually use that datum.
+
+    Radial disturbances, derivatives, and geoid heights are approximate:
+    exact ellipsoidal ICGEM gravity components and tide/zero-degree
+    conventions are not reproduced by this reference gravity model.
     """
     if isinstance(fields,str):
         fields=(fields,)
@@ -581,92 +611,24 @@ def sh_synthesis_core(model, limits=None, step=1., lmax=None, gentle_cut=None,
     dg=np.zeros_like(lon) if need_dg else None
     grad=np.zeros_like(lon) if need_grad else None
 
-    if lon.ndim == 2 and lon.shape[0] > 0 and lon.shape[1] > 0:
-        longs=np.deg2rad(lon[0])
-        order=np.arange(degree+1)
-        trigc_row=np.cos(order[:,None]*longs[None,:])
-        trigs_row=np.sin(order[:,None]*longs[None,:])
+    # All grid types (regular meshes, non-separable 2-D meshes, 1-D point
+    # sets, and spatially varying topographic heights) use the same fused
+    # degree/order recurrence. In particular, each point receives its own
+    # longitude factors and geocentric latitude; reusing those of the first
+    # grid row would be incorrect for non-separable custom coordinates.
+    #
+    # The accumulator returns *dimensionless* harmonic sums. Physical
+    # GM/r factors and the radial-derivative sign are applied below so
+    # neither the Numba nor the NumPy execution path can change units.
+    sums = _sh_fast_accumulate(
+        lon, phi_gc, r, delta_c, delta_s, w, model["radius"])
 
-        for i in range(lat.shape[0]):
-            if np.all(phi_gc[i] == phi_gc[i,0]):
-                p=sh_legendre(phi_gc[i,0],degree)
-                radial=np.ones(lon.shape[1])
-                x=model["radius"]/r[i]
-                for n in range(degree+1):
-                    if n:
-                        radial *= x
-                    hnm=p[n,:n+1] @ (
-                        delta_c[n,:n+1,None]*trigc_row[:n+1] +
-                        delta_s[n,:n+1,None]*trigs_row[:n+1]
-                    )
-                    hnm=w[n]*radial*hnm
-                    if need_pot:
-                        pot[i]+=hnm
-                    if need_dg:
-                        dg[i]+=(n+1)*hnm
-                    if need_grad:
-                        grad[i]+=(n+1)*(n+2)*hnm
-            else:
-
-                for j in range(lon.shape[1]):
-                    p=sh_legendre(phi_gc[i,j],degree)
-                    x=model["radius"]/r[i,j]
-                    radial=1.0
-                    lam=np.deg2rad(lon[i,j])
-                    trigc=np.cos(order*lam)
-                    trigs=np.sin(order*lam)
-
-                    for n in range(degree+1):
-                        if n:
-                            radial*=x
-                        harmonics=(delta_c[n,:n+1]*trigc[:n+1] +
-                                   delta_s[n,:n+1]*trigs[:n+1])
-                        hnm=w[n]*radial*np.dot(p[n,:n+1],harmonics)
-                        if need_pot:
-                            pot[i,j]+=hnm
-                        if need_dg:
-                            dg[i,j]+=(n+1)*hnm
-                        if need_grad:
-                            grad[i,j]+=(n+1)*(n+2)*hnm
-            if need_pot:
-                pot[i]*=model["gm"]/r[i]
-            if need_dg:
-                dg[i]*=model["gm"]/r[i]**2
-            if need_grad:
-                grad[i]*=-model["gm"]/r[i]**3
-    else:
-        order=np.arange(degree+1)
-
-        for idx in np.ndindex(lon.shape):
-            lam=np.deg2rad(lon[idx])
-            phi=lat[idx]
-            h0=h[idx]
-            phi_gc0,r0=sh_geocentric_coordinates(phi,h0)
-            p=sh_legendre(phi_gc0,degree)
-            radial=1.0
-            x=model["radius"]/r0
-            pot0=0.0; dg0=0.0; grad0=0.0
-
-            trigc=np.cos(order*lam)
-            trigs=np.sin(order*lam)
-            for n in range(degree+1):
-                if n:
-                    radial*=x
-                harmonics=(delta_c[n,:n+1]*trigc[:n+1] +
-                           delta_s[n,:n+1]*trigs[:n+1])
-                hnm=w[n]*radial*np.dot(p[n,:n+1],harmonics)
-                if need_pot:
-                    pot0 += hnm
-                if need_dg:
-                    dg0 += (n+1)*hnm
-                if need_grad:
-                    grad0 += (n+1)*(n+2)*hnm
-            if need_pot:
-                pot[idx] = pot0*model["gm"]/r0
-            if need_dg:
-                dg[idx] = dg0*model["gm"]/r0**2
-            if need_grad:
-                grad[idx] = -model["gm"]/r0**3
+    if need_pot:
+        pot = (sums[0].reshape(lon.shape) * model["gm"] / r)
+    if need_dg:
+        dg = (sums[1].reshape(lon.shape) * model["gm"] / r**2)
+    if need_grad:
+        grad = (-sums[2].reshape(lon.shape) * model["gm"] / r**3)
 
     # Store computed results in the output dictionary
     if "potential" in results:
@@ -1255,9 +1217,19 @@ class shm:
 
         Returns
         -------
-        dict
-            Dictionary containing the synthesized field arrays and the associated
-            longitude/latitude grids.
+        dict[str, numpy.ndarray]
+            Coordinate arrays ``lon``/``lat`` (degrees) and the requested
+            gravity fields at the same coordinates. Units: ``potential``
+            in m**2/s**2; ``geoid`` and ``topo`` in metres;
+            ``grav_dist``, ``free_air``, ``abs_grav`` in mGal;
+            ``grav_gradient`` in Eotvos.
+
+        Notes
+        -----
+        The numerical engine uses Numba automatically if operational,
+        otherwise a NumPy implementation of the same recurrence.
+        No ``backend`` argument or Numba installation is required.
+        Select the correct height datum with ``height_reference``.
         """
 
         grid = sh_synthesis(
