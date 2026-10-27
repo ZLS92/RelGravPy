@@ -76,6 +76,7 @@ def sh_read_gfc(path, lmax=None):
     Notes
     -----
     This parser does not reconcile tide systems or reference frames."""
+    # Read the ICGEM header before allocating degree/order coefficient arrays.
     path=Path(path)
     header={}
     in_head=True
@@ -103,6 +104,7 @@ def sh_read_gfc(path, lmax=None):
                     header[parts[0].lower()]=" ".join(parts[1:])
                 continue
             tag=parts[0].lower()
+            # Never silently interpret time-dependent coefficients as static.
             if tag in ("gfct","trnd","asin","acos"):
                 dynamic=True
             if tag!="gfc" or len(parts)<5:
@@ -171,6 +173,7 @@ def sh_download_model(name, directory=None, overwrite=False):
     dest = directory / (canonical + ".gfc")
     if dest.exists() and not overwrite:
         return dest
+    # Keep an interrupted download separate from an existing valid cache file.
     temp = dest.with_suffix(".gfc.part")
     try:
         with urlopen(MODEL_URLS[name], timeout=120) as response, temp.open("wb") as out:
@@ -307,10 +310,12 @@ def sh_legendre(latitude_deg, lmax):
         return p
     p[1,0] = np.sqrt(3.)*u
     p[1,1] = np.sqrt(3.)*v
+    # First compute sectorial terms P[m,m], then off-diagonal terms.
     for m in range(2, lmax+1):
         p[m,m] = np.sqrt((2*m+1)/(2*m))*v*p[m-1,m-1]
     for m in range(1,lmax):
         p[m+1,m] = np.sqrt(2*m+3)*u*p[m,m]
+    # Apply the zonal recurrence independently of the tesseral degrees.
     for n in range(2,lmax+1):
         a = np.sqrt((2*n+1)*(2*n-1)/(n*n))
         b = np.sqrt((2*n+1)*(n-1)*(n-1)/((2*n-3)*n*n))
@@ -653,6 +658,8 @@ def sh_synthesis_core(model, limits, step, lmax=None, gentle_cut=None,
         # until the iterative surface geometry has been implemented.
         phi_gc,r=sh_geocentric_coordinates(lat,h)
 
+    # Remove the WGS84 normal potential to obtain disturbing SH coefficients;
+    # retain the original model array unchanged for future syntheses.
     delta_c=model["c"][:degree+1,:degree+1].copy()
     delta_s=model["s"][:degree+1,:degree+1]
     delta_c[0,0] -= GM_WGS84/model["gm"]
@@ -663,6 +670,7 @@ def sh_synthesis_core(model, limits, step, lmax=None, gentle_cut=None,
     results={name:np.zeros_like(lon) for name in fields}
     longs=np.deg2rad(lon[0])
     order=np.arange(degree+1)
+    # Trigonometric factors depend only on longitude and can be reused by row.
     trigc=np.cos(order[:,None]*longs[None,:])
     trigs=np.sin(order[:,None]*longs[None,:])
     pot=np.zeros_like(lon)
@@ -702,6 +710,8 @@ def sh_synthesis_core(model, limits, step, lmax=None, gentle_cut=None,
                     pot[i,j]+=hnm
                     dg[i,j]+=(n+1)*hnm
                     grad[i,j]+=(n+1)*(n+2)*hnm
+        # Convert degree-weighted harmonic sums to potential and radial
+        # derivatives in SI units after completing the latitude row.
         pot[i]*=model["gm"]/r[i]
         dg[i]*=model["gm"]/r[i]**2
         grad[i]*=-model["gm"]/r[i]**3
@@ -802,12 +812,14 @@ def sh_analysis_fft(lon, lat, values, lmax):
         raise ValueError("Latitude range must cover both poles")
     if not np.allclose(lon,lons[None,:]) or not np.allclose(lat,lats[:,None]):
         raise ValueError("Longitude/latitude must be separable meshgrid")
+    # Integrate over sin(latitude) to include the spherical area element.
     u=np.sin(np.deg2rad(lats))
     du=np.abs(np.diff(u))
     ww=np.zeros(ny)
     ww[:-1]+=du/2.
     ww[1:]+=du/2.
     # The factor exp(-i m lambda0) accounts for arbitrary longitude start.
+    # Normalize by longitude sample count before latitude integration.
     ft=np.fft.rfft(values,axis=1)/nx
     mm=np.arange(lmax+1)
     ft=ft[:,:lmax+1]*np.exp(-1j*mm[None,:]*np.deg2rad(lons[0]))
@@ -929,11 +941,13 @@ def sh_analysis_core(lon, lat, values, lmax, radius=6378136.3,
             terms.append((n,m,"c"))
             if m:
                 terms.append((n,m,"s"))
+    # Limit dense least-squares memory: rows are samples, columns are SH terms.
     if yy.size*k*8>512*1024**2:
         raise MemoryError(
             "Least-squares design matrix exceeds 512 MiB. Use a full "
             "global grid and method='fft', or reduce lmax.")
     A=np.zeros((yy.size,k),float)
+    # Cache Legendre functions across samples sharing the same latitude.
     for ii,latitude in enumerate(ylat):
         if latitude not in p_cache:
             p_cache[latitude]=sh_legendre(latitude,lmax)
@@ -1075,6 +1089,7 @@ def sh_read_bshc(path, lmax=None):
     if path.stat().st_size!=expected:
         raise ValueError(f"Wrong Earth2014 size: expected {expected} bytes")
     degree=sh_resolve_degree(lmax,nmax)
+    # Binary coefficients are packed triangularly: all C terms, then all S.
     raw=np.memmap(path,dtype="<f8",mode="r",offset=16,shape=(2*total,))
     c=np.zeros((degree+1,degree+1))
     s=np.zeros_like(c)
@@ -1227,6 +1242,7 @@ def sh_synthesis_with_topography(model, limits, step, fields, lmax,
     if isinstance(fields,str):
         fields=(fields,)
     fields=tuple(fields)
+    # Resolve missing relief from the local cache only; never fetch implicitly.
     if topo is None and (surface=="topography" or "topo" in fields):
         directory=Path(directory) if directory is not None else DEFAULT_DATA_DIR
         path=directory/"Earth2014.SUR2014.degree10800.bshc"
