@@ -43,7 +43,7 @@ def test_numba_and_numpy_agree_on_irregular_coordinates(monkeypatch,surface):
                 surface=surface,topo=topo,
                 height_reference="ellipsoid",lmax=8)
     auto = sh.sh_synthesis_core(model,**opts)
-    monkeypatch.setattr(_sh_fast,"_compiled_accumulator",None)
+    monkeypatch.setattr(sh,"_compiled_accumulator",None)
     numpy_only = sh.sh_synthesis_core(model,**opts)
     for field in fields:
         np.testing.assert_allclose(
@@ -124,8 +124,8 @@ def test_failed_jit_compilation_falls_back(monkeypatch):
     """Numba compilation failures are warnings, not fatal runtime errors."""
     def broken(*args):
         raise RuntimeError("simulated incompatible numba installation")
-    monkeypatch.setattr(_sh_fast,"_compiled_accumulator",broken)
-    monkeypatch.setattr(_sh_fast,"_numba_failed",False)
+    monkeypatch.setattr(sh,"_compiled_accumulator",broken)
+    monkeypatch.setattr(sh,"_numba_failed",False)
     with pytest.warns(RuntimeWarning,match="using NumPy"):
         result = sh.sh_synthesis_core(
             _model(3),lon=np.array([0.,10.]),lat=np.array([0.,20.]),
