@@ -1,16 +1,9 @@
 """Reference regression tests for the standalone SH numerical building blocks."""
 import numpy as np
 import pytest
-# Load the standalone numerical module without importing the entire RelGravPy
-# dependency stack. This test suite only requires numpy and pytest.
-from pathlib import Path
-import importlib.util
-
-_spec = importlib.util.spec_from_file_location(
-    "sh_core", Path(__file__).resolve().parents[1] / "relgravpy" / "sh_core.py"
-)
-sh_core = importlib.util.module_from_spec(_spec)
-_spec.loader.exec_module(sh_core)
+# Exercise the actual public synthesis module, rather than the retired
+# sh_core.py path. The import must succeed even with Numba absent.
+from relgravpy import shm_tools as sh_core
 
 
 def test_legendre_degree_two_at_equator():
@@ -54,7 +47,8 @@ def test_quadrupole_radial_field():
     model["c"][2,0] = sh_core.sh_wgs84_normal_zonals(gm,radius,2)[2]+1e-6
     result = sh_core.sh_synthesis_core(
         model, [-5,5,0,0], step=5, lmax=2,
-        fields=("potential","grav_dist","grav_gradient"), surface="sphere"
+        fields=("potential","grav_dist","grav_gradient"), surface="sphere",
+        height_reference="ellipsoid"
     )
     expected_p20=-np.sqrt(5.)/2.
     expected_potential=gm/radius*1e-6*expected_p20
