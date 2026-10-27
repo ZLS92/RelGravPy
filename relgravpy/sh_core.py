@@ -27,11 +27,56 @@ DEFAULT_DATA_DIR = Path(__file__).resolve().parent.parent / "shm_data"
 
 
 def sh_read_gfc(path, lmax=None):
-    """Stream static fully normalized ICGEM .gfc into degree/order arrays.
-
-    Dynamic components are not supported; use a time-epoch-aware model reader
-    for gfct/trnd/asin/acos records. Reject unsupported normalization.
-    """
+    """Read a static, fully normalized ICGEM gravity model from a .gfc file.
+    
+    Only 'gfc' records are supported. The presence of time-varying
+    'gfct', 'trnd', 'asin', or 'acos' records raises NotImplementedError.
+    Coefficients are read incrementally from the text file.
+    
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        Path to a local ICGEM .gfc file.
+    lmax : int or None, optional
+        Highest degree retained. None uses the file's max_degree;
+        requests above that limit are clipped with a warning.
+    
+    Returns
+    -------
+    dict
+        'c', 's' : ndarray, shape (L+1, L+1)
+            Dimensionless fully normalized cosine/sine coefficients,
+            with m > n entries zero.
+        'gm' : float
+            Model GM in m**3/s**2.
+        'radius' : float
+            Model reference radius in metres.
+        'lmax', 'max_degree' : int
+            Retained and advertised maximum degree.
+        'modelname' : str
+            Header model name, or the file stem.
+        'header' : dict[str, str]
+            Original header values indexed by lowercase keys.
+    
+    Raises
+    ------
+    ValueError
+        When 'end_of_head' is missing or normalization is not
+        'fully_normalized'.
+    NotImplementedError
+        If time-dependent coefficient records are present.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_read_gfc
+    >>> model = sh_read_gfc("shm_data/EIGEN-6C4.gfc", lmax=60)
+    >>> model["c"].shape
+    (61, 61)
+    
+    Notes
+    -----
+    This parser does not reconcile tide systems or reference frames."""
+    # Read the ICGEM header before allocating degree/order coefficient arrays.
     path=Path(path)
     header={}
     in_head=True
@@ -59,6 +104,7 @@ def sh_read_gfc(path, lmax=None):
                     header[parts[0].lower()]=" ".join(parts[1:])
                 continue
             tag=parts[0].lower()
+            # Never silently interpret time-dependent coefficients as static.
             if tag in ("gfct","trnd","asin","acos"):
                 dynamic=True
             if tag!="gfc" or len(parts)<5:
@@ -79,7 +125,45 @@ def sh_read_gfc(path, lmax=None):
 
 
 def sh_download_model(name, directory=None, overwrite=False):
-    """Download a verified ICGEM model file for durable offline use."""
+    """Explicitly download a registered ICGEM model to an offline cache.
+    
+    The transfer first writes a temporary .part file and then renames
+    it to the destination. No checksum validation is performed.
+    
+    Parameters
+    ----------
+    name : str
+        Registered MODEL_URLS key, e.g. 'EIGEN-6C4', its alias
+        'EIGENC4', or 'WHU-CASM-UGM2025_2159'.
+    directory : str, pathlib.Path, or None, optional
+        Cache directory; defaults to DEFAULT_DATA_DIR.
+    overwrite : bool, optional
+        Whether to replace an already cached file. Default False.
+    
+    Returns
+    -------
+    pathlib.Path
+        Location of the .gfc file. 'EIGENC4' uses the canonical
+        filename 'EIGEN-6C4.gfc'.
+    
+    Raises
+    ------
+    KeyError
+        If no download URL is registered for name.
+    OSError
+        On filesystem or download failure.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_download_model
+    >>> path = sh_download_model("EIGEN-6C4", "shm_data")
+    >>> path.name
+    'EIGEN-6C4.gfc'
+    
+    Notes
+    -----
+    The first download requires internet access. Reusing a cached file
+    does not establish its authenticity or check its completeness."""
     name = str(name)
     if name not in MODEL_URLS:
         raise KeyError(f"No verified direct download URL registered for {name!r}")
@@ -89,6 +173,7 @@ def sh_download_model(name, directory=None, overwrite=False):
     dest = directory / (canonical + ".gfc")
     if dest.exists() and not overwrite:
         return dest
+    # Keep an interrupted download separate from an existing valid cache file.
     temp = dest.with_suffix(".gfc.part")
     try:
         with urlopen(MODEL_URLS[name], timeout=120) as response, temp.open("wb") as out:
@@ -106,6 +191,38 @@ def sh_download_model(name, directory=None, overwrite=False):
 
 
 def sh_resolve_degree(requested, available):
+    """Limit a requested maximum degree to the available model degree.
+    
+    Parameters
+    ----------
+    requested : int or None
+        Requested maximum degree; None selects all available degrees.
+        Converted to int when supplied.
+    available : int
+        Largest harmonic degree offered by the model.
+    
+    Returns
+    -------
+    int
+        Effective degree, min(requested, available).
+    
+    Raises
+    ------
+    ValueError
+        If requested is negative.
+    
+    Warns
+    -----
+    UserWarning
+        If requested exceeds available, before clipping it.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_resolve_degree
+    >>> sh_resolve_degree(120, 360)
+    120
+    >>> sh_resolve_degree(None, 360)
+    360"""
     if requested is None:
         return int(available)
     requested = int(requested)
@@ -118,7 +235,34 @@ def sh_resolve_degree(requested, available):
 
 
 def sh_taper(lmax, gentle_cut=None):
-    """Cosine taper equal to one through gentle_cut, reaching zero at lmax."""
+    """Create a cosine taper across spherical harmonic degrees.
+    
+    Weights are one through gentle_cut, then smoothly decay to
+    zero at lmax. With gentle_cut=None, all weights equal one.
+    
+    Parameters
+    ----------
+    lmax : int
+        Highest degree; output indices range from 0 to lmax.
+    gentle_cut : int or None, optional
+        Last untapered degree, satisfying 0 <= gentle_cut < lmax.
+    
+    Returns
+    -------
+    numpy.ndarray, shape (lmax+1,)
+        Dimensionless spectral weights indexed by degree.
+    
+    Raises
+    ------
+    ValueError
+        If gentle_cut is outside its valid range.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_taper
+    >>> weights = sh_taper(10, gentle_cut=6)
+    >>> weights[6], weights[10]
+    (1.0, 0.0)"""
     w = np.ones(lmax+1)
     if gentle_cut is None:
         return w
@@ -131,11 +275,33 @@ def sh_taper(lmax, gentle_cut=None):
 
 
 def sh_legendre(latitude_deg, lmax):
-    """Fully normalized geodetic associated Legendre functions at one latitude.
-
-    Pnm has the 4-pi normalization and no Condon-Shortley phase. The
-    three-term recurrence avoids factorial ratios and their overflow.
-    """
+    """Evaluate 4-pi fully normalized associated Legendre functions.
+    
+    The recurrence does NOT apply the Condon-Shortley (-1)**m
+    phase. It avoids factorial ratios, but the full triangular
+    array still scales quadratically with the maximum degree.
+    
+    Parameters
+    ----------
+    latitude_deg : float
+        Angular latitude in degrees, geodetic or geocentric as
+        appropriate to the surrounding synthesis geometry.
+    lmax : int
+        Maximum polynomial degree and order.
+    
+    Returns
+    -------
+    numpy.ndarray, shape (lmax+1, lmax+1)
+        P[n, m] (dimensionless), for 0 <= m <= n <= lmax.
+        Entries with m > n are zero. For example,
+        P[1, 1] = sqrt(3)*cos(latitude).
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from relgravpy.sh_core import sh_legendre
+    >>> np.isclose(sh_legendre(0., 1)[1, 1], np.sqrt(3.))
+    True"""
     u = np.sin(np.deg2rad(float(latitude_deg)))
     v = np.cos(np.deg2rad(float(latitude_deg)))
     p = np.zeros((lmax+1, lmax+1), dtype=float)
@@ -144,10 +310,12 @@ def sh_legendre(latitude_deg, lmax):
         return p
     p[1,0] = np.sqrt(3.)*u
     p[1,1] = np.sqrt(3.)*v
+    # First compute sectorial terms P[m,m], then off-diagonal terms.
     for m in range(2, lmax+1):
         p[m,m] = np.sqrt((2*m+1)/(2*m))*v*p[m-1,m-1]
     for m in range(1,lmax):
         p[m+1,m] = np.sqrt(2*m+3)*u*p[m,m]
+    # Apply the zonal recurrence independently of the tesseral degrees.
     for n in range(2,lmax+1):
         a = np.sqrt((2*n+1)*(2*n-1)/(n*n))
         b = np.sqrt((2*n+1)*(n-1)*(n-1)/((2*n-3)*n*n))
@@ -162,7 +330,35 @@ def sh_legendre(latitude_deg, lmax):
 
 
 def sh_grid(limits, step):
-    """Geographic grid: [lon_min, lon_max, lat_min, lat_max], step degrees."""
+    """Construct a regular geographic longitude/latitude meshgrid.
+    
+    Parameters
+    ----------
+    limits : sequence of four numbers
+        Bounds [lon_min, lon_max, lat_min, lat_max], in degrees.
+        Latitude must lie within [-90, 90]; bounds must be ordered.
+    step : float or sequence of two floats
+        Positive spacing in degrees, either a scalar or
+        (longitude_step, latitude_step).
+    
+    Returns
+    -------
+    lon, lat : tuple of numpy.ndarray
+        Matching 2-D meshgrids (nlat, nlon), in degrees. Rows
+        share latitude and columns share longitude. The upper
+        bound is included if within the grid endpoint tolerance.
+    
+    Raises
+    ------
+    ValueError
+        For invalid limits or spacing.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_grid
+    >>> lon, lat = sh_grid([10, 12, 44, 45], (1, 0.5))
+    >>> lon.shape, lat.shape
+    ((3, 3), (3, 3))"""
     lon0,lon1,lat0,lat1 = map(float, limits)
     if not (-90 <= lat0 <= lat1 <= 90 and lon0 <= lon1):
         raise ValueError("Invalid geographic limits")
@@ -175,7 +371,29 @@ def sh_grid(limits, step):
 
 
 def sh_ellipsoid_radius(lat):
-    """Geocentric distance of WGS84 ellipsoid at geodetic latitude."""
+    """Compute geocentric distance to the WGS84 ellipsoid surface.
+    
+    Parameters
+    ----------
+    lat : float or array_like
+        WGS84 geodetic latitude in degrees.
+    
+    Returns
+    -------
+    numpy.ndarray or numpy.float64
+        Geocentric radius of the ellipsoid at lat, in metres,
+        retaining the input array shape.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_ellipsoid_radius, A_WGS84
+    >>> round(float(sh_ellipsoid_radius(0.))) == round(A_WGS84)
+    True
+    
+    Notes
+    -----
+    This is not the prime-vertical radius of curvature N and
+    does not include ellipsoidal height."""
     phi = np.deg2rad(np.asarray(lat, dtype=float))
     b = A_WGS84*(1-F_WGS84)
     cp,sp = np.cos(phi),np.sin(phi)
@@ -184,7 +402,28 @@ def sh_ellipsoid_radius(lat):
 
 
 def sh_normal_gravity(lat):
-    """Somigliana normal gravity on WGS84 ellipsoid, m/s2."""
+    """Compute normal gravity on WGS84 using Somigliana's formula.
+    
+    Parameters
+    ----------
+    lat : float or array_like
+        Geodetic latitude in degrees.
+    
+    Returns
+    -------
+    numpy.ndarray or numpy.float64
+        Normal gravity at zero ellipsoidal height, m/s**2,
+        with the same shape as lat.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_normal_gravity
+    >>> round(float(sh_normal_gravity(0.)), 6)
+    9.780325
+    
+    See Also
+    --------
+    sh_normal_gravity_height : Second-order gravity continuation in height."""
     phi = np.deg2rad(np.asarray(lat, dtype=float))
     e2 = F_WGS84*(2-F_WGS84)
     k = 0.00193185265241
@@ -193,11 +432,40 @@ def sh_normal_gravity(lat):
 
 
 def sh_wgs84_normal_zonals(gm, radius, lmax):
-    """Fully-normalized zonal coefficients of the WGS84 normal potential.
-
-    Coefficients follow the even-zonal J2n formula of physical geodesy.
-    Scaled to the GM and reference radius of the external .gfc model.
-    """
+    """Generate WGS84 even-zonal normal-potential SH coefficients.
+    
+    The WGS84 J2n expansion is converted to fully normalized
+    C[2n,0] and rescaled to an external gravity model's GM and
+    reference radius. These terms can be subtracted from the
+    model zonals to calculate the disturbing potential.
+    
+    Parameters
+    ----------
+    gm : float
+        External gravity model GM in m**3/s**2.
+    radius : float
+        External model reference radius in metres.
+    lmax : int
+        Maximum degree to generate.
+    
+    Returns
+    -------
+    numpy.ndarray, shape (lmax+1,)
+        Dimensionless 4-pi normalized C[n,0] terms. Index zero
+        and all odd-degree indices equal zero.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import (
+    ...     sh_wgs84_normal_zonals, GM_WGS84, A_WGS84)
+    >>> c = sh_wgs84_normal_zonals(GM_WGS84, A_WGS84, 2)
+    >>> round(c[2], 9)
+    -0.000484167
+    
+    Notes
+    -----
+    The reference coefficients follow the constants hardcoded in
+    this module and do not correct model-specific tide conventions."""
     j2=1.08262982131e-3
     e2=F_WGS84*(2-F_WGS84)
     out=np.zeros(lmax+1)
@@ -210,7 +478,34 @@ def sh_wgs84_normal_zonals(gm, radius, lmax):
 
 
 def sh_geocentric_coordinates(lat, height):
-    """Geocentric latitude/radius for WGS84 geodetic latitude and height."""
+    """Convert WGS84 geodetic latitude and ellipsoidal height to spherical coordinates.
+    
+    Parameters
+    ----------
+    lat : float or array_like
+        Geodetic latitude in degrees.
+    height : float or array_like
+        Height above the WGS84 ellipsoid, in metres; broadcastable
+        against lat.
+    
+    Returns
+    -------
+    latitude_gc : numpy.ndarray or numpy.float64
+        Geocentric latitude in degrees.
+    radius : numpy.ndarray or numpy.float64
+        Distance from Earth's centre, in metres. Both outputs
+        have the shape broadcast from lat and height.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_geocentric_coordinates
+    >>> phi, radius = sh_geocentric_coordinates(45., 0.)
+    >>> bool(phi < 45.)
+    True
+    
+    Notes
+    -----
+    The longitude coordinate is unchanged by this conversion."""
     ph=np.deg2rad(np.asarray(lat,dtype=float))
     e2=F_WGS84*(2-F_WGS84)
     N=A_WGS84/np.sqrt(1-e2*np.sin(ph)**2)
@@ -220,7 +515,34 @@ def sh_geocentric_coordinates(lat, height):
 
 
 def sh_normal_gravity_height(lat, height):
-    """Second-order WGS84 normal gravity continuation above ellipsoid [m/s2]."""
+    """Approximate WGS84 normal gravity at nonzero ellipsoidal height.
+    
+    Applies the second-order height continuation of Somigliana
+    normal gravity, rather than an exact high-altitude solution.
+    
+    Parameters
+    ----------
+    lat : float or array_like
+        WGS84 geodetic latitude, in degrees.
+    height : float or array_like
+        Ellipsoidal height, in metres, broadcastable with lat.
+    
+    Returns
+    -------
+    numpy.ndarray or numpy.float64
+        Normal gravity at height, in m/s**2.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_normal_gravity_height
+    >>> bool(sh_normal_gravity_height(45., 100.) <
+    ...      sh_normal_gravity_height(45., 0.))
+    True
+    
+    Notes
+    -----
+    This near-surface approximation is not an exact ellipsoidal
+    gravity solution at arbitrary altitude."""
     ph=np.deg2rad(np.asarray(lat,dtype=float))
     m=OMEGA_WGS84**2*A_WGS84**2*(A_WGS84*(1-F_WGS84))/GM_WGS84
     q=1+F_WGS84+m-2*F_WGS84*np.sin(ph)**2
@@ -230,6 +552,7 @@ def sh_normal_gravity_height(lat, height):
 
 def sh_synthesis_core(model, limits=None, step=1., lmax=None, gentle_cut=None,
                       fields=("grav_dist",), height=0.0, surface="ellipsoid",
+<<<<<<< HEAD
                       topo=None, lon=None, lat=None, height_reference="geoid",
                       geoid_undulation=0.0):
     """Spherical harmonic synthesis with WGS84 even-zonal normal-field removal.
@@ -238,6 +561,91 @@ def sh_synthesis_core(model, limits=None, step=1., lmax=None, gentle_cut=None,
     The default height convention is geoid-referenced (H), converted internally to
     ellipsoidal height h = H + N when height_reference='geoid'.
     """
+=======
+                      topo=None):
+    """Synthesize gravity-related fields from normalized spherical harmonics.
+    
+    Subtracts WGS84 degree-zero and even-zonal normal-field
+    coefficients, evaluates the disturbing potential T, and
+    computes spherical radial derivatives. Uses Bruns' approximation
+    for geoid undulation and second-order WGS84 normal-gravity
+    continuation for an approximate absolute gravity.
+    
+    Parameters
+    ----------
+    model : dict
+        Coefficient dictionary from sh_read_gfc(), with 'c', 's'
+        dimensionless 4-pi fully normalized arrays (no
+        Condon-Shortley phase), 'gm' in m**3/s**2, 'radius'
+        in metres, and 'lmax' as an integer.
+    limits : sequence of four floats
+        Geographic [lon_min, lon_max, lat_min, lat_max] in degrees.
+    step : float or (float, float)
+        Longitude/latitude grid spacing in degrees.
+    lmax : int or None, optional
+        Maximum synthesized degree; None uses model['lmax'].
+    gentle_cut : int or None, optional
+        Last untapered degree before cosine roll-off; None
+        disables tapering.
+    fields : str or sequence of str, optional
+        Any subset of 'potential', 'geoid', 'abs_grav',
+        'grav_dist', 'free_air' and 'grav_gradient'.
+    height : float or array_like, optional
+        Height offset in metres, broadcastable to the output grid.
+    surface : {'ellipsoid', 'sphere', 'mean_sea_level', 'topography'}
+        'ellipsoid': WGS84 ellipsoid plus height;
+        'sphere': model reference sphere plus height (grid latitude
+        treated as geocentric);
+        'mean_sea_level': currently approximated by the ellipsoid;
+        'topography': ellipsoid plus height plus topo (approximate).
+    topo : array_like or None, optional
+        Topographic heights in metres, broadcastable to the grid.
+        Required for surface='topography'. Heights are treated as
+        approximate ellipsoidal heights (no geoid conversion).
+    
+    Returns
+    -------
+    dict[str, numpy.ndarray]
+        'lon', 'lat' : arrays of shape (nlat, nlon)
+            Geographic meshgrid coordinates in degrees.
+        Requested field arrays, all with matching 2-D shape:
+        'potential' : disturbing potential T, m**2/s**2.
+        'geoid' : Bruns approximation T/gamma, metres.
+        'grav_dist' : spherical radial gravity disturbance, mGal.
+        'free_air' : spherical anomaly (dg - 2T/r), mGal.
+        'abs_grav' : gamma(height) + dg, in mGal (approximate).
+        'grav_gradient' : radial derivative of the disturbance,
+            in Eotvos (1 E = 1e-9 s**-2).
+    
+    Raises
+    ------
+    ValueError
+        For unsupported fields or surface types, invalid geographic
+        bounds, or missing topography when required.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from relgravpy.sh_core import (
+    ...     sh_synthesis_core, A_WGS84, GM_WGS84)
+    >>> c = np.array([[1.]])
+    >>> model = {"c": c, "s": np.zeros_like(c), "gm": GM_WGS84,
+    ...          "radius": A_WGS84, "lmax": 0}
+    >>> result = sh_synthesis_core(
+    ...     model, [10, 12, 45, 45], 1, lmax=0,
+    ...     fields=("potential", "grav_dist"), surface="sphere")
+    >>> np.allclose(result["potential"], 0.0)
+    True
+    
+    Notes
+    -----
+    This is a reference spherical/approximate ellipsoidal kernel,
+    NOT an exact ICGEM geodetic gravity calculator. In particular,
+    the radial disturbance is not an ellipsoidal component
+    projection; geoid zero-degree conventions and tide systems
+    are not fully implemented. Full degree-10800 synthesis can
+    be computationally expensive."""
+>>>>>>> 9b2cf5ca54d3847a2269d9c6498bd4aeb63b3624
     if isinstance(fields,str):
         fields=(fields,)
     allowed={"potential","geoid","abs_grav","grav_dist","free_air","grav_gradient"}
@@ -289,6 +697,8 @@ def sh_synthesis_core(model, limits=None, step=1., lmax=None, gentle_cut=None,
     else:
         phi_gc,r=sh_geocentric_coordinates(lat,h)
 
+    # Remove the WGS84 normal potential to obtain disturbing SH coefficients;
+    # retain the original model array unchanged for future syntheses.
     delta_c=model["c"][:degree+1,:degree+1].copy()
     delta_s=model["s"][:degree+1,:degree+1]
     delta_c[0,0] -= GM_WGS84/model["gm"]
@@ -296,6 +706,14 @@ def sh_synthesis_core(model, limits=None, step=1., lmax=None, gentle_cut=None,
     for n in range(2,degree+1,2):
         delta_c[n,0]-=reference[n]
     results={name:np.zeros_like(lon) for name in fields}
+<<<<<<< HEAD
+=======
+    longs=np.deg2rad(lon[0])
+    order=np.arange(degree+1)
+    # Trigonometric factors depend only on longitude and can be reused by row.
+    trigc=np.cos(order[:,None]*longs[None,:])
+    trigs=np.sin(order[:,None]*longs[None,:])
+>>>>>>> 9b2cf5ca54d3847a2269d9c6498bd4aeb63b3624
     pot=np.zeros_like(lon)
     dg=np.zeros_like(lon)
     grad=np.zeros_like(lon)
@@ -312,6 +730,7 @@ def sh_synthesis_core(model, limits=None, step=1., lmax=None, gentle_cut=None,
                 trigs=np.sin(order[:,None]*longs[None,:])
                 for n in range(degree+1):
                     if n:
+<<<<<<< HEAD
                         radial *= x
                     hnm=p[n,:n+1] @ (
                         delta_c[n,:n+1,None]*trigc[:n+1] +
@@ -368,6 +787,20 @@ def sh_synthesis_core(model, limits=None, step=1., lmax=None, gentle_cut=None,
             dg[idx] = dg0*model["gm"]/r0**2
             grad[idx] = -model["gm"]/r0**3
 
+=======
+                        radial*=x
+                    harmonics=(delta_c[n,:n+1]*trigc[:n+1,j]+
+                               delta_s[n,:n+1]*trigs[:n+1,j])
+                    hnm=w[n]*radial*np.dot(p[n,:n+1],harmonics)
+                    pot[i,j]+=hnm
+                    dg[i,j]+=(n+1)*hnm
+                    grad[i,j]+=(n+1)*(n+2)*hnm
+        # Convert degree-weighted harmonic sums to potential and radial
+        # derivatives in SI units after completing the latitude row.
+        pot[i]*=model["gm"]/r[i]
+        dg[i]*=model["gm"]/r[i]**2
+        grad[i]*=-model["gm"]/r[i]**3
+>>>>>>> 9b2cf5ca54d3847a2269d9c6498bd4aeb63b3624
     if "potential" in results:
         results["potential"]=pot
     if "grav_dist" in results:
@@ -385,13 +818,61 @@ def sh_synthesis_core(model, limits=None, step=1., lmax=None, gentle_cut=None,
 
 
 def sh_analysis_fft(lon, lat, values, lmax):
-    """Global scalar SH analysis using longitude FFT and latitude quadrature.
-
-    Requires a full 360-degree periodic longitude grid with no duplicate
-    endpoint, and latitude coverage from pole to pole. On equiangular
-    latitudes the area integral uses trapezoidal integration in sin(lat)
-    and is approximate, not an exact Gauss-Legendre transform.
-    """
+    """Analyze a global scalar field with longitude FFT and latitude quadrature.
+    
+    Longitude harmonics are extracted using a real FFT. Latitude
+    integration is trapezoidal in sin(latitude), so results on
+    equiangular grids are APPROXIMATE and not equivalent to exact
+    Gauss-Legendre spherical harmonic analysis.
+    
+    Parameters
+    ----------
+    lon, lat : array_like, shape (nlat, nlon)
+        Matching separable 2-D geographic meshgrids in degrees.
+        Longitude must have uniform spacing covering exactly 360
+        degrees, without a duplicated endpoint. Latitude must
+        reach both -90 and +90 degrees.
+    values : array_like, shape (nlat, nlon)
+        Scalar values on the grid, all finite; their units carry
+        over to the recovered harmonic coefficients.
+    lmax : int
+        Largest estimated degree. Requires nlon >= 2*lmax+1
+        and nlat >= lmax+1.
+    
+    Returns
+    -------
+    dict
+        'c', 's' : ndarray, shape (lmax+1, lmax+1)
+            Fully normalized, no-Condon-Shortley cosine and sine
+            coefficients in the units of values; m > n entries are zero.
+        'lmax' : int
+            Analyzed maximum degree.
+        'method' : str
+            Always 'fft_trapezoid'.
+        'latitude_quadrature' : str
+            Always 'trapezoid'.
+    
+    Raises
+    ------
+    ValueError
+        For dimension/shape mismatches, insufficient sampling,
+        nonfinite values, missing poles, non-separable meshgrids,
+        or an incomplete/nonuniform longitude period.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from relgravpy.sh_core import sh_analysis_fft
+    >>> lon, lat = np.meshgrid(np.arange(-180., 180., 1.),
+    ...                        np.linspace(-90., 90., 181))
+    >>> fit = sh_analysis_fft(lon, lat, np.full(lon.shape, 5.), 0)
+    >>> np.isclose(fit["c"][0, 0], 5.)
+    True
+    
+    Notes
+    -----
+    Use sh_analysis_core(method='lstsq') for regional grids.
+    The FFT approximation is not an exact spectral inversion."""
     lon=np.asarray(lon,dtype=float)
     lat=np.asarray(lat,dtype=float)
     values=np.asarray(values,dtype=float)
@@ -415,12 +896,14 @@ def sh_analysis_fft(lon, lat, values, lmax):
         raise ValueError("Latitude range must cover both poles")
     if not np.allclose(lon,lons[None,:]) or not np.allclose(lat,lats[:,None]):
         raise ValueError("Longitude/latitude must be separable meshgrid")
+    # Integrate over sin(latitude) to include the spherical area element.
     u=np.sin(np.deg2rad(lats))
     du=np.abs(np.diff(u))
     ww=np.zeros(ny)
     ww[:-1]+=du/2.
     ww[1:]+=du/2.
     # The factor exp(-i m lambda0) accounts for arbitrary longitude start.
+    # Normalize by longitude sample count before latitude integration.
     ft=np.fft.rfft(values,axis=1)/nx
     mm=np.arange(lmax+1)
     ft=ft[:,:lmax+1]*np.exp(-1j*mm[None,:]*np.deg2rad(lons[0]))
@@ -438,11 +921,77 @@ def sh_analysis_fft(lon, lat, values, lmax):
 
 def sh_analysis_core(lon, lat, values, lmax, radius=6378136.3,
                      normalization="fully_normalized", method="auto"):
-    """Least-squares scalar SH analysis on a gridded surface.
-
-    For regional grids this solution is non-unique and potentially ill-
-    conditioned. Use global sampling for a defensible transform.
-    """
+    """Estimate normalized real scalar SH coefficients from grid samples.
+    
+    Selects a global FFT/quadrature analysis when possible, or
+    solves a dense linear least-squares system. This analyzes an
+    arbitrary scalar field: it does not apply gravity-specific
+    radial continuation or reference-potential subtraction.
+    
+    Parameters
+    ----------
+    lon, lat, values : array_like
+        Matching arrays of geographic longitude, latitude
+        (degrees) and scalar samples. Least squares uses only
+        entries where all three are finite. Coefficients retain
+        the physical units of values.
+    lmax : int
+        Maximum SH degree. Least squares fits (lmax+1)**2
+        real sine/cosine coefficients.
+    radius : float, optional
+        Reference radius metadata, in metres (default 6378136.3).
+        Does NOT enter the scalar design matrix.
+    normalization : str, optional
+        Only 'fully_normalized' is supported.
+    method : {'auto', 'fft', 'lstsq'}, optional
+        'fft' requires a full global, regular, pole-to-pole grid;
+        'lstsq' uses the sample design matrix;
+        'auto' first tries FFT and falls back on least squares
+        when the grid does not satisfy FFT geometry requirements.
+    
+    Returns
+    -------
+    dict
+        'c', 's' : ndarray, shape (lmax+1, lmax+1)
+            Dimensionful fully normalized scalar SH coefficients.
+        'lmax' : int
+            Maximum degree used.
+        'radius' : float
+            Provided reference-radius metadata, in metres.
+        For least squares, also returns 'rank' (int),
+        'residuals' (ndarray) and 'condition' (float estimated
+        from the design-matrix singular values).
+        For FFT, also returns 'method'='fft_trapezoid' and
+        'latitude_quadrature'='trapezoid'.
+    
+    Raises
+    ------
+    ValueError
+        For inconsistent shapes, unsupported settings, no finite
+        samples, too few samples, or invalid FFT grid geometry.
+    MemoryError
+        If the dense least-squares design matrix exceeds 512 MiB.
+    
+    Warns
+    -----
+    UserWarning
+        If the least-squares design matrix is rank deficient.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from relgravpy.sh_core import sh_analysis_core, sh_grid
+    >>> lon, lat = sh_grid([-180, 150, -60, 60], 30)
+    >>> fit = sh_analysis_core(lon, lat, np.full(lon.shape, 7.),
+    ...                        0, method="lstsq")
+    >>> np.isclose(fit["c"][0, 0], 7.)
+    True
+    
+    Notes
+    -----
+    Regional SH analysis may be nonunique or severely ill-conditioned
+    even with more data than unknowns. The FFT method provides an
+    approximate, not exact, equiangular-latitude transform."""
     if normalization!="fully_normalized":
         raise ValueError("Only fully_normalized supported")
     lon=np.asarray(lon,dtype=float)
@@ -476,11 +1025,13 @@ def sh_analysis_core(lon, lat, values, lmax, radius=6378136.3,
             terms.append((n,m,"c"))
             if m:
                 terms.append((n,m,"s"))
+    # Limit dense least-squares memory: rows are samples, columns are SH terms.
     if yy.size*k*8>512*1024**2:
         raise MemoryError(
             "Least-squares design matrix exceeds 512 MiB. Use a full "
             "global grid and method='fft', or reduce lmax.")
     A=np.zeros((yy.size,k),float)
+    # Cache Legendre functions across samples sharing the same latitude.
     for ii,latitude in enumerate(ylat):
         if latitude not in p_cache:
             p_cache[latitude]=sh_legendre(latitude,lmax)
@@ -505,11 +1056,42 @@ EARTH2014_SUR_URL = ("https://ddfe.blazejbucha.com/models/Earth2014/"
 
 
 def sh_download_topography(directory=None, overwrite=False):
-    """Retrieve the original Earth2014 SUR spherical harmonics (~933 MB).
-
-    This is a one-time explicit download for later offline work.
-    Dataset: Hirt & Rexer (2015), DOI 10.1016/j.jag.2015.03.001.
-    """
+    """Explicitly download Earth2014 SUR2014 binary topography coefficients.
+    
+    Downloads the original high-degree .bshc model (about 933 MB)
+    to the offline cache. A temporary .part file is used to avoid
+    replacing an existing dataset before the transfer completes.
+    
+    Parameters
+    ----------
+    directory : str, pathlib.Path, or None, optional
+        Destination cache directory; None means DEFAULT_DATA_DIR.
+    overwrite : bool, optional
+        Whether to replace an existing file. Default False.
+    
+    Returns
+    -------
+    pathlib.Path
+        Path to 'Earth2014.SUR2014.degree10800.bshc'.
+    
+    Raises
+    ------
+    OSError
+        On a network or filesystem failure.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_download_topography
+    >>> path = sh_download_topography(directory="shm_data")
+    >>> path.suffix
+    '.bshc'
+    
+    Notes
+    -----
+    This call performs network I/O unless the file is already cached.
+    There is no automatic download from synthesis functions.
+    Source: Hirt and Rexer (2015), DOI 10.1016/j.jag.2015.03.001.
+    The implementation checks only a minimum file size, not a checksum."""
     directory = Path(directory) if directory is not None else DEFAULT_DATA_DIR
     directory.mkdir(parents=True, exist_ok=True)
     dest = directory/"Earth2014.SUR2014.degree10800.bshc"
@@ -532,12 +1114,53 @@ def sh_download_topography(directory=None, overwrite=False):
 
 
 def sh_read_bshc(path, lmax=None):
-    """Read Curtin Earth2014 4-pi-normalized SHCs from a binary .bshc.
-
-    The file stores two float64 values (nmin,nmax), followed by all C(n,m)
-    and all S(n,m), each in ascending degree then order. Arrays are returned
-    in metres. Memmapping avoids loading the entire ~933MB file.
-    """
+    """Load Earth2014 SUR2014 scalar harmonics from its binary .bshc format.
+    
+    The little-endian binary file stores (nmin, nmax) as two float64
+    numbers followed by packed triangular C coefficients and then S
+    coefficients, both ordered by ascending degree and order. A
+    memory map avoids eagerly reading the full source file.
+    
+    Parameters
+    ----------
+    path : str or pathlib.Path
+        Local Earth2014 SUR2014 .bshc file.
+    lmax : int or None, optional
+        Maximum degree to retain; None uses the file maximum.
+        Larger requests are clipped with a UserWarning.
+    
+    Returns
+    -------
+    dict
+        'c', 's' : ndarray, shape (L+1, L+1)
+            Fully normalized scalar height coefficients in metres.
+            Entries with order m > degree n are zero.
+        'lmax', 'max_degree' : int
+            Retained and file-maximum degrees.
+        'modelname' : str
+            Always 'Earth2014 SUR2014'.
+        'unit' : str
+            Always 'm'.
+    
+    Raises
+    ------
+    ValueError
+        If the binary header is invalid or its expected byte count
+        disagrees with the actual file size.
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import sh_read_bshc
+    >>> topo = sh_read_bshc(
+    ...     "shm_data/Earth2014.SUR2014.degree10800.bshc",
+    ...     lmax=120)
+    >>> topo["c"].shape
+    (121, 121)
+    
+    Notes
+    -----
+    This is a topographic HEIGHT model, not an ICGEM gravity model.
+    The file format is incompatible with .gfc gravity coefficients."""
     path=Path(path)
     header=np.fromfile(path,dtype="<f8",count=2)
     if len(header)!=2:
@@ -550,6 +1173,7 @@ def sh_read_bshc(path, lmax=None):
     if path.stat().st_size!=expected:
         raise ValueError(f"Wrong Earth2014 size: expected {expected} bytes")
     degree=sh_resolve_degree(lmax,nmax)
+    # Binary coefficients are packed triangularly: all C terms, then all S.
     raw=np.memmap(path,dtype="<f8",mode="r",offset=16,shape=(2*total,))
     c=np.zeros((degree+1,degree+1))
     s=np.zeros_like(c)
@@ -562,11 +1186,51 @@ def sh_read_bshc(path, lmax=None):
 
 
 def sh_scalar_synthesis(coeff, lon, lat, lmax=None, gentle_cut=None):
-    """Synthesize a fully normalized scalar field from dimensionful SHCs.
-
-    Longitude and latitude are 2-D meshgrids; return matching 2-D output.
-    This is appropriate for Earth2014 elevation coefficients (metres).
-    """
+    """Synthesize a scalar field from dimensionful SH coefficients.
+    
+    Computes a real spherical harmonic expansion using 4-pi
+    normalization and no Condon-Shortley phase. Coefficient
+    units are preserved; Earth2014 SUR2014 yields elevations in m.
+    
+    Parameters
+    ----------
+    coeff : dict
+        'c', 's' 2-D coefficient arrays and 'lmax' available degree.
+        Coefficients carry the intended output unit.
+    lon, lat : array_like, shape (nlat, nlon)
+        Matching 2-D geographic grids in degrees. Latitude is
+        assumed constant across each row; longitude must have
+        the same columns for every row.
+    lmax : int or None, optional
+        Maximum synthesized degree; None uses coeff['lmax'].
+    gentle_cut : int or None, optional
+        Last untapered degree for an optional cosine taper.
+    
+    Returns
+    -------
+    numpy.ndarray, shape (nlat, nlon)
+        Scalar synthesis in coefficient units, e.g. metres
+        when coeff contains Earth2014 height harmonics.
+    
+    Raises
+    ------
+    ValueError
+        If lon and lat are not equally shaped 2-D arrays.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from relgravpy.sh_core import sh_scalar_synthesis, sh_grid
+    >>> lon, lat = sh_grid([0, 2, 0, 1], 1)
+    >>> coeff = {"c": np.array([[100.]]),
+    ...          "s": np.array([[0.]]), "lmax": 0}
+    >>> np.allclose(sh_scalar_synthesis(coeff, lon, lat), 100.)
+    True
+    
+    Notes
+    -----
+    Meshgrid row/column separability is assumed, not independently
+    validated. This computes no gravity-specific radial derivatives."""
     lon=np.asarray(lon,dtype=float)
     lat=np.asarray(lat,dtype=float)
     if lon.shape!=lat.shape or lon.ndim!=2:
@@ -588,6 +1252,7 @@ def sh_scalar_synthesis(coeff, lon, lat, lmax=None, gentle_cut=None):
     return out
 
 
+<<<<<<< HEAD
 def sh_synthesis_with_topography(model, limits=None, step=1., fields=("grav_dist",),
                                  lmax=None, gentle_cut=None, height=0., surface="ellipsoid",
                                  topo=None, directory=None, topo_lmax=None, lon=None, lat=None,
@@ -631,6 +1296,83 @@ def sh_synthesis_with_topography(model, limits=None, step=1., fields=("grav_dist
             out["topo"]=topo_arr.copy()
         return out
 
+=======
+def sh_synthesis_with_topography(model, limits, step, fields, lmax,
+                                 gentle_cut, height, surface, topo,
+                                 directory=None, topo_lmax=None):
+    """Synthesize gravity outputs while optionally including Earth2014 relief.
+    
+    If the caller requests the 'topo' field or sets the surface
+    to 'topography', missing heights are synthesized from a locally
+    cached Earth2014 SUR2014 .bshc file. No implicit download occurs.
+    
+    Parameters
+    ----------
+    model : dict
+        Gravity coefficients and metadata accepted by
+        sh_synthesis_core().
+    limits : sequence of four floats
+        [lon_min, lon_max, lat_min, lat_max] in degrees.
+    step : float or (float, float)
+        Geographic grid spacing in degrees.
+    fields : str or sequence of str
+        Gravity field names accepted by sh_synthesis_core(),
+        optionally with 'topo' for elevation in metres.
+    lmax : int or None
+        Maximum gravity-model synthesis degree.
+    gentle_cut : int or None
+        Last untapered gravity-model harmonic degree.
+    height : float or array_like
+        Height offset in metres, broadcastable to the grid.
+    surface : str
+        Surface accepted by sh_synthesis_core(), including
+        'ellipsoid', 'sphere', 'mean_sea_level', or 'topography'.
+    topo : array_like or None
+        Explicit topographic heights in metres, broadcastable to
+        the geographic grid, or None to use the local Earth2014 cache.
+    directory : str, pathlib.Path, or None, optional
+        Cache directory for Earth2014, default DEFAULT_DATA_DIR.
+    topo_lmax : int or None, optional
+        Maximum degree of Earth2014 height harmonics, independent
+        of the gravity model degree lmax.
+    
+    Returns
+    -------
+    dict[str, numpy.ndarray]
+        'lon', 'lat' grids in geographic degrees; all requested
+        gravity fields in sh_synthesis_core() units; additionally
+        'topo' in metres when requested. All values are 2-D grids.
+    
+    Raises
+    ------
+    FileNotFoundError
+        If Earth2014 is required but absent from the offline cache.
+    ValueError
+        For invalid gravity field names or surface geometry.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from relgravpy.sh_core import (
+    ...     sh_synthesis_with_topography, GM_WGS84, A_WGS84)
+    >>> model = {"c": np.array([[1.]]), "s": np.array([[0.]]),
+    ...          "gm": GM_WGS84, "radius": A_WGS84, "lmax": 0}
+    >>> out = sh_synthesis_with_topography(
+    ...     model, [10, 11, 45, 45], 1, ("topo",), 0,
+    ...     None, 0., "topography", [[100., 101.]])
+    >>> out["topo"].tolist()
+    [[100.0, 101.0]]
+    
+    Notes
+    -----
+    Earth2014 SUR heights are nominally mean-sea-level elevations;
+    this kernel presently treats them as approximate ellipsoidal
+    heights without a geoid-to-ellipsoid correction."""
+    if isinstance(fields,str):
+        fields=(fields,)
+    fields=tuple(fields)
+    # Resolve missing relief from the local cache only; never fetch implicitly.
+>>>>>>> 9b2cf5ca54d3847a2269d9c6498bd4aeb63b3624
     if topo is None and (surface=="topography" or "topo" in fields):
         directory=Path(directory) if directory is not None else DEFAULT_DATA_DIR
         path=directory/"Earth2014.SUR2014.degree10800.bshc"
@@ -745,8 +1487,78 @@ def gravity_on_points(
 
 
 class shm:
-    """Read a local gravity SH model, or explicitly download an ICGEM .gfc."""
+    """High-level interface for a locally cached, static ICGEM gravity model.
+    
+    Loads fully normalized gravity coefficients from a .gfc file.
+    Network access is permitted only when download=True is requested.
+    
+    Parameters
+    ----------
+    model : str or pathlib.Path
+        Local .gfc path or a registered model name, for example
+        'EIGEN-6C4' or 'WHU-CASM-UGM2025_2159'.
+    directory : str, pathlib.Path or None, optional
+        Local model/cache directory; default DEFAULT_DATA_DIR.
+    download : bool, optional
+        Whether to download a missing registered model.
+    lmax : int or None, optional
+        Maximum degree loaded into memory. Synthesis cannot
+        recover higher degrees excluded here.
+    
+    Attributes
+    ----------
+    directory : pathlib.Path
+        Local model and topography cache directory.
+    path : pathlib.Path
+        Path to the loaded .gfc gravity model.
+    data : dict
+        Coefficients and metadata returned by sh_read_gfc().
+    
+    Examples
+    --------
+    >>> from relgravpy.sh_core import shm
+    >>> model = shm("EIGEN-6C4", directory="shm_data")
+    >>> result = model.synthesis([10, 12, 45, 46], 1,
+    ...                          fields=("geoid", "grav_dist"), lmax=60)
+    >>> result["grav_dist"].shape
+    (2, 3)
+    
+    Notes
+    -----
+    The synthesis kernel uses spherical/approximate ellipsoidal
+    formulas and is not an exact ICGEM ellipsoidal solution."""
     def __init__(self, model, directory=None, download=False, lmax=None):
+        """Initialize a model reader with optional explicit download.
+        
+        Parameters
+        ----------
+        model : str or pathlib.Path
+            Existing .gfc path or known model identifier.
+        directory : str, pathlib.Path or None, optional
+            Local coefficient cache directory.
+        download : bool, optional
+            Request download only when the model is not cached.
+        lmax : int or None, optional
+            Highest degree to retain when parsing coefficients.
+        
+        Returns
+        -------
+        None
+            Sets the directory, path and data attributes.
+        
+        Raises
+        ------
+        FileNotFoundError
+            If model cannot be located.
+        KeyError
+            When download=True and model is not registered.
+        
+        Examples
+        --------
+        >>> from relgravpy.sh_core import shm
+        >>> model = shm("shm_data/EIGEN-6C4.gfc", lmax=60)
+        >>> model.data["lmax"]
+        60"""
         self.directory=Path(directory) if directory is not None else DEFAULT_DATA_DIR
         self.path=Path(model)
         if not self.path.is_file():
@@ -759,9 +1571,66 @@ class shm:
 
     def synthesis(self, limits=None, step=1., fields=("grav_dist",), lmax=None,
                   gentle_cut=None, height=0., surface="ellipsoid", topo=None,
+<<<<<<< HEAD
                   topo_lmax=None, lon=None, lat=None, height_reference="geoid",
                   geoid_undulation=0.0):
 
+=======
+                  topo_lmax=None):
+        """Synthesize gravity and optional topographic fields on a grid.
+        
+        Parameters
+        ----------
+        limits : sequence of four numbers
+            [lon_min, lon_max, lat_min, lat_max], degrees.
+        step : float or (float, float), optional
+            Geographic grid step in longitude/latitude degrees.
+        fields : str or sequence of str, optional
+            'potential' (m**2/s**2), 'geoid' (m), 'abs_grav'
+            (mGal), 'grav_dist' (mGal), 'free_air' (mGal),
+            'grav_gradient' (Eotvos), and/or 'topo' (m).
+        lmax : int or None, optional
+            Highest gravity-model harmonic degree used.
+        gentle_cut : int or None, optional
+            Last degree before cosine tapering.
+        height : float or array_like, optional
+            Height offset in metres, broadcastable to the grid.
+        surface : {'ellipsoid', 'sphere', 'mean_sea_level', 'topography'}
+            'mean_sea_level' currently approximates the WGS84
+            ellipsoid; topography uses approximate ellipsoidal heights.
+        topo : array_like or None, optional
+            Topographic heights, in metres. If needed and missing,
+            Earth2014 coefficients are sought in the offline cache.
+        topo_lmax : int or None, optional
+            Independent maximum degree for Earth2014 topography.
+        
+        Returns
+        -------
+        dict[str, numpy.ndarray]
+            2-D 'lon', 'lat' grids in degrees and requested output
+            arrays in the units above, all of shape (nlat, nlon).
+        
+        Raises
+        ------
+        FileNotFoundError
+            When Earth2014 is required but not present locally.
+        ValueError
+            For unsupported fields or invalid geometry.
+        
+        Examples
+        --------
+        >>> from relgravpy.sh_core import shm
+        >>> model = shm("EIGEN-6C4", directory="shm_data")
+        >>> out = model.synthesis([10, 11, 45, 45], step=1,
+        ...                       lmax=60, fields=("grav_dist",))
+        >>> out["grav_dist"].shape
+        (1, 2)
+        
+        See Also
+        --------
+        sh_synthesis_core : Physical approximations and output units.
+        sh_synthesis_with_topography : Offline topography workflow."""
+>>>>>>> 9b2cf5ca54d3847a2269d9c6498bd4aeb63b3624
         return sh_synthesis_with_topography(
             self.data, limits=limits, step=step, fields=fields, lmax=lmax,
             gentle_cut=gentle_cut, height=height, surface=surface, topo=topo,
@@ -770,13 +1639,97 @@ class shm:
 
 
 class shm_analysis:
-    """Estimate fully-normalized scalar SH coefficients by least squares."""
+    """Object-oriented scalar spherical harmonic analysis.
+    
+    Stores geographical sample arrays and delegates SH coefficient
+    estimation to sh_analysis_core(). The scalar expansion does not
+    apply the gravitational normal potential or radial derivatives.
+    
+    Parameters
+    ----------
+    lon, lat : array_like
+        Longitude and latitude arrays in geographic degrees.
+    values : array_like
+        Corresponding scalar samples, in arbitrary consistent units.
+    
+    Attributes
+    ----------
+    lon, lat, values : numpy.ndarray
+        Stored coordinate and sample arrays.
+    
+    Examples
+    --------
+    >>> import numpy as np
+    >>> from relgravpy.sh_core import shm_analysis, sh_grid
+    >>> lon, lat = sh_grid([-180, 150, -60, 60], 30)
+    >>> analysis = shm_analysis(lon, lat, np.ones(lon.shape))
+    >>> np.isclose(analysis.analyze(0, "lstsq")["c"][0, 0], 1.)
+    True
+    
+    Notes
+    -----
+    Regional inversions may be non-unique or ill-conditioned."""
     def __init__(self, lon, lat, values):
+        """Store the scalar samples to be analyzed.
+        
+        Parameters
+        ----------
+        lon, lat : array_like
+            Matching longitude/latitude coordinates, degrees.
+        values : array_like
+            Scalar samples in consistent physical units.
+        
+        Returns
+        -------
+        None
+            Sets self.lon, self.lat and self.values.
+        
+        Examples
+        --------
+        >>> from relgravpy.sh_core import shm_analysis
+        >>> analysis = shm_analysis([[0.]], [[45.]], [[2.]])
+        >>> analysis.values.shape
+        (1, 1)"""
         self.lon=np.asarray(lon)
         self.lat=np.asarray(lat)
         self.values=np.asarray(values)
 
     def analyze(self, lmax, method="auto"):
+        """Fit fully normalized SH coefficients to the stored scalar field.
+        
+        Parameters
+        ----------
+        lmax : int
+            Maximum degree, giving (lmax+1)**2 real unknowns
+            for least-squares fitting.
+        method : {'auto', 'lstsq', 'fft'}, optional
+            'auto' attempts global FFT then falls back to least
+            squares; 'fft' requires global sampling; 'lstsq'
+            supports finite regional samples.
+        
+        Returns
+        -------
+        dict
+            'c', 's' coefficient arrays in the units of self.values,
+            'lmax', reference 'radius' and either least-squares
+            diagnostics ('rank', 'residuals', 'condition') or
+            FFT method/quadrature metadata.
+        
+        Raises
+        ------
+        ValueError
+            For unsupported methods or invalid sampling.
+        MemoryError
+            If the least-squares matrix exceeds 512 MiB.
+        
+        Examples
+        --------
+        >>> import numpy as np
+        >>> from relgravpy.sh_core import shm_analysis, sh_grid
+        >>> lon, lat = sh_grid([-180, 150, -60, 60], 30)
+        >>> fit = shm_analysis(lon, lat, np.ones(lon.shape))
+        >>> np.isclose(fit.analyze(0, "lstsq")["c"][0, 0], 1.)
+        True"""
         return sh_analysis_core(self.lon,self.lat,self.values,lmax,
                                 method=method)
 
