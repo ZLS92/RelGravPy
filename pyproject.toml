@@ -22,3 +22,8 @@ dependencies = [
 
 [tool.setuptools.package-data]
 relgravpy = ["data/*.dat", "data/*.md", "data/*.txt"]
+
+[project.optional-dependencies]
+# Numba is deliberately NOT required by the base installation.
+# Install with: pip install ".[fast]"
+fast = ["numba>=0.59"]
