@@ -133,3 +133,57 @@ def test_failed_jit_compilation_falls_back(monkeypatch):
             fields=("grav_dist",),height_reference="ellipsoid")
     assert np.isfinite(result["grav_dist"]).all()
     assert _sh_fast._numba_failed
+
+
+@pytest.mark.parametrize("latitude,longitude", [(0.,0.),(43.2,12.1),(85.,-80.)])
+def test_degree_120_matches_independent_degree_order_sum(latitude,longitude):
+    """Check the order-major fast recurrence against a degree-major reference.
+
+    The reference uses sh_legendre() to build a triangular matrix and then
+    explicitly sums independent degree/order terms. The fast kernel avoids
+    allocating this matrix and visits coefficients in a different order.
+    """
+    model = _model(120)
+    degree = model["lmax"]
+    reference_c = model["c"].copy()
+    reference_c[0,0] -= sh.GM_WGS84 / model["gm"]
+    ref_zonals = sh.sh_wgs84_normal_zonals(
+        model["gm"],model["radius"],degree)
+    for n in range(2,degree+1,2):
+        reference_c[n,0] -= ref_zonals[n]
+
+    p = sh.sh_legendre(latitude,degree)
+    normal_pot = 0.0
+    normal_dg = 0.0
+    normal_gradient = 0.0
+    radius = model["radius"]+120.0
+    rho = model["radius"]/radius
+    radial = 1.0
+    lam = np.deg2rad(longitude)
+    for n in range(degree+1):
+        if n:
+            radial *= rho
+        orders = np.arange(n+1)
+        harmonic = np.dot(
+            p[n,:n+1],
+            reference_c[n,:n+1]*np.cos(orders*lam) +
+            model["s"][n,:n+1]*np.sin(orders*lam)
+        )*radial
+        normal_pot += harmonic
+        normal_dg += (n+1)*harmonic
+        normal_gradient += (n+1)*(n+2)*harmonic
+
+    expected = np.array([
+        normal_pot*model["gm"]/radius,
+        normal_dg*model["gm"]/radius**2*1e5,
+        -normal_gradient*model["gm"]/radius**3*1e9
+    ])
+    result = sh.sh_synthesis_core(
+        model,lon=np.array([longitude]),lat=np.array([latitude]),
+        height=120.,surface="sphere",height_reference="ellipsoid",
+        fields=("potential","grav_dist","grav_gradient"),lmax=120)
+    actual = np.array([
+        result["potential"][0],result["grav_dist"][0],
+        result["grav_gradient"][0]
+    ])
+    np.testing.assert_allclose(actual,expected,rtol=1e-10,atol=1e-8)
