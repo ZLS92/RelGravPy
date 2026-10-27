@@ -3,6 +3,7 @@ name: Spherical harmonics synthesis regression tests
 on:
   push:
     paths:
+      - 'examples/benchmark_shm_synthesis.py'
       - 'relgravpy/_sh_fast.py'
       - 'relgravpy/shm_tools.py'
       - 'tests/test_sh_core.py'
@@ -43,3 +44,5 @@ jobs:
         run: python -m pip install 'numba>=0.59'
       - name: Validate gravity synthesis with and without Numba
         run: python -m pytest -q -s tests/test_sh_core.py tests/test_sh_csr_scipy.py tests/test_shm_fast.py
+      - name: Smoke-test full-synthesis benchmark
+        run: python -m examples.benchmark_shm_synthesis --degree 12 --points 12 --repeats 1
