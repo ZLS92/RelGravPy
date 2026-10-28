@@ -162,7 +162,7 @@ def _sh_accumulate_points(lon, phi, radius, c, s, weight, model_radius):
         sums[0,k], sums[1,k], sums[2,k] = sum0, sum1, sum2
     return sums
 
-
+# -----------------------------------------------------------------------------
 # Compile the same recurrence across independent points when possible.
 # Initializing the JIT decorator can itself fail if Numba is partly broken;
 # treat that exactly like a missing optional dependency.
@@ -173,7 +173,7 @@ except Exception:
     _compiled_accumulator = None
 _numba_failed = False
 
-
+# -----------------------------------------------------------------------------
 def _sh_accumulate_numpy(lon, phi, radius, c, s, weight, model_radius,
                       block_size=256):
     """Evaluate the identical SH recurrence in memory-bounded NumPy blocks.
@@ -247,7 +247,7 @@ def _sh_accumulate_numpy(lon, phi, radius, c, s, weight, model_radius,
             t, dg, gradient)
     return out
 
-
+# -----------------------------------------------------------------------------
 def _sh_accumulate(lon, phi, radius, c, s, weight, model_radius):
     """Evaluate fast SH sums, using Numba if usable and otherwise NumPy.
 
@@ -383,7 +383,6 @@ def sh_read_gfc(path, lmax=None):
     }
 
     return out_dict
-
 
 # -----------------------------------------------------------------------------
 def sh_download_model(name, directory=None, overwrite=False):
@@ -889,8 +888,6 @@ def sh_synthesis_core(model, limits=None, step=1., lmax=None, gentle_cut=None,
     out_dict = {"lon":lon,"lat":lat,**results}
     return out_dict
 
-
-
 # -----------------------------------------------------------------------------
 def sh_analysis_fft(lon, lat, values, lmax):
     """Estimate spherical-harmonic coefficients from a full global grid via FFT.
@@ -961,8 +958,6 @@ def sh_analysis_fft(lon, lat, values, lmax):
             ss[n,1:n+1]-=.5*ww[i]*p[n,1:n+1]*ft[i,1:n+1].imag
     return {"c":cc,"s":ss,"lmax":lmax,
             "method":"fft_trapezoid","latitude_quadrature":"trapezoid"}
-
-
 
 # -----------------------------------------------------------------------------
 def sh_analysis_core(lon, lat, values, lmax, radius=6378136.3,
