@@ -6105,7 +6105,15 @@ def _gmt_surface_bilinear(previous: np.ndarray, nx: int, ny: int, factor: int, p
     # The C source uses i/previous_stride instead of i/factor for
     # each intermediate fraction; this matters during multigrid refinement.
     xnew = np.arange(nx) // factor + (np.arange(nx) % factor) / previous_stride
-    ynew = np.arange(ny) // factor + (np.arange(ny) % factor) / previous_stride
+    # GMT's fill_in_forecast sweeps each coarse-grid cell from its southern
+    # row toward the north. Its y fraction is measured from the southern
+    # baseline, not from the northern baseline as in NumPy's row order.
+    # Reproduce that direction explicitly, including the old-node positions.
+    r = np.arange(ny)
+    ynew = r // factor + np.where(
+        r % factor == 0, 0.0,
+        1.0 - (factor - r % factor) / previous_stride
+    )
     oldx = np.arange(old.shape[1])
     oldy = np.arange(old.shape[0])
     hx = np.array([np.interp(xnew, oldx, row) for row in old])
