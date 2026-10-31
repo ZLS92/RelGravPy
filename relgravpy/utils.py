@@ -6140,7 +6140,7 @@ def _gmt_surface_iterate(u, status, briggs, coeff, a02, alpha, tb, omega,
     return iteration_count, float(max_change * rms), bool(max_change * rms <= target)
 
 
-def min_curvature( x, y, z, region, spacing, *,
+def _min_curvature_gmt( x, y, z, region, spacing, *,
                     tension=0.0, boundary_tension=None,
                     convergence=None, max_iterations=500,
                     relaxation=1.4, aspect_ratio=1.0,
@@ -6372,3 +6372,202 @@ def min_curvature( x, y, z, region, spacing, *,
                 strides=tuple(stages), iterations=tuple(info_iterations),
                 converged=success, residual_rms=rms)
     return (xs, ys, grid, info) if return_info else (xs, ys, grid)
+
+# -----------------------------------------------------------------------------
+# MINIMUM CURVATURE — GMT-compatible or stable variational solver
+# -----------------------------------------------------------------------------
+def min_curvature(x, y, z, region=None, spacing=1.0, *,
+                  tension=0.0, solver="gmt",
+                  block=None, block_size=None, padding=0,
+                  data_weight=1e4, anchor=1e-2,
+                  linear_solver="auto", tolerance=1e-9,
+                  boundary_tension=None, convergence=None,
+                  max_iterations=500, relaxation=1.4, aspect_ratio=1.0,
+                  return_info=False):
+    """
+    Interpolate scattered gravity data or fill/pad an incomplete regular grid.
+
+    The output covers EVERY node of the selected rectangular region,
+    including gaps and areas outside the convex hull of the measurements.
+    Two independent numerical methods are offered:
+
+    - `solver="gmt"`: GMT surface C-style spline stencil and multigrid SOR;
+      see Smith & Wessel (1990). Suitable for a numerical GMT comparison.
+    - `solver="robust"`: SciPy sparse variational minimum curvature, with
+      bilinear off-node measurements, positive regularization and direct/CG
+      solve. Recommended for extensive padding and large gaps. Results are
+      not numerically identical to GMT or Oasis montaj minimum curvature.
+
+    Parameters
+    ----------
+    x, y, z : 1-D or 2-D arrays
+        Scattered XYZ observations. Alternatively, x and y may be ascending
+        coordinate vectors of an existing grid, with z shaped (ny, nx) and
+        NaN for missing cells. Nonfinite XYZ triples are discarded.
+    region : (west, east, south, north) or None
+        Output bounds; if None, infer an outward-aligned rectangle from data.
+        To pad an existing grid, provide its original region and set padding.
+    spacing : positive float or pair (dx, dy)
+        Target grid spacing in projected Cartesian coordinate units.
+    tension : float in [0, 1]
+        Zero gives minimum curvature; a positive value damps far-field trends.
+        Note that `robust` uses an energy functional, not GMT's equation.
+    solver : {"gmt", "robust"}
+        The GMT-style implementation stays the default for compatibility.
+    block : {"mean", "median", None, False, True}
+        Optional pre-gridding aggregation via RelGravPy's existing
+        `block_m(..., method="mean"/"median")`. True selects "mean".
+    block_size : positive float or None
+        Block width; defaults to the smaller grid spacing when enabled.
+        Pre-blocking reduces duplicate/noisy data, but is NOT guaranteed to
+        improve conditioning and may remove valuable spatial constraints.
+    padding : nonnegative int or (px, py)
+        Extra number of grid cells per side in X and Y. Padding extends
+        the computational DOMAIN and solves for new nodes; no NaN fill or
+        nearest-neighbour postprocessing is applied.
+    data_weight : positive float
+        Data fidelity weight used only by `solver="robust"`; default 1e4.
+    anchor : positive float
+        Background-planar-trend regularization used only by `robust`.
+        Default 1e-2. A stronger anchor reduces low-frequency drift in
+        poorly covered domains, but also changes the extrapolated surface.
+    linear_solver : {"auto","direct","cg"}
+        SciPy solver for the robust method. Auto uses sparse direct <= 7000
+        grid nodes, else preconditioned CG.
+    tolerance : float
+        Relative linear system tolerance used for CG in the robust method.
+    boundary_tension, convergence, relaxation, aspect_ratio
+        Parameters of the GMT-style SOR implementation only.
+    max_iterations : int
+        Iteration budget. In the GMT solver this is scaled by grid stride.
+    return_info : bool
+        Return diagnostics, including method, observation RMSE and solver
+        convergence. Neither convergence nor output completeness establishes
+        accuracy of unconstrained extrapolation.
+
+    Returns
+    -------
+    gx, gy : numpy.ndarray
+        East-increasing X, north-to-south Y grid vectors.
+    grid : numpy.ndarray
+        Fully populated (ny, nx) output, including any requested padding.
+    info : dict, optional
+        Solver diagnostics if `return_info=True`.
+
+    Examples
+    --------
+    >>> x = np.array([0., 10., 20., 0., 10., 20., 10.])
+    >>> y = np.array([0., 0., 0., 20., 20., 20., 10.])
+    >>> z = 2 + 0.1*x - 0.04*y
+    >>> gx, gy, grid = min_curvature(
+    ...     x, y, z, region=(0, 20, 0, 20), spacing=2,
+    ...     solver="robust", padding=5, block="median")
+    >>> grid.shape
+    (21, 21)
+    >>> np.isfinite(grid).all()
+    True
+
+    >>> xg = np.arange(0., 21., 2.)
+    >>> yg = np.arange(20., -1., -2.)
+    >>> X, Y = np.meshgrid(xg, yg)
+    >>> Z = 0.1*X - 0.2*Y
+    >>> Z[2:6, 3:8] = np.nan
+    >>> _, _, filled = min_curvature(
+    ...     xg, yg, Z, spacing=2, solver="robust", padding=3)
+    >>> np.isfinite(filled).all()
+    True
+
+    Notes
+    -----
+    In regions without data, the extrapolated grid is a mathematical
+    continuation, not an independently constrained physical gravity field.
+    Block aggregation does not ensure better conditioning. For large pads,
+    compare several anchor/tension settings to assess far-field uncertainty.
+
+    References
+    ----------
+    Smith, W. H. F. & Wessel, P. (1990). Gridding with continuous curvature
+    splines in tension. Geophysics 55(3), 293-305.
+    https://doi.org/10.1190/1.1442837
+    """
+    # -------------------------------------------------------------------------
+    # Normalize XYZ input, accepting a pre-existing incomplete grid.
+    # -------------------------------------------------------------------------
+    xa, ya, za = np.asarray(x), np.asarray(y), np.asarray(z)
+    if za.ndim == 2 and xa.ndim == 1 and ya.ndim == 1:
+        if za.shape != (len(ya), len(xa)):
+            raise ValueError("For grid input z must have shape (len(y),len(x))")
+        xa, ya = np.meshgrid(xa, ya)
+    xa = np.asarray(xa, dtype=float).ravel()
+    ya = np.asarray(ya, dtype=float).ravel()
+    za = np.asarray(za, dtype=float).ravel()
+    if not (len(xa) == len(ya) == len(za)):
+        raise ValueError("x, y, z must be matching XYZ vectors or grid arrays")
+    finite = np.isfinite(xa) & np.isfinite(ya) & np.isfinite(za)
+    xa, ya, za = xa[finite], ya[finite], za[finite]
+    if len(za) < 3:
+        raise ValueError("At least three finite XYZ measurements required")
+
+    if np.isscalar(spacing):
+        dx = dy = float(spacing)
+    else:
+        dx, dy = (float(value) for value in spacing)
+    if not (np.isfinite([dx, dy]).all() and min(dx, dy) > 0):
+        raise ValueError("spacing must be strictly positive")
+    if region is None:
+        region = (np.floor(xa.min()/dx)*dx, np.ceil(xa.max()/dx)*dx,
+                  np.floor(ya.min()/dy)*dy, np.ceil(ya.max()/dy)*dy)
+    west, east, south, north = map(float, region)
+    if np.isscalar(padding):
+        px = py = padding
+    else:
+        px, py = padding
+    if (not all(isinstance(v, (int, np.integer)) for v in (px, py))
+            or min(px, py) < 0):
+        raise ValueError("padding must be nonnegative integer cell counts")
+    region = (west-px*dx, east+px*dx, south-py*dy, north+py*dy)
+
+    # -------------------------------------------------------------------------
+    # Optional block aggregation: call the EXISTING RelGravPy utility.
+    # -------------------------------------------------------------------------
+    old_count = len(za)
+    if block not in (None, False):
+        method = "mean" if block is True else str(block).lower()
+        if method not in ("mean", "median"):
+            raise ValueError("block must be None, 'mean' or 'median'")
+        width = min(dx, dy) if block_size is None else float(block_size)
+        if not np.isfinite(width) or width <= 0:
+            raise ValueError("block_size must be positive")
+        xa, ya, za = block_m(
+            xa, ya, za, method=method, wind_size=width,
+            lim=region, data_type="vector", nan=False)
+    else:
+        method = None
+
+    # -------------------------------------------------------------------------
+    # Select independent numerical backend.
+    # -------------------------------------------------------------------------
+    solver = str(solver).lower()
+    if solver == "robust":
+        from ._min_curvature_robust import _mc_robust_solver
+        result = _mc_robust_solver(
+            xa, ya, za, region, (dx, dy), tension=tension,
+            data_weight=data_weight, anchor=anchor,
+            solver=linear_solver, tolerance=tolerance,
+            max_iterations=max_iterations, return_info=True)
+    elif solver == "gmt":
+        result = _min_curvature_gmt(
+            xa, ya, za, region, (dx, dy), tension=tension,
+            boundary_tension=boundary_tension, convergence=convergence,
+            max_iterations=max_iterations, relaxation=relaxation,
+            aspect_ratio=aspect_ratio, return_info=True)
+    else:
+        raise ValueError("solver must be 'gmt' or 'robust'")
+
+    gx, gy, grid, info = result
+    info["solver"] = solver
+    info["block_method"] = method
+    info["observations_before_block"] = old_count
+    info["observations_after_block"] = len(za)
+    info["padding"] = (int(px), int(py))
+    return (gx, gy, grid, info) if return_info else (gx, gy, grid)
