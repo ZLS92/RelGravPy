@@ -125,3 +125,43 @@ def test_invalid_input_rejected(stations):
         min_curvature(x, y, z, (0, 100, 0, 100), spacing=2, anchor=0)
     with pytest.raises(ValueError):
         min_curvature(x, y, z, (0, 100, 0, 100), spacing=2, padding=-1)
+
+
+# -----------------------------------------------------------------------------
+# Source-style safeguards for the public interpolation implementation
+# -----------------------------------------------------------------------------
+
+
+def test_utils_has_one_curvature_function_and_module_level_imports():
+    """Prevent a second gridding backend and local imports from reappearing."""
+    path = Path(__file__).resolve().parents[1] / "relgravpy" / "utils.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+
+    functions = [
+        node for node in tree.body
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+    ]
+    names = [node.name for node in functions]
+
+    assert names.count("min_curvature") == 1
+    assert not any("gmt" in name.lower() for name in names)
+
+    first_function = min(node.lineno for node in functions)
+    all_imports = [
+        node for node in ast.walk(tree)
+        if isinstance(node, (ast.Import, ast.ImportFrom))
+    ]
+    assert all(node.lineno < first_function for node in all_imports)
+    assert not any(
+        isinstance(node, ast.ImportFrom) and node.module == "math"
+        for node in all_imports
+    )
+
+    # Multiple values must be assigned to a variable before returning.
+    all_returns = [
+        node for node in ast.walk(tree) if isinstance(node, ast.Return)
+    ]
+    assert not any(
+        isinstance(node.value, (ast.Tuple, ast.List, ast.Dict))
+        for node in all_returns
+    )
