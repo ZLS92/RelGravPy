@@ -6177,6 +6177,9 @@ def min_curvature(
     # -------------------------------------------------------------------------
     # Solve the unique regularized-curvature model.
     # -------------------------------------------------------------------------
+    if max_iterations is None:
+        max_iterations = 4000
+
     grid_x, grid_y, grid, info = _mc_robust_solver(
         x_array, y_array, z_array,
         region=padded_region, spacing=(dx, dy),
