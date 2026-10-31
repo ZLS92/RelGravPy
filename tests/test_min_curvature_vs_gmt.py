@@ -21,7 +21,8 @@ import warnings
 import numpy as np
 import pytest
 
-from test_min_curvature import min_curvature
+from test_min_curvature import mc, min_curvature
+from _surface_residual_diagnostic import discrete_residual
 
 
 # -----------------------------------------------------------------------------
@@ -150,6 +151,8 @@ def test_sparse_center_and_extrapolation_match_gmt(tension):
           reference[-1, 0], reference[-1, -1])
     print("Python corners:", calculated[0, 0], calculated[0, -1],
           calculated[-1, 0], calculated[-1, -1])
+    print("Discrete stencil residual GMT:", discrete_residual(mc, reference, x, y, z, tension))
+    print("Discrete stencil residual Python:", discrete_residual(mc, calculated, x, y, z, tension))
     error = calculated - reference
     rmse = np.sqrt(np.mean(error**2))
     peak_error = np.max(np.abs(error))
