@@ -6,17 +6,17 @@ on:
       - feature/min-curvature
     paths:
       - 'relgravpy/utils.py'
-      - 'relgravpy/_min_curvature_robust.py'
+      - 'relgravpy/_min_curvature_core.py'
       - 'tests/test_min_curvature.py'
-      - 'tests/test_min_curvature_robust.py'
+      - 'tests/test_min_curvature_core.py'
       - 'tests/test_min_curvature_integration.py'
       - '.github/workflows/test-min-curvature.yml'
   pull_request:
     paths:
       - 'relgravpy/utils.py'
-      - 'relgravpy/_min_curvature_robust.py'
+      - 'relgravpy/_min_curvature_core.py'
       - 'tests/test_min_curvature.py'
-      - 'tests/test_min_curvature_robust.py'
+      - 'tests/test_min_curvature_core.py'
       - 'tests/test_min_curvature_integration.py'
   workflow_dispatch:
 
@@ -34,7 +34,7 @@ jobs:
       - name: Compile and check curvature sources
         run: |
           python -m py_compile relgravpy/utils.py
-          python -m py_compile relgravpy/_min_curvature_robust.py
+          python -m py_compile relgravpy/_min_curvature_core.py
       - name: Test interpolation, gridded gaps, padding and block preprocessing
         run: |
-          PYTHONPATH=tests:. python -m pytest -v -s tests/test_min_curvature.py tests/test_min_curvature_robust.py tests/test_min_curvature_integration.py
+          PYTHONPATH=tests:. python -m pytest -v -s tests/test_min_curvature.py tests/test_min_curvature_core.py tests/test_min_curvature_integration.py
