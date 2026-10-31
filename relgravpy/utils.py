@@ -5892,3 +5892,465 @@ def match_nearest_xy(dat_ref, dat_mov, max_dist, reciprocal=False):
         "i_mov": i_mov,
         "dist_xy": dist_xy,
     }
+
+
+# -----------------------------------------------------------------------------
+# Minimum curvature: continuous-curvature splines in tension
+# -----------------------------------------------------------------------------
+# Numerical translation of the core finite-difference algorithm in GMT 6
+# surface.c, Copyright (c) 1991-2026 GMT Team, LGPL-3.0-or-later.
+# https://github.com/GenericMappingTools/gmt/blob/master/src/surface.c
+#
+# This section does NOT call the GMT executable and does NOT add required
+# package dependencies. In a normal RelGravPy installation NumPy is already
+# imported as np. Numba is used only if the optional [fast] extra is present.
+#
+import numpy as np
+from math import gcd as _gmt_surface_gcd
+import warnings as _gmt_surface_warnings
+
+try:
+    from numba import njit as _gmt_surface_njit
+except ImportError:
+    def _gmt_surface_njit(*args, **kwargs):
+        """Fallback decorator: preserve the pure Python kernel without Numba."""
+        def _decorate(func):
+            return func
+        return _decorate
+
+
+# Exact order of GMT SURFACE enum: N2 NW N1 NE W2 W1 E1 E2 SW S1 SE S2.
+_GMT_SURFACE_NEIGHBORS = np.array([
+    (-2, 0), (-1, -1), (-1, 0), (-1, 1),
+    (0, -2), (0, -1), (0, 1), (0, 2),
+    (1, -1), (1, 0), (1, 1), (2, 0),
+], dtype=np.int64)
+# Briggs quadrants: C->p[quadrant][k]  (index into _GMT_SURFACE_NEIGHBORS)
+_GMT_SURFACE_QUADRANTS = np.array([
+    [0, 0, 0, 0], [1, 5, 9, 10], [8, 9, 6, 3],
+    [10, 6, 2, 1], [3, 2, 5, 8]
+], dtype=np.int64)
+
+
+
+
+def _gmt_surface_primes(n: int) -> list[int]:
+    f = []
+    p = 2
+    while p * p <= n:
+        while n % p == 0:
+            f.append(p)
+            n //= p
+        p += 1
+    if n > 1:
+        f.append(n)
+    return f
+
+
+def _gmt_surface_coefficients(alpha: float, t: float):
+    """GMT surface_set_coefficients: (constrained, unconstrained) weights."""
+    a2 = alpha * alpha
+    a4 = a2 * a2
+    loose = 1.0 - t
+    one_plus = 1 + a2
+    denominator = 6 * a4 * loose + 10 * a2 * loose + 8 * loose - 2 * one_plus + 4 * t * one_plus
+    a0 = 1 / denominator
+    c = np.zeros((2, 12), dtype=np.float64)
+    # GMT set == SURFACE_CONSTRAINED (1) vs SURFACE_UNCONSTRAINED (0)
+    c[1, [4, 7]] = -loose
+    c[1, [0, 11]] = -loose * a4
+    c[0, [4, 7]] = -loose * a0
+    c[0, [0, 11]] = -loose * a4 * a0
+    c[1, [5, 6]] = 2 * loose * one_plus
+    c[0, [5, 6]] = (2 * c[1, 5] + t) * a0
+    c[1, [2, 9]] = c[1, 5] * a2
+    c[0, [2, 9]] = c[0, 5] * a2
+    c[1, [1, 3, 8, 10]] = -2 * loose * a2
+    c[0, [1, 3, 8, 10]] = c[1, 1] * a0
+    a0_const_1 = 2 * loose * (1 + a4)
+    a0_const_2 = 2 - t + 2 * loose * a2
+    return c, a0_const_1, a0_const_2
+
+
+def _gmt_surface_boundary(u: np.ndarray, nx: int, ny: int, alpha: float, tb: float) -> None:
+    """Port of GMT surface_set_BCs, Eqs. A-8..A-10 (non-periodic case)."""
+    x0 = 4 * (1 - tb) / (2 - tb)
+    x1 = (3 * tb - 2) / (2 - tb)
+    den = 2 * alpha * (1 - tb) + tb
+    y0 = 4 * alpha * (1 - tb) / den
+    y1 = (tb - 2 * alpha * (1 - tb)) / den
+    eps_m2 = 1 / (alpha * alpha)
+    eps_p2 = alpha * alpha
+
+    # First auxiliary layer on all four edges.
+    u[1, 2:nx+2] = y0 * u[2, 2:nx+2] + y1 * u[3, 2:nx+2]
+    u[ny+2, 2:nx+2] = y0 * u[ny+1, 2:nx+2] + y1 * u[ny, 2:nx+2]
+    u[2:ny+2, 1] = x1 * u[2:ny+2, 3] + x0 * u[2:ny+2, 2]
+    u[2:ny+2, nx+2] = x1 * u[2:ny+2, nx] + x0 * u[2:ny+2, nx+1]
+    # Mixed derivatives = 0 at the four corners (first auxiliary diagonal).
+    u[ny+2, 1] = u[ny+2, 3] + u[ny, 1] - u[ny, 3]
+    u[1, 1] = u[1, 3] + u[3, 1] - u[3, 3]
+    u[ny+2, nx+2] = u[ny+2, nx] + u[ny, nx+2] - u[ny, nx]
+    u[1, nx+2] = u[1, nx] + u[3, nx+2] - u[3, nx]
+    # Second auxiliary row/column: normal derivative of curvature = 0.
+    u[ny+3, 2:nx+2] = (
+        u[ny-1, 2:nx+2] + eps_m2 *
+        (u[ny, 1:nx+1] + u[ny, 3:nx+3] - u[ny+2, 1:nx+1] - u[ny+2, 3:nx+3])
+        + (2 + 2*eps_m2) * (u[ny+2, 2:nx+2] - u[ny, 2:nx+2])
+    )
+    u[0, 2:nx+2] = (
+        u[4, 2:nx+2] + eps_m2 *
+        (u[3, 1:nx+1] + u[3, 3:nx+3] - u[1, 1:nx+1] - u[1, 3:nx+3])
+        + (2 + 2*eps_m2) * (u[1, 2:nx+2] - u[3, 2:nx+2])
+    )
+    u[2:ny+2, 0] = (
+        u[2:ny+2, 4] + eps_p2 *
+        (u[1:ny+1, 3] + u[3:ny+3, 3] - u[1:ny+1, 1] - u[3:ny+3, 1])
+        + (2 + 2*eps_p2) * (u[2:ny+2, 1] - u[2:ny+2, 3])
+    )
+    u[2:ny+2, nx+3] = (
+        u[2:ny+2, nx-1] + eps_p2 *
+        (u[1:ny+1, nx] + u[3:ny+3, nx] - u[1:ny+1, nx+2] - u[3:ny+3, nx+2])
+        + (2 + 2*eps_p2) * (u[2:ny+2, nx+2] - u[2:ny+2, nx])
+    )
+
+
+@_gmt_surface_njit(cache=True)
+def _gmt_surface_sor_step(u, status, briggs, coeff, neighbors, quadrants, a0_const_2, omega):
+    """Sequential Gauss-Seidel SOR: same 12-neighbour update as GMT C."""
+    ny, nx = status.shape
+    max_change = 0.0
+    for row in range(ny):
+        r = row + 2
+        for col in range(nx):
+            kind = status[row, col]
+            if kind == 5:
+                continue
+            c = col + 2
+            set_idx = 0 if kind == 0 else 1
+            u00 = 0.0
+            for k in range(12):
+                u00 += u[r+neighbors[k, 0], c+neighbors[k, 1]] * coeff[set_idx, k]
+            if set_idx == 1:
+                sum_b = 0.0
+                for k in range(4):
+                    off_idx = quadrants[kind, k]
+                    sum_b += briggs[row, col, k] * u[r+neighbors[off_idx, 0], c+neighbors[off_idx, 1]]
+                u00 = (u00 + a0_const_2 * (sum_b + briggs[row, col, 4])) * briggs[row, col, 5]
+            u00 = (1.0 - omega) * u[r, c] + omega * u00
+            delta = abs(u00 - u[r, c])
+            if delta > max_change:
+                max_change = delta
+            u[r, c] = u00
+    return max_change
+
+
+def _gmt_surface_constraints(x, y, z, nx, ny, region, dx, dy, alpha, a0_const_1, a0_const_2,
+                 trend, rms, stride, u, from_coarse=False):
+    """Nearest station per node; construct Briggs weights on off-node observations."""
+    west, east, south, north = region
+    col = np.floor((x - west) / dx + 0.5).astype(np.int64)
+    row = ny - 1 - np.floor((y - south) / dy + 0.5).astype(np.int64)
+    valid = (col >= 0) & (col < nx) & (row >= 0) & (row < ny)
+    ids = np.where(valid)[0]
+    if not len(ids):
+        raise ValueError('No observation projects onto the current grid')
+    # Sort by node and Euclidean physical distance (GMT surface_compare_points).
+    cx = west + col[ids] * dx
+    cy = north - row[ids] * dy
+    dist2 = (x[ids] - cx)**2 + (y[ids] - cy)**2
+    ordered = np.lexsort((dist2, col[ids] + nx * row[ids]))
+    ids = ids[ordered]
+    keys = col[ids] + nx * row[ids]
+    ids = ids[np.r_[True, keys[1:] != keys[:-1]]]
+    status = np.zeros((ny, nx), dtype=np.uint8)
+    b = np.zeros((ny, nx, 6), dtype=np.float64)
+    for k in ids:
+        r, c = int(row[k]), int(col[k])
+        fx = (x[k] - (west + c*dx)) / dx
+        fy = (y[k] - (north - r*dy)) / dy
+        if abs(fx) < 0.05 and abs(fy) < 0.05:
+            status[r, c] = 5
+            # GMT offset by planar trend when snapping off-grid data to nodes.
+            u[r+2, c+2] = z[k] + (trend[1]*fx + trend[2]*fy) * stride / rms
+            continue
+        if fy >= 0:
+            if fx >= 0:
+                quad, xx, yy = 1, fx, fy
+            else:
+                quad, xx, yy = 2, fy, -fx
+        else:
+            if fx >= 0:
+                quad, xx, yy = 4, -fy, fx
+            else:
+                quad, xx, yy = 3, -fx, -fy
+        xy = xx + yy
+        # Briggs (1974) weights, surface_solve_Briggs_coefficients.
+        inv_sum = 1.0 / (1.0 + xy)
+        inv_delta = inv_sum / xy
+        bb0 = (xx*xx + 2*xx*yy + xx - yy*yy - yy) * inv_delta
+        bb1 = 2*(yy - xx + 1)*inv_sum
+        bb2 = 2*(xx - yy + 1)*inv_sum
+        bb3 = (-xx*xx + 2*xx*yy - xx + yy*yy + yy)*inv_delta
+        bb4 = 4*inv_delta
+        b[r, c, :] = (bb0, bb1, bb2, bb3, bb4*z[k],
+                        1/(a0_const_1 + a0_const_2*(bb0+bb1+bb2+bb3+bb4)))
+        status[r, c] = quad
+    return status, b
+
+
+def _gmt_surface_bilinear(previous: np.ndarray, nx: int, ny: int, factor: int, previous_stride: int):
+    """Expand coarser GMT grid (including its old nodes as temporary fixed constraints)."""
+    old = previous[2:-2, 2:-2]
+    # The C source uses i/previous_stride instead of i/factor for
+    # each intermediate fraction; this matters during multigrid refinement.
+    xnew = np.arange(nx) // factor + (np.arange(nx) % factor) / previous_stride
+    ynew = np.arange(ny) // factor + (np.arange(ny) % factor) / previous_stride
+    oldx = np.arange(old.shape[1])
+    oldy = np.arange(old.shape[0])
+    hx = np.array([np.interp(xnew, oldx, row) for row in old])
+    highres = np.array([np.interp(ynew, oldy, hx[:, col]) for col in range(nx)]).T
+    u = np.zeros((ny + 4, nx + 4), dtype=np.float32)
+    u[2:-2, 2:-2] = highres
+    status = np.zeros((ny, nx), dtype=np.uint8)
+    status[::factor, ::factor] = 5
+    return u, status
+
+
+def _gmt_surface_iterate(u, status, briggs, coeff, a02, alpha, tb, omega,
+             stride, limit, rms, max_iterations):
+    ny, nx = status.shape
+    iteration_count = 0
+    max_change = float('inf')
+    target = limit / stride
+    while iteration_count < max_iterations * stride:
+        _gmt_surface_boundary(u, nx, ny, alpha, tb)
+        max_change = _gmt_surface_sor_step(u, status, briggs, coeff, _GMT_SURFACE_NEIGHBORS, _GMT_SURFACE_QUADRANTS, a02, omega)
+        iteration_count += 1
+        if max_change * rms <= target:
+            break
+    return iteration_count, float(max_change * rms), bool(max_change * rms <= target)
+
+
+def min_curvature( x, y, z, region, spacing, *,
+                    tension=0.0, boundary_tension=None,
+                    convergence=None, max_iterations=500,
+                    relaxation=1.4, aspect_ratio=1.0,
+                    return_info=False ) :
+    """
+    Interpolate scattered XYZ data using the GMT ``surface`` numerical scheme.
+
+    The solution minimizes continuous curvature (``tension=0``) or uses
+    continuous-curvature splines in tension (``0 < tension <= 1``). In
+    particular, it solves for EVERY node inside the specified rectangular
+    region, including nodes outside the convex hull of the observations.
+    It does NOT fill empty areas using nearest-neighbour interpolation.
+
+    The core implementation reproduces GMT surface.c's finite-difference
+    12-neighbour stencil, Briggs off-node constraints, natural boundary
+    conditions, planar detrending, multigrid refinement and SOR iterations.
+
+    Parameters
+    ----------
+    x, y, z : array-like
+        One-dimensional vectors of scattered coordinates and measurements.
+        Arrays are flattened and non-finite observations are discarded.
+        For gravimetry, use planar projected coordinates (e.g., metres).
+    region : tuple of float
+        Target region ``(xmin, xmax, ymin, ymax)``. It may extend well beyond
+        the observation coverage. All grid nodes must be included.
+    spacing : float or tuple of float
+        Grid step ``dx`` or ``(dx, dy)``. The region lengths must be integer
+        multiples of the requested step; coordinates use node registration.
+    tension : float, optional
+        Interior tension in [0, 1]. Default 0 reproduces classical minimum
+        curvature; 1 produces the harmonic solution.
+    boundary_tension : float, optional
+        Tension at the boundaries, in [0, 1]. Default uses ``tension``.
+    convergence : float, optional
+        Maximum nodal change for convergence, expressed in units of z.
+        Default is 1e-4 times the detrended RMS, as in GMT surface.
+    max_iterations : int, optional
+        Maximum iteration count per final grid pass; GMT default is 500.
+        Coarser grids receive this value multiplied by their stride.
+    relaxation : float, optional
+        Successive over-relaxation factor. GMT default is 1.4.
+    aspect_ratio : float, optional
+        GMT ``-A`` parameter. Defaults to 1.0 (isotropic Cartesian case),
+        independently of numerical dx/dy. For coordinates in different units,
+        set this value to represent their physical relative scale.
+    return_info : bool, optional
+        Return a dictionary with retained samples, discarded samples,
+        multigrid strides, iteration counts and convergence flags.
+
+    Returns
+    -------
+    xg : numpy.ndarray, shape (nx,)
+        X coordinates, increasing from xmin to xmax.
+    yg : numpy.ndarray, shape (ny,)
+        Y coordinates, decreasing from ymax to ymin (GMT row order).
+    zg : numpy.ndarray, shape (ny, nx)
+        Interpolated continuous surface. No NaNs are left in the grid.
+    info : dict, optional
+        Diagnostic results, only when ``return_info=True``.
+
+    Examples
+    --------
+    >>> rng = np.random.default_rng(42)
+    >>> x = rng.uniform(0, 1000, 100)
+    >>> y = rng.uniform(0, 1000, 100)
+    >>> gz = 2.5 * np.exp(-((x-400)**2 + (y-600)**2) / 70000)
+    >>> xg, yg, grid = min_curvature(x, y, gz,
+    ...                              region=(0, 1000, 0, 1000),
+    ...                              spacing=20, tension=0.0)
+    >>> grid.shape
+    (51, 51)
+    >>> np.isfinite(grid).all()
+    True
+
+    Notes
+    -----
+    Output values outside the observation convex hull are extrapolations of
+    the chosen surface model, NOT measured values. Such estimates should be
+    interpreted cautiously in sparsely sampled areas.
+
+    Comparison with GMT 6.4+ should specify ``-Qr`` to disable its optional
+    automatic working-region expansion; this port does not include that step.
+    This function does not yet implement geographical periodicity, breaklines,
+    lower/upper constrained grids, masking or GMT binary grid I/O. Therefore
+    Numerical equivalence with GMT has not yet been established through a
+    direct reference comparison. This implementation is experimental.
+
+    References
+    ----------
+    Smith, W.H.F. and Wessel, P. (1990). Gridding with continuous curvature
+    splines in tension. Geophysics, 55(3), 293-305.
+    DOI: https://doi.org/10.1190/1.1442837
+    GMT Team (2026). GMT source code: src/surface.c (LGPL-3.0-or-later).
+    """
+    x = np.asarray(x, dtype=np.float64).ravel()
+    y = np.asarray(y, dtype=np.float64).ravel()
+    z = np.asarray(z, dtype=np.float64).ravel()
+    if not (len(x) == len(y) == len(z)) or len(x) < 3:
+        raise ValueError('Need at least three x/y/z samples, of equal length')
+    n_original = len(x)
+
+    # Ignore missing measurements, as GMT does when reading XYZ tables.
+    finite = np.isfinite(x) & np.isfinite(y) & np.isfinite(z)
+    x, y, z = x[finite], y[finite], z[finite]
+    if len(x) < 3:
+        raise ValueError('Fewer than three valid XYZ observations')
+    west, east, south, north = (float(a) for a in region)
+    if not (np.isfinite([west,east,south,north]).all() and west < east and south < north):
+        raise ValueError('Invalid region: expected west<east and south<north')
+    if np.isscalar(spacing):
+        dx = dy = float(spacing)
+    else:
+        dx, dy = map(float, spacing)
+    if not (np.isfinite(dx) and np.isfinite(dy) and dx > 0 and dy > 0):
+        raise ValueError('Spacing must be finite and positive')
+    qx, qy = (east-west)/dx, (north-south)/dy
+    if not (np.isclose(qx, round(qx), rtol=0, atol=1e-8) and
+            np.isclose(qy, round(qy), rtol=0, atol=1e-8)):
+        raise ValueError('Region dimensions must be integer multiples of spacing')
+    nx, ny = round(qx)+1, round(qy)+1
+    if min(nx, ny) < 4:
+        raise ValueError('GMT surface requires >=4 nodes along each axis')
+    if not (0 <= tension <= 1):
+        raise ValueError('Tension must be in [0,1]')
+    tb = tension if boundary_tension is None else float(boundary_tension)
+    if not 0 <= tb <= 1:
+        raise ValueError('Boundary tension must be in [0,1]')
+    if not np.isfinite(aspect_ratio) or aspect_ratio <= 0:
+        raise ValueError('Aspect ratio must be finite and positive')
+    if int(max_iterations) != max_iterations:
+        raise ValueError('max_iterations must be an integer')
+    if not 0 < relaxation < 2 or max_iterations < 1:
+        raise ValueError('Invalid relaxation or max_iterations')
+    if convergence is not None and convergence <= 0:
+        raise ValueError('Convergence must be > 0')
+
+    valid = (x >= west) & (x <= east) & (y >= south) & (y <= north)
+    x, y, z = x[valid], y[valid], z[valid]
+    if len(x) < 3:
+        raise ValueError('Fewer than three samples inside region')
+    # GMT retains only the nearest sample to each final grid node.
+    col = np.floor((x-west)/dx+0.5).astype(np.int64)
+    row = ny-1-np.floor((y-south)/dy+0.5).astype(np.int64)
+    col = np.clip(col, 0, nx-1)
+    row = np.clip(row, 0, ny-1)
+    dist = (x - (west+col*dx))**2 + (y - (north-row*dy))**2
+    idx = np.lexsort((dist, col+nx*row))
+    first = np.r_[True, (col[idx[1:]]+nx*row[idx[1:]]) != (col[idx[:-1]]+nx*row[idx[:-1]])]
+    idx = idx[first]
+    x, y, z = x[idx], y[idx], z[idx]
+    if len(z) < 3:
+        raise ValueError('Fewer than three unique constraining grid nodes')
+    # Least-squares plane in grid-cell coordinates, as in GMT surface.c.
+    xf = (x-west)/dx
+    yf = (y-south)/dy
+    design = np.stack((np.ones_like(xf), xf, yf), axis=1)
+    if np.linalg.matrix_rank(design) < 3:
+        plane = np.array([0., 0., 0.])
+    else:
+        plane = np.linalg.lstsq(design, z, rcond=None)[0]
+    residual = z - design @ plane
+    rms = float(np.sqrt(np.mean(residual**2)))
+    xs = west + np.arange(nx)*dx
+    ys = north - np.arange(ny)*dy
+    if rms < 1e-12:
+        grid = (plane[0] + plane[1]*np.arange(nx)[None,:] +
+                plane[2]*np.arange(ny-1,-1,-1)[:,None]).astype(np.float64)
+        info = dict(retained_observations=len(z), discarded_observations=n_original-len(z),
+                    strides=(1,), iterations=(), converged=True, residual_rms=rms)
+        return (xs, ys, grid, info) if return_info else (xs, ys, grid)
+    zn = residual / rms
+    convergence = float(convergence) if convergence is not None else 1e-4*rms
+    # Dimension-scaled coordinates: GMT's -A defaults to 1 for Cartesian data;
+    # pixels are effectively square here unless user controls anisotropy.
+    alpha = float(aspect_ratio)
+    coeff, a01, a02 = _gmt_surface_coefficients(alpha, float(tension))
+    strides = [_gmt_surface_gcd(nx-1, ny-1)]
+    factors = _gmt_surface_primes(strides[0])
+    # GMT discards largest factors until each coarse dimension has >=4 nodes.
+    while min((nx-1)//strides[0]+1, (ny-1)//strides[0]+1) < 4:
+        strides[0] //= factors.pop()
+    # GMT then successively divides by largest remaining prime factors.
+    while strides[-1] > 1:
+        strides.append(strides[-1] // factors.pop())
+    stages = []
+    previous = None
+    info_iterations = []
+    for stride in strides:
+        cx = (nx-1)//stride+1
+        cy = (ny-1)//stride+1
+        if previous is None:
+            u = np.zeros((cy+4, cx+4), dtype=np.float32)
+        else:
+            expand = previous_stride//stride
+            u, frozen = _gmt_surface_bilinear(previous, cx, cy, expand, previous_stride)
+            blank_b = np.zeros((cy, cx, 6), dtype=np.float64)
+            niter, error, ok = _gmt_surface_iterate(u, frozen, blank_b, coeff, a02, alpha, tb,
+                                        relaxation, stride, convergence, rms, max_iterations)
+            info_iterations.append((stride, 'I', niter, error, ok))
+        status, briggs = _gmt_surface_constraints(x, y, zn, cx, cy, region,
+                                       stride*dx, stride*dy, alpha, a01, a02,
+                                       plane, rms, stride, u)
+        niter, error, ok = _gmt_surface_iterate(u, status, briggs, coeff, a02, alpha, tb,
+                                    relaxation, stride, convergence, rms, max_iterations)
+        info_iterations.append((stride, 'D', niter, error, ok))
+        previous_stride = stride
+        previous = u
+        stages.append(stride)
+    grid = (previous[2:-2,2:-2].astype(np.float64)*rms +
+            plane[0] + plane[1]*np.arange(nx)[None,:] +
+            plane[2]*np.arange(ny-1,-1,-1)[:,None])
+    if not np.isfinite(grid).all():
+        raise FloatingPointError('Non-finite values detected during surface iteration')
+    success = all(t[4] for t in info_iterations)
+    if not success:
+        _gmt_surface_warnings.warn('One or more surface multigrid stages hit max_iterations', RuntimeWarning, stacklevel=2)
+    info = dict(retained_observations=len(z), discarded_observations=n_original-len(z),
+                strides=tuple(stages), iterations=tuple(info_iterations),
+                converged=success, residual_rms=rms)
+    return (xs, ys, grid, info) if return_info else (xs, ys, grid)
