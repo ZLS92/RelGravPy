@@ -23,9 +23,9 @@ def _load_min_curvature():
         package.__path__ = [str(repo / "relgravpy")]
         sys.modules["relgravpy"] = package
 
-    backend_path = repo / "relgravpy" / "_min_curvature_robust.py"
+    backend_path = repo / "relgravpy" / "_min_curvature_core.py"
     spec = importlib.util.spec_from_file_location(
-        "relgravpy._min_curvature_robust", backend_path
+        "relgravpy._min_curvature_core", backend_path
     )
     backend = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = backend
@@ -45,7 +45,7 @@ def _load_min_curvature():
     module.__package__ = "relgravpy"
     module.np = np
     module.sp = sp
-    module._mc_robust_solver = backend._mc_robust_solver
+    module._curvature_solver = backend._curvature_solver
     sys.modules[module.__name__] = module
     exec(compile(ast.Module(body=selected, type_ignores=[]),
                  str(path), "exec"), module.__dict__)
