@@ -6495,7 +6495,8 @@ def min_curvature(x, y, z, region=None, spacing=1.0, *,
     # Normalize XYZ input, accepting a pre-existing incomplete grid.
     # -------------------------------------------------------------------------
     xa, ya, za = np.asarray(x), np.asarray(y), np.asarray(z)
-    if za.ndim == 2 and xa.ndim == 1 and ya.ndim == 1:
+    regular_grid_input = (za.ndim == 2 and xa.ndim == 1 and ya.ndim == 1)
+    if regular_grid_input:
         if za.shape != (len(ya), len(xa)):
             raise ValueError("For grid input z must have shape (len(y),len(x))")
         xa, ya = np.meshgrid(xa, ya)
@@ -6521,8 +6522,15 @@ def min_curvature(x, y, z, region=None, spacing=1.0, *,
     if not (np.isfinite([dx, dy]).all() and min(dx, dy) > 0):
         raise ValueError("spacing must be strictly positive")
     if region is None:
-        region = (np.floor(ext_x.min()/dx)*dx, np.ceil(ext_x.max()/dx)*dx,
-                  np.floor(ext_y.min()/dy)*dy, np.ceil(ext_y.max()/dy)*dy)
+        if regular_grid_input:
+            # Preserve the exact georeferenced coordinate origin and spacing.
+            # The first pixel centre need NOT be a multiple of grid step.
+            region = (ext_x.min(), ext_x.max(), ext_y.min(), ext_y.max())
+        else:
+            region = (np.floor(ext_x.min()/dx)*dx,
+                      np.ceil(ext_x.max()/dx)*dx,
+                      np.floor(ext_y.min()/dy)*dy,
+                      np.ceil(ext_y.max()/dy)*dy)
     west, east, south, north = map(float, region)
     if np.isscalar(padding):
         px = py = padding
