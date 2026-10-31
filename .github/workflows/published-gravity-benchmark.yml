@@ -1,0 +1,33 @@
+name: Published SA gravity grid — gap-filling benchmark
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - feature/min-curvature
+    paths:
+      - 'examples/benchmark_published_gravity.py'
+      - 'relgravpy/utils.py'
+      - 'relgravpy/_min_curvature_core.py'
+      - '.github/workflows/published-gravity-benchmark.yml'
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install existing numerical and plotting requirements
+        run: python -m pip install numpy scipy matplotlib pytest numba
+      - name: Download official-derived gridded Bouguer data and evaluate missing cells
+        run: PYTHONPATH=tests:. python examples/benchmark_published_gravity.py
+      - name: Upload numerical reference, validation tables, and figures
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: sa-gravity-2016-eyre-min-curvature-benchmark
+          path: gravity_reference_benchmark/
+          retention-days: 30
