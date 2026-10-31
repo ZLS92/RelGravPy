@@ -199,3 +199,43 @@ def test_block_condition_number_can_improve_or_worsen():
               f"raw/block={ratios[-1]:.3f}")
     assert ratios[0]>3.0       # Repeated stations: averaging helps.
     assert ratios[2]<0.75      # Spatially spread: averaging can hurt.
+
+
+
+# -----------------------------------------------------------------------------
+# Gridded input with NaNs at the exterior must retain the ORIGINAL extent.
+# -----------------------------------------------------------------------------
+def test_all_nan_outer_border_does_not_shrink_region():
+    x=np.arange(0.,51.,5.)
+    y=np.arange(50.,-1.,-5.)
+    X,Y=np.meshgrid(x,y)
+    z=_truth(X,Y)
+    z[0,:]=np.nan
+    z[:,0]=np.nan
+    gx,gy,grid,info=min_curvature(
+        x,y,z,spacing=5,padding=2,solver="robust",
+        return_info=True)
+    assert grid.shape==(15,15)
+    assert gx[0]==-10 and gx[-1]==60
+    assert gy[0]==60 and gy[-1]==-10
+    assert np.isfinite(grid).all()
+    assert info["discarded_observations"]>=21
+
+
+# -----------------------------------------------------------------------------
+# On larger padded grids the AUTO backend selects CG and must converge.
+# -----------------------------------------------------------------------------
+def test_auto_sparse_cg_on_extended_padding_grid():
+    x=np.arange(0.,61.,2.)
+    y=x[::-1]
+    X,Y=np.meshgrid(x,y)
+    z=_truth(X,Y)
+    z[10:19,12:20]=np.nan
+    gx,gy,grid,info=min_curvature(
+        x,y,z,spacing=2,padding=30,solver="robust",
+        tension=0.25,anchor=0.05,return_info=True)
+    assert grid.shape==(91,91)
+    assert np.isfinite(grid).all()
+    assert info["linear_solver"]=="cg"
+    assert info["converged"]
+    assert info["relative_system_residual"]<1e-6
