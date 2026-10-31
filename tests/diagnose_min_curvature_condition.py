@@ -23,7 +23,7 @@ from test_min_curvature import mc
 # -----------------------------------------------------------------------------
 # Assemble final-grid linear operator for zero-tension minimum curvature
 # -----------------------------------------------------------------------------
-def condition_estimate(x, y, z, spacing=2., grid_size=51):
+def condition_estimate(x, y, z, spacing=2., grid_size=51, tension=0.):
     """Estimate ||A||_1 * ||A^{-1}||_1 for one synthetic survey."""
     nx = ny = grid_size
     col = np.floor(x / spacing + 0.5).astype(int)
@@ -39,7 +39,7 @@ def condition_estimate(x, y, z, spacing=2., grid_size=51):
     plane = np.linalg.lstsq(design, z, rcond=None)[0]
     residual = z - design @ plane
     rms = np.sqrt(np.mean(residual**2))
-    coeff, a01, a02 = mc._gmt_surface_coefficients(1.0, 0.0)
+    coeff, a01, a02 = mc._gmt_surface_coefficients(1.0, tension)
 
     u = np.zeros((ny+4, nx+4), dtype=np.float64)
     status, briggs = mc._gmt_surface_constraints(
@@ -71,7 +71,7 @@ def condition_estimate(x, y, z, spacing=2., grid_size=51):
         r, c = divmod(index, nx)
         u.fill(0.)
         u[r+2, c+2] = 1.
-        mc._gmt_surface_boundary(u, nx, ny, 1., 0.)
+        mc._gmt_surface_boundary(u, nx, ny, 1., tension)
         forecast = np.zeros((ny, nx), dtype=np.float64)
         for k, (dr, dc) in enumerate(mc._GMT_SURFACE_NEIGHBORS):
             forecast += (
@@ -109,6 +109,9 @@ def main():
         + 0.016*central_x-0.011*central_y
     )
     central_condition = condition_estimate(central_x, central_y, central_z)
+    central_tension_condition = condition_estimate(
+        central_x, central_y, central_z, tension=0.25
+    )
 
     rng = np.random.default_rng(2031)
     wide_x = rng.uniform(1.5, 98.5, 180)
@@ -121,10 +124,12 @@ def main():
     wide_condition = condition_estimate(wide_x, wide_y, wide_z)
 
     print("Condition estimate — T=0, central observations:", central_condition)
+    print("Condition estimate — T=0.25, central observations:", central_tension_condition)
     print("Condition estimate — T=0, spread observations:", wide_condition)
     print("Condition ratio (central / spread):", central_condition/wide_condition)
     assert np.isfinite([central_condition, wide_condition]).all()
     assert central_condition / wide_condition > 20.
+    assert central_condition / central_tension_condition > 10.
 
 
 if __name__ == "__main__":
