@@ -33,7 +33,7 @@ from scipy import signal
 from shapely.geometry import LineString, MultiLineString, MultiPoint
 from shapely.geometry import MultiPolygon, Point, Polygon
 
-from ._min_curvature_robust import _mc_robust_solver
+from ._min_curvature_core import _curvature_solver
 
 
 def _resolve_cmap(cmap_like):
@@ -6223,7 +6223,7 @@ def min_curvature(
     if max_iterations is None:
         max_iterations = 4000
 
-    grid_x, grid_y, grid, info = _mc_robust_solver(
+    grid_x, grid_y, grid, info = _curvature_solver(
         x_array, y_array, z_array,
         region=padded_region, spacing=(dx, dy),
         tension=tension, data_weight=data_weight, anchor=anchor,
