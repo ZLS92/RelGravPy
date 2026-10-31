@@ -81,7 +81,7 @@ def test_large_radius_polyhedron_agrees_with_nagy(observation):
     prism = np.array([[-100, 100, -100, 100, -100, 0]], dtype=float)
     density = 2670.0
     obs = np.array(observation, float)
-    rectangular = GM.nagy(obs, prism, density).gz()[0]
+    rectangular = GM.nagy([obs], prism, density).gz()[0]
     curved = BC._polyhedral_gz(prism, [density], obs, 1.0e10)
     np.testing.assert_allclose(curved, rectangular, rtol=2e-5, atol=2e-5)
     assert curved > 0  # Down-positive field for mass below the observation
