@@ -873,7 +873,10 @@ def pad_array( array, padw=25, mode='edge', alpha=None,
                constant_values=np.nan,
                plot=False, vmin=None, vmax=None, iter=1,
                ptype='percentage', sqr_area=False,
-               equal_shape=False, smooth=0 ):
+               equal_shape=False, smooth=0, xy=None,
+               tension=0.35, block=None, block_size=None,
+               anchor=0.01, data_weight=1e4,
+               linear_solver='auto', max_iterations=None ):
 
     ny, nx = array.shape
 
@@ -896,12 +899,45 @@ def pad_array( array, padw=25, mode='edge', alpha=None,
             padw[0] += diff // 2
             padw[1] += diff - diff // 2
 
-    if mode in ( 'surface', 'gdal', 'thin_plate' ):
+    # -------------------------------------------------------------------------
+    # Curvature padding solves the new cells on the EXTENDED grid.
+    # The existing edge/reflect/GDAL/GMT/thin-plate modes are unchanged.
+    # -------------------------------------------------------------------------
+    if mode in ( 'surface', 'gdal', 'thin_plate',
+                  'min_curvature', 'robust' ):
         pad_array = np.pad( array, pad_width=( ( padw[0], padw[0] ),
                             ( padw[1], padw[1] ) ),
                             mode='constant', constant_values=np.nan )
-        pad_array = fillnan( pad_array, method=mode,
-                             iter=iter, smooth=smooth )
+
+        if mode in ( 'min_curvature', 'robust' ):
+            # Pixel-space by default; optionally use real projected axes.
+            padded_xy = None
+            if xy is not None:
+                xv, yv = (np.asarray(axis, dtype=float)
+                          for axis in xy)
+                if xv.ndim == 2 and yv.ndim == 2:
+                    if xv.shape != array.shape or yv.shape != array.shape:
+                        raise ValueError("xy meshgrids must match array")
+                    xv, yv = xv[0, :], yv[:, 0]
+                if (xv.ndim != 1 or yv.ndim != 1 or
+                        len(xv) != nx or len(yv) != ny or
+                        min(len(xv), len(yv)) < 2):
+                    raise ValueError("xy must describe the original grid")
+                dx = xv[1] - xv[0]
+                dy = yv[1] - yv[0]
+                xpad = np.arange(-padw[1], nx + padw[1])
+                ypad = np.arange(-padw[0], ny + padw[0])
+                padded_xy = (xv[0] + xpad * dx, yv[0] + ypad * dy)
+
+            pad_array = fillnan(
+                pad_array, xy=padded_xy, method='min_curvature',
+                tension=tension, block=block, block_size=block_size,
+                anchor=anchor, data_weight=data_weight,
+                linear_solver=linear_solver,
+                max_iterations=max_iterations )
+        else:
+            pad_array = fillnan( pad_array, method=mode,
+                                 iter=iter, smooth=smooth )
 
     elif mode == 'constant' :
         pad_array = np.pad( array, pad_width=((padw[0], padw[0]),
@@ -1836,7 +1872,10 @@ def fillnan( array,
              vmin=None,
              vmax=None,
              edges=False,
-             tension=0.35 ) :
+             tension=0.35,
+             block=None, block_size=None,
+             anchor=0.01, data_weight=1e4,
+             linear_solver='auto', max_iterations=None ) :
 
     zz = np.copy( array )
 
@@ -1848,7 +1887,9 @@ def fillnan( array,
         xx, yy = np.meshgrid( xi, yi )
 
     if xy is not None:
-        xx, yy = xy[0], xy[1]
+        xx, yy = np.asarray(xy[0]), np.asarray(xy[1])
+        if xx.ndim == 1 and yy.ndim == 1:
+            xx, yy = np.meshgrid(xx, yy)
 
     zz_nan = np.isnan( zz )
 
@@ -1915,6 +1956,50 @@ def fillnan( array,
                          tension_factor=tension )
         zzfn = xyz2xy( ( xxs, yys, zzs ), (xx, yy), method='nearest' )
         print( zzfn.shape )
+
+    # -------------------------------------------------------------------------
+    # Regularized minimum curvature: solve missing cells, preserve the
+    # original finite observations and input coordinate orientation.
+    # -------------------------------------------------------------------------
+    if method in ( 'min_curvature', 'robust' ):
+        if xx.shape != zz.shape or yy.shape != zz.shape:
+            raise ValueError("xy and array must have the same shape")
+        if np.any( zz_nan ):
+            xv = np.asarray(xx[0, :], dtype=float)
+            yv = np.asarray(yy[:, 0], dtype=float)
+            dxx = np.diff(xv)
+            dyy = np.diff(yv)
+            if (len(dxx) < 1 or len(dyy) < 1 or
+                    not np.isfinite(xx).all() or
+                    not np.isfinite(yy).all() or
+                    np.any(dxx == 0) or np.any(dyy == 0) or
+                    np.any(np.sign(dxx) != np.sign(dxx[0])) or
+                    np.any(np.sign(dyy) != np.sign(dyy[0])) or
+                    not np.allclose(dxx, dxx[0], rtol=1e-6, atol=1e-8) or
+                    not np.allclose(dyy, dyy[0], rtol=1e-6, atol=1e-8) or
+                    not np.allclose(xx, xv[None, :],
+                                    rtol=0, atol=1e-6) or
+                    not np.allclose(yy, yv[:, None],
+                                    rtol=0, atol=1e-6)):
+                raise ValueError(
+                    "min_curvature requires a regular rectilinear grid; "
+                    "supply x/y vectors or 2-D meshgrids in xy"
+                )
+            dxdy = (abs(float(dxx[0])), abs(float(dyy[0])))
+            _gx, _gy, modeled = min_curvature(
+                xv, yv, zz, spacing=dxdy,
+                solver='robust', tension=tension,
+                block=block, block_size=block_size,
+                anchor=anchor, data_weight=data_weight,
+                linear_solver=linear_solver,
+                max_iterations=max_iterations )
+            if xv[0] > xv[-1]:
+                modeled = modeled[:, ::-1]
+            if yv[0] < yv[-1]:
+                modeled = modeled[::-1, :]
+            zzfn = np.where(zz_nan, modeled, zz)
+        else:
+            zzfn = zz
 
     if edges is True :
         zzfn = filt_edges( zzfn, mask=~zz_nan*1, iter=iter, size=size, smooth=smooth )
