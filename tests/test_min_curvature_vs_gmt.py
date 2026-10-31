@@ -87,5 +87,63 @@ def test_min_curvature_matches_gmt_surface(tension):
     # Preliminary acceptance limits, to be tightened after reference runs.
     # -------------------------------------------------------------------------
     assert spread > 0
-    assert rmse / spread < 0.01
-    assert max_error / spread < 0.05
+    assert rmse / spread < 0.001
+    assert max_error / spread < 0.002
+
+
+# -----------------------------------------------------------------------------
+# Severe extrapolation: all observations confined to a central area.
+# Compare every node, including the outer corners well beyond their convex hull.
+# -----------------------------------------------------------------------------
+@pytest.mark.skipif(shutil.which("gmt") is None,
+                    reason="GMT surface executable unavailable")
+@pytest.mark.parametrize("tension", (0.0, 0.25))
+def test_sparse_center_and_extrapolation_match_gmt(tension):
+    rng = np.random.default_rng(2031)
+    x = rng.uniform(30, 70, 85)
+    y = rng.uniform(27, 73, 85)
+    z = (
+        2.5 * np.exp(-((x - 45)**2 + (y - 62)**2) / 200)
+        - 1.0 * np.exp(-((x - 65)**2 + (y - 38)**2) / 180)
+        + 0.016*x - 0.011*y
+    )
+    region = (0, 100, 0, 100)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        _, _, calculated, info = min_curvature(
+            x, y, z, region, 2, tension=tension,
+            max_iterations=1000, return_info=True
+        )
+
+    with tempfile.TemporaryDirectory(prefix="min_curvature_sparse_") as tmpdir:
+        folder = Path(tmpdir)
+        samples = folder / "sparse.xyz"
+        output = folder / "reference.nc"
+        np.savetxt(samples, np.column_stack((x, y, z)), fmt="%.16g")
+        subprocess.run([
+            "gmt", "surface", str(samples), "-R0/100/0/100",
+            "-I2", f"-G{output}", f"-T{tension}",
+            "-N1000", "-Z1.4", "-Qr",
+        ], cwd=folder, capture_output=True, text=True, check=True)
+        raw = subprocess.run(
+            ["gmt", "grd2xyz", str(output)], cwd=folder,
+            capture_output=True, text=True, check=True
+        ).stdout
+        points = np.loadtxt(io.StringIO(raw))
+    reference = np.full((51, 51), np.nan)
+    col = np.rint(points[:, 0] / 2).astype(int)
+    row = np.rint((100 - points[:, 1]) / 2).astype(int)
+    reference[row, col] = points[:, 2]
+
+    assert reference.shape == calculated.shape == (51, 51)
+    assert np.isfinite(calculated).all() and np.isfinite(reference).all()
+    error = calculated - reference
+    rmse = np.sqrt(np.mean(error**2))
+    peak_error = np.max(np.abs(error))
+    scale = np.ptp(reference)
+    assert scale > 0
+    print(f"central-only tension={tension}: rmse={rmse:.9g}, "
+          f"max_abs={peak_error:.9g}, span={scale:.9g}, "
+          f"converged={info['converged']}")
+    assert rmse / scale < 0.01
+    assert peak_error / scale < 0.05
