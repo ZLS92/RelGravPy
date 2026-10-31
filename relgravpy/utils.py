@@ -6382,7 +6382,7 @@ def min_curvature(x, y, z, region=None, spacing=1.0, *,
                   data_weight=1e4, anchor=1e-2,
                   linear_solver="auto", tolerance=1e-9,
                   boundary_tension=None, convergence=None,
-                  max_iterations=500, relaxation=1.4, aspect_ratio=1.0,
+                  max_iterations=None, relaxation=1.4, aspect_ratio=1.0,
                   return_info=False):
     """
     Interpolate scattered gravity data or fill/pad an incomplete regular grid.
@@ -6438,8 +6438,9 @@ def min_curvature(x, y, z, region=None, spacing=1.0, *,
         Relative linear system tolerance used for CG in the robust method.
     boundary_tension, convergence, relaxation, aspect_ratio
         Parameters of the GMT-style SOR implementation only.
-    max_iterations : int
-        Iteration budget. In the GMT solver this is scaled by grid stride.
+    max_iterations : int or None
+        Iteration budget. With None, use GMT's original 500 per final
+        pass (scaled by stride) or 4000 for robust sparse CG.
     return_info : bool
         Return diagnostics, including method, observation RMSE and solver
         convergence. Neither convergence nor output completeness establishes
@@ -6553,18 +6554,24 @@ def min_curvature(x, y, z, region=None, spacing=1.0, *,
     # Select independent numerical backend.
     # -------------------------------------------------------------------------
     solver = str(solver).lower()
+    if max_iterations is not None and (
+            not isinstance(max_iterations, (int, np.integer)) or
+            max_iterations < 1):
+        raise ValueError("max_iterations must be a positive integer or None")
+    iteration_budget = (4000 if solver == "robust" else 500) if (
+        max_iterations is None) else int(max_iterations)
     if solver == "robust":
         from ._min_curvature_robust import _mc_robust_solver
         result = _mc_robust_solver(
             xa, ya, za, region, (dx, dy), tension=tension,
             data_weight=data_weight, anchor=anchor,
             solver=linear_solver, tolerance=tolerance,
-            max_iterations=max_iterations, return_info=True)
+            max_iterations=iteration_budget, return_info=True)
     elif solver == "gmt":
         result = _min_curvature_gmt(
             xa, ya, za, region, (dx, dy), tension=tension,
             boundary_tension=boundary_tension, convergence=convergence,
-            max_iterations=max_iterations, relaxation=relaxation,
+            max_iterations=iteration_budget, relaxation=relaxation,
             aspect_ratio=aspect_ratio, return_info=True)
     else:
         raise ValueError("solver must be 'gmt' or 'robust'")
