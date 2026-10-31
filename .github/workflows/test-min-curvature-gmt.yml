@@ -9,6 +9,7 @@ on:
       - 'tests/test_min_curvature.py'
       - 'tests/test_min_curvature_vs_gmt.py'
       - 'tests/test_min_curvature_robust.py'
+      - 'tests/test_min_curvature_integration.py'
       - 'relgravpy/_min_curvature_robust.py'
       - 'tests/diagnose_min_curvature_condition.py'
       - '.github/workflows/test-min-curvature-gmt.yml'
@@ -18,6 +19,7 @@ on:
       - 'tests/test_min_curvature.py'
       - 'tests/test_min_curvature_vs_gmt.py'
       - 'tests/test_min_curvature_robust.py'
+      - 'tests/test_min_curvature_integration.py'
       - 'relgravpy/_min_curvature_robust.py'
       - '.github/workflows/test-min-curvature-gmt.yml'
   workflow_dispatch:
@@ -42,4 +44,4 @@ jobs:
         run: PYTHONPATH=tests:. python tests/diagnose_min_curvature_condition.py
       - name: Run analytical and GMT cross-validation tests
         run: |
-          PYTHONPATH=. python -m pytest -v -s tests/test_min_curvature.py tests/test_min_curvature_robust.py tests/test_min_curvature_vs_gmt.py
+          PYTHONPATH=. python -m pytest -v -s tests/test_min_curvature.py tests/test_min_curvature_robust.py tests/test_min_curvature_integration.py tests/test_min_curvature_vs_gmt.py
