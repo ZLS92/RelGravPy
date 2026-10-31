@@ -1,0 +1,35 @@
+name: Bouguer spherical-polyhedron validation
+
+on:
+  push:
+    branches:
+      - feat/bouguer-polyhedral-curvature
+    paths:
+      - 'relgravpy/_bouguer_correction.py'
+      - 'relgravpy/grav_modelling.py'
+      - 'tests/test_bouguer_polyhedra.py'
+      - '.github/workflows/bouguer-polyhedra.yml'
+  pull_request:
+    paths:
+      - 'relgravpy/_bouguer_correction.py'
+      - 'relgravpy/grav_modelling.py'
+      - 'tests/test_bouguer_polyhedra.py'
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install numerical test dependencies
+        run: python -m pip install numpy pytest
+      - name: Compile numerical and Bouguer modules
+        run: |
+          python -m py_compile relgravpy/grav_modelling.py
+          python -m py_compile relgravpy/_bouguer_correction.py
+      - name: Compare curved polyhedra against Nagy and check geometry
+        run: PYTHONPATH=tests:. python -m pytest -v tests/test_bouguer_polyhedra.py
