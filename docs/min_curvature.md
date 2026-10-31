@@ -128,9 +128,16 @@ final-grid discretization gives:
   estimated condition number ~ **5.6e6**.
 - 180 widely spread observations on the same grid:
   estimated condition number ~ **4.47e4**.
+- 85 central observations with moderate interior tension, `T=0.25`:
+  estimated condition number ~ **1.62e5** (about 34 times better
+  conditioned than the same geometry at T=0).
 
 These are numerical estimates for the stated synthetic datasets; they are
-not universal bounds. The ~125-fold condition-number increase explains why
+not universal bounds. Reproduce them with:
+
+```bash
+PYTHONPATH=tests:. python tests/diagnose_min_curvature_condition.py
+``` The ~125-fold condition-number increase explains why
 minor numerical and termination differences are dramatically amplified in
 the extrapolated field. The original Python implementation also had a
 north/south interpolation-fraction mismatch during multigrid refinement;
