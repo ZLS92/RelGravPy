@@ -6,6 +6,8 @@ on:
       - feat/bouguer-polyhedral-curvature
     paths:
       - 'tests/benchmark_bouguer_polyhedra.py'
+      - 'relgravpy/_bouguer_correction.py'
+      - 'tests/test_bouguer_polyhedra.py'
       - '.github/workflows/bouguer-benchmark.yml'
   workflow_dispatch:
 
