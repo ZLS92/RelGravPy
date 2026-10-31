@@ -146,6 +146,10 @@ def test_sparse_center_and_extrapolation_match_gmt(tension):
 
     assert reference.shape == calculated.shape == (51, 51)
     assert np.isfinite(calculated).all() and np.isfinite(reference).all()
+    print("GMT reference corners:", reference[0, 0], reference[0, -1],
+          reference[-1, 0], reference[-1, -1])
+    print("Python corners:", calculated[0, 0], calculated[0, -1],
+          calculated[-1, 0], calculated[-1, -1])
     error = calculated - reference
     rmse = np.sqrt(np.mean(error**2))
     peak_error = np.max(np.abs(error))
