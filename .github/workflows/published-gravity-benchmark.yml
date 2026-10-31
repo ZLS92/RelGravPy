@@ -7,7 +7,7 @@ on:
     paths:
       - 'examples/benchmark_published_gravity.py'
       - 'relgravpy/utils.py'
-      - 'relgravpy/_min_curvature_robust.py'
+      - 'relgravpy/_min_curvature_core.py'
       - '.github/workflows/published-gravity-benchmark.yml'
 jobs:
   benchmark:
