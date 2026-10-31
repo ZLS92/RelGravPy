@@ -52,7 +52,7 @@ def plot_scenarios(output_folder):
         z=synthetic_field(x,y)
         gx,gy,grid,info=utl.min_curvature(
             x,y,z,region=(0,100,0,100),spacing=2,
-            solver="robust",tension=0,anchor=0.01,return_info=True)
+            tension=0,anchor=0.01,return_info=True)
         X,Y=np.meshgrid(gx,gy)
         exact=synthetic_field(X,Y)
         difference=grid-exact
@@ -96,9 +96,9 @@ def plot_padding(output_folder):
     missing=((X-45)**2+(Y-55)**2<21**2)
     observed[missing]=np.nan
     _,_,filled=utl.min_curvature(
-        x,y,observed,spacing=2,solver="robust",anchor=0.01)
+        x,y,observed,spacing=2,anchor=0.01)
     xx,yy,padded=utl.min_curvature(
-        x,y,observed,spacing=2,solver="robust",padding=20,anchor=0.01)
+        x,y,observed,spacing=2,padding=20,anchor=0.01)
     fig,axes=plt.subplots(1,3,figsize=(14,4.5),layout="constrained")
     for ax,field,bounds,title in (
         (axes[0],observed,(0,100,0,100),"Original grid with NaNs"),
