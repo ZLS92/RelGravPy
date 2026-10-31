@@ -84,11 +84,37 @@ reporting RMSE, max error and convergence. These are **provisional acceptance
 criteria**: execution against a real GMT installation and refinement of
 tolerances are required before asserting numeric equivalence.
 
+## Reference test results (2026-10-31)
+
+Reference executable: **GMT 6.5.0** on Ubuntu 24.04, run via GitHub
+Actions with `-Qr` and identical `-R`, `-I`, `-T`, `-Z`, `-N`
+settings. Values below are in the same units as the synthetic `z` data.
+
+| Scenario | Tension | RMSE vs GMT | Max absolute error | Status |
+| --- | ---: | ---: | ---: | --- |
+| Irregular observations spanning region | 0 | 0.00025115 | 0.00271219 | PASS |
+| Irregular observations spanning region | 0.25 | 0.00002229 | 0.00029438 | PASS |
+| Irregular observations spanning region | 1 | 0.00000620 | 0.00003921 | PASS |
+| Central observations, extensive extrapolation, `-N15000` | 0 | 0.475199 | 2.333301 | **FAIL** |
+| Central observations, extensive extrapolation, `-N15000` | 0.25 | 0.013932 | 0.034807 | PASS (provisional tolerance) |
+
+For the difficult `T=0` test, **both the GMT and Python solvers report
+convergence but disagree significantly in outer unsampled regions**.
+The Python and GMT iteration counts in the final data-constrained pass
+are 762 and 7981, respectively. This has not yet been explained;
+it may involve sensitivity to termination/precision or a remaining
+implementation discrepancy. The algorithm must not be treated as
+numerically interchangeable with GMT for large unconstrained regions.
+
+- Original successful CI run:
+  https://github.com/ZLS92/RelGravPy/actions/runs/41196392608
+- Extended extrapolation diagnostics:
+  https://github.com/ZLS92/RelGravPy/actions/runs/41196745406
+
 ## Development status
 
-**Experimental / review required.** Analytic Python tests have been run against
-the pre-integration implementation (8 passed); independent GMT reference
-tests have not been executed in this environment because GMT is absent.
-The branch should only be merged into `main` after reference comparison,
-potential discrepancy correction and performance profiling on typical
-RelGravPy gravimetric surveys.
+**Experimental: DO NOT MERGE YET.** The analytical tests and the three
+standard GMT references pass. The severe extrapolation test with zero
+tension fails, even with a much higher iteration limit. Next work:
+investigate the source of the divergence in the extended extrapolation
+case, correct the implementation, and repeat all GMT cross-validations.
