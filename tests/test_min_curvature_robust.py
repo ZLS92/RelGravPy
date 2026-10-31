@@ -185,7 +185,7 @@ def test_block_condition_number_can_improve_or_worsen():
     rng=np.random.default_rng(123)
 
     ratios=[]
-    for jitter in (0.,2.):
+    for jitter in (0.,0.5,2.):
         x=np.repeat(xc.ravel(),6)+rng.normal(0,jitter,xc.size*6)
         y=np.repeat(yc.ravel(),6)+rng.normal(0,jitter,yc.size*6)
         xb,yb,zb=mc.block_m(
@@ -198,4 +198,4 @@ def test_block_condition_number_can_improve_or_worsen():
               f"block cond={block_condition:.6g}, "
               f"raw/block={ratios[-1]:.3f}")
     assert ratios[0]>3.0       # Repeated stations: averaging helps.
-    assert ratios[1]<0.75      # Spatially spread: averaging can hurt.
+    assert ratios[2]<0.75      # Spatially spread: averaging can hurt.
