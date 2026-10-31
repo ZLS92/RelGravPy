@@ -5,34 +5,34 @@ Created on Wed Oct 14 18:58:52 2020
 @author: lzampa
 """
 
-import os
-import pyproj as prj
-import numpy as np
-import scipy as sp
-import itertools
-import random
-import matplotlib.pyplot as plt
-import time
 import copy
 import datetime
-from osgeo import gdal, osr, ogr
-import shutil
-import tempfile
-import platform
-import sys
-from matplotlib import cm
-from matplotlib import dates as mdates
-from matplotlib.widgets import LassoSelector
-from matplotlib.colors import LightSource
-from mpl_toolkits.axes_grid1 import make_axes_locatable
-from matplotlib.path import Path
-from matplotlib.colors import LinearSegmentedColormap
-import shapely
-from shapely.geometry import Polygon, LineString, Point
-from shapely.geometry import MultiPolygon, MultiPoint, MultiLineString
-from scipy import signal
 import io
-from matplotlib import rcParams
+import itertools
+import os
+import platform
+import random
+import shutil
+import sys
+import tempfile
+import time
+
+import matplotlib.pyplot as plt
+import numpy as np
+import pyproj as prj
+import scipy as sp
+import shapely
+from matplotlib import cm, rcParams
+from matplotlib import dates as mdates
+from matplotlib.colors import LightSource, LinearSegmentedColormap
+from matplotlib.path import Path
+from matplotlib.widgets import LassoSelector
+from mpl_toolkits.axes_grid1 import make_axes_locatable
+from osgeo import gdal, ogr, osr
+from scipy import signal
+from shapely.geometry import LineString, MultiLineString, MultiPoint
+from shapely.geometry import MultiPolygon, Point, Polygon
+
 from ._min_curvature_robust import _mc_robust_solver
 
 
