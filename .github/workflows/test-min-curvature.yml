@@ -8,7 +8,7 @@ on:
       - 'relgravpy/utils.py'
       - 'relgravpy/_min_curvature_core.py'
       - 'tests/test_min_curvature.py'
-      - 'tests/test_min_curvature_core.py'
+      - 'tests/test_min_curvature_robust.py'
       - 'tests/test_min_curvature_integration.py'
       - '.github/workflows/test-min-curvature.yml'
   pull_request:
@@ -16,7 +16,7 @@ on:
       - 'relgravpy/utils.py'
       - 'relgravpy/_min_curvature_core.py'
       - 'tests/test_min_curvature.py'
-      - 'tests/test_min_curvature_core.py'
+      - 'tests/test_min_curvature_robust.py'
       - 'tests/test_min_curvature_integration.py'
   workflow_dispatch:
 
@@ -37,4 +37,4 @@ jobs:
           python -m py_compile relgravpy/_min_curvature_core.py
       - name: Test interpolation, gridded gaps, padding and block preprocessing
         run: |
-          PYTHONPATH=tests:. python -m pytest -v -s tests/test_min_curvature.py tests/test_min_curvature_core.py tests/test_min_curvature_integration.py
+          PYTHONPATH=tests:. python -m pytest -v -s tests/test_min_curvature.py tests/test_min_curvature_robust.py tests/test_min_curvature_integration.py
