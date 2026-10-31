@@ -112,7 +112,7 @@ def test_sparse_center_and_extrapolation_match_gmt(tension):
         warnings.simplefilter("ignore", RuntimeWarning)
         _, _, calculated, info = min_curvature(
             x, y, z, region, 2, tension=tension,
-            max_iterations=1000, return_info=True
+            max_iterations=15000, return_info=True
         )
 
     with tempfile.TemporaryDirectory(prefix="min_curvature_sparse_") as tmpdir:
@@ -123,7 +123,7 @@ def test_sparse_center_and_extrapolation_match_gmt(tension):
         subprocess.run([
             "gmt", "surface", str(samples), "-R0/100/0/100",
             "-I2", f"-G{output}", f"-T{tension}",
-            "-N1000", "-Z1.4", "-Qr",
+            "-N15000", "-Z1.4", "-Qr",
         ], cwd=folder, capture_output=True, text=True, check=True)
         raw = subprocess.run(
             ["gmt", "grd2xyz", str(output)], cwd=folder,
