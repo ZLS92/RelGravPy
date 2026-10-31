@@ -151,3 +151,28 @@ def test_pure_python_and_numba_sor_consistent():
     step2 = slow(u2, *args)
     np.testing.assert_allclose(u1, u2, rtol=0, atol=1e-6)
     assert step1 == pytest.approx(step2, abs=1e-7)
+
+
+
+# -----------------------------------------------------------------------------
+# GMT multigrid forecast regression (south-to-north interpolation)
+# -----------------------------------------------------------------------------
+def test_multigrid_forecast_uses_gmt_south_to_north_fraction():
+    """Regress GMT C's unusual i/previous_stride interpolation weights."""
+    previous = np.zeros((10, 10), dtype=np.float32)
+    previous[2:-2, 2:-2] = (
+        10.0 * np.arange(6, dtype=np.float32)[:, None] +
+        np.arange(6, dtype=np.float32)[None, :]
+    )
+    refined, frozen = mc._gmt_surface_bilinear(
+        previous, nx=26, ny=26, factor=5, previous_stride=10
+    )
+    # GMT starts at the SOUTH edge of each coarse-grid cell. Since the
+    # original rows are north-to-south, row +1 is weighted 0.4 top + 0.6
+    # bottom for the first 10->2 refinement; naive np.interp gives 1.0.
+    assert refined[3, 2] == pytest.approx(6.0, abs=1e-6)
+    assert refined[6, 2] == pytest.approx(9.0, abs=1e-6)
+    assert refined[2, 3] == pytest.approx(0.1, abs=1e-6)
+    assert refined[3, 3] == pytest.approx(6.1, abs=1e-6)
+    assert frozen[0, 0] == 5
+    assert frozen[1, 1] == 0
