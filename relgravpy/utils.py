@@ -281,7 +281,8 @@ def dd2dms( decimal_degrees ):
     minutes = np.floor((decimal_degrees - degrees) * 60)
     seconds = (decimal_degrees - degrees - minutes / 60) * 3600
 
-    return degrees, minutes, seconds
+    result = (degrees, minutes, seconds)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -330,7 +331,8 @@ def stat( array, decimals=None, show=True, out=None, multilines=False, sep='' ):
         return string
 
     else :
-        return Min, Max, Mean, Std
+        result = (Min, Max, Mean, Std)
+        return result
 
 # -----------------------------------------------------------------------------
 
@@ -459,7 +461,8 @@ def lim2points( lim ) :
     x = np.array( ( lim[0], lim[1], lim[1], lim[0] ) )
     y = np.array( ( lim[3], lim[3], lim[2], lim[2] ) )
 
-    return x, y
+    result = (x, y)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -518,7 +521,8 @@ def xy_in_lim( x, y, lim, extend=0, method='percentage', plot=False, s=1, plot_l
             plt.xlim( lim_ext[0], lim_ext[1] )
             plt.ylim( lim_ext[2], lim_ext[3] )
 
-    return xl, yl, idx
+    result = (xl, yl, idx)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -551,7 +555,8 @@ def find_by_dist( xy1, xy2, dist, prj_dist=None, prj_in=4326, plot=False ):
     if prj_dist is not None:
         set1_new[:,0], set1_new[:,1] = prjxy(prj_dist, prj_in, set1_new[:,0], set1_new[:,1])
 
-    return set1_idx, set1_new
+    result = (set1_idx, set1_new)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -635,11 +640,13 @@ def xy2XY( x, y, step=None, lim=None, dist='mean', method='distance', extend=Fal
 
     if return_step == True :
 
-        return X, Y, step
+        result = (X, Y, step)
+        return result
 
     else :
 
-        return X, Y
+        result = (X, Y)
+        return result
 
 # -----------------------------------------------------------------------------
 
@@ -818,7 +825,8 @@ def find_by_att( dat1, dat2, col_xy, delta_xy, col_att, delta_att, condition=Tru
                     label='set1 points, defined by condition')
         plt.legend()
 
-    return mask1, dat1_msk, idx21
+    result = (mask1, dat1_msk, idx21)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -1016,7 +1024,8 @@ def pad_array( array, padw=25, mode='edge', alpha=None,
         plta( array, sbplt=[1,2,1], vmin=vmin, vmax=vmax )
         plta( pad_array, sbplt=[1,2,2], vmin=vmin, vmax=vmax )
 
-    return pad_array, original_shape_indx
+    result = (pad_array, original_shape_indx)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -1042,7 +1051,8 @@ def pad_xx_yy( pad_arr, xx, yy, plot=False ):
         plt.scatter((xxn.flatten()), (yyn.flatten()), c='b')
         plt.scatter((xx.flatten()), (yy.flatten()), c='r')
 
-    return xxn, yyn
+    result = (xxn, yyn)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -1076,7 +1086,8 @@ def taper( array, plot=False, vmin=None, vmax=None ):
 
         plt.show()
 
-    return tarray, taper_filt
+    result = (tarray, taper_filt)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -1642,7 +1653,8 @@ def XYZ_crop2lim( X, Y, Z, lim ) :
         Zc = Z[ np.min(yi):np.max(yi), np.min(xi):np.max(xi) ]
 
 
-        return [ Xc, Yc, Zc ]
+        result = [ Xc, Yc, Zc ]
+        return result
 
     if len( Z.shape ) == 1:
 
@@ -1656,7 +1668,8 @@ def XYZ_crop2lim( X, Y, Z, lim ) :
     original_shape_idx = ( np.min(yi), np.max(yi),
         np.min(xi), np.max(xi) )
 
-    return xc, yc, zc, original_shape_idx
+    result = (xc, yc, zc, original_shape_idx)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -1691,7 +1704,8 @@ def stepxy( xarray, yarray ) :
 
     dmxy = np.mean( ( dx, dy ) )
 
-    return dx, dy, dmxy
+    result = (dx, dy, dmxy)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -1752,7 +1766,8 @@ def mask_edges( mask, plot=False, c='k', s=None, plt_array=None, vmin=None, vmax
             plt.colorbar()
         plt.scatter( x_ind, y_ind, c=c, s=s )
 
-    return x_ind, y_ind
+    result = (x_ind, y_ind)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -2615,7 +2630,8 @@ def pad_lines(
 
         plt.show()
 
-    return pad_xyzl, idx_original
+    result = (pad_xyzl, idx_original)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -2798,10 +2814,12 @@ def block_m( x, y, z=None, wind_size=None, method='mean', data_type='vector', li
         plt.scatter(xb, yb, c='r', s=s2)
 
     if data_type == 'vector':
-        return xb, yb, zb
+        result = (xb, yb, zb)
+        return result
 
     if data_type == 'grid':
-        return Xb, Yb, Zb
+        result = (Xb, Yb, Zb)
+        return result
 
 # -----------------------------------------------------------------------------
 
@@ -3208,7 +3226,8 @@ def read_csv( file, sep=' ',
     array = np.array(list(dictionary.values())).T
 
     # Return the dictionary, array, header, and raw data
-    return dictionary, array, hd, data
+    result = (dictionary, array, hd, data)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -3275,7 +3294,8 @@ def dict2array( dictionary, exclude=[], flen=None ) :
 
     array = array[:, 1:]
 
-    return array, headers
+    result = (array, headers)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -3889,7 +3909,8 @@ def lim2grid( lim, step=None, xyz=None, plot=False, vmin=None, vmax=None, prjcod
         yg = np.linspace( lim[3], lim[2], int( (lim[3]-lim[2])/step ) )
         X, Y = np.meshgrid( xg, yg )
 
-        return X, Y
+        result = (X, Y)
+        return result
 
     if len( xyz ) <= 2 :
         x, y = xyz
@@ -3926,7 +3947,8 @@ def lim2grid( lim, step=None, xyz=None, plot=False, vmin=None, vmax=None, prjcod
 
     if len( xyz ) <= 2 :
 
-        return X, Y
+        result = (X, Y)
+        return result
 
     if len( xyz ) > 2 :
 
@@ -3935,7 +3957,8 @@ def lim2grid( lim, step=None, xyz=None, plot=False, vmin=None, vmax=None, prjcod
             Y = Y[ ~np.isnan( Z ) ]
             Z = Z[ ~np.isnan( Z ) ]
 
-        return X, Y, Z
+        result = (X, Y, Z)
+        return result
 
 # -----------------------------------------------------------------------------
 
@@ -3992,7 +4015,8 @@ def mask2D( xyr=None, xyzgrid=None, array=None, array_and_lim=None, mask=None,
         plta(zz, vmin, vmax, tit='original', sbplt=[1, 2, 1])
         plta(ZM, vmin, vmax, tit='mask', sbplt=[1, 2, 2])
 
-    return ZM, isfinit
+    result = (ZM, isfinit)
+    return result
 
 #------------------------------------------------------------------------------
 def resampling( array,
@@ -4059,7 +4083,8 @@ def resampling( array,
             ayr = axr[ ~inanr ]
             azr = axr[ ~inanr ]
 
-        return [ axr, ayr, azr ]
+        result = [ axr, ayr, azr ]
+        return result
 
     else :
 
@@ -4149,7 +4174,8 @@ def neighboring_points( points1,
         plt.title('Selected Points')
         plt.show()
 
-    return tuple(selected_points), idx
+    result = (tuple(selected_points), idx)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -4186,7 +4212,8 @@ def alpha_shape(points, alpha):
     m = MultiLineString(edge_points)
     triangles = list( shapely.ops.polygonize(m) )
 
-    return shapely.ops.cascaded_union(triangles), edge_points
+    result = (shapely.ops.cascaded_union(triangles), edge_points)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -4207,7 +4234,8 @@ def xy2convexhull( x, y, plot=False, close=True, size=0.5, color='b' ) :
         plt.scatter( x, y, s=size, c=color  )
         plt.plot(xh, yh, 'r--', lw=2)
 
-    return [ hull, xh, yh ]
+    result = [ hull, xh, yh ]
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -4237,7 +4265,8 @@ def xy_in_hull( x, y, hull, buffer=0, plot=False ) :
         plt.plot( xh, yh, 'r--', lw=2 )
         plt.scatter( x[in_hull], y[in_hull] )
 
-    return in_hull, x[in_hull], y[in_hull]
+    result = (in_hull, x[in_hull], y[in_hull])
+    return result
 
 
 # -----------------------------------------------------------------------------
@@ -4340,7 +4369,8 @@ def mosaic_array( array_list, plot=False, vmin=None, vmax=None, ref_shape=0,
     if plot == True :
         plta( array_mos, vmin=vmin, vmax=vmax)
 
-    return array_mos, new_list
+    result = (array_mos, new_list)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -4360,7 +4390,8 @@ def del_in_lim( x, y, array, lim, remove='in' ) :
         x = x[ idx ]
         y = y[ idx ]
 
-    return [x,y,ar]
+    result = [x,y,ar]
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -4920,7 +4951,8 @@ def xyz2grid( x, y, z, lim=None, extend=None, extend_method='percentage',
         if pltxy == True:
             plta( zz, vmin=vmin, vmax=vmax, cmap='rainbow', lim=(xx,yy), points=[ xl, yl ] )
 
-    return [ xx, yy, zz ], [ x, y, z ]
+    result = ([ xx, yy, zz ], [ x, y, z ])
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -5022,7 +5054,8 @@ def rotate_xy( x, y, radians, shift=True, fix_point='first', plot=False ) :
         plt.scatter( x, y, c='b' )
         plt.scatter( xr, yr, c='b' )
 
-    return xr, yr, fix_point
+    result = (xr, yr, fix_point)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -5086,7 +5119,8 @@ def grid_rot_angle( x, y, plot=False, treshold=1e-5,
         plt.legend()
         plt.show()
 
-    return angle, xr, yr, fix_point, shape
+    result = (angle, xr, yr, fix_point, shape)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -5155,11 +5189,14 @@ def mesh3Dmodel( x=None, y=None, z=None, lim=None, step=None, plot=False,
                     Z[int(shape[0]/2),:,:].ravel(), s=size, c='b' )
 
     if out_type == '3darray' :
-        return X, Y, Z
+        result = (X, Y, Z)
+        return result
     if out_type == '1darray' :
-        return X.ravel(), Y.ravel(), Z.ravel(), shape
+        result = (X.ravel(), Y.ravel(), Z.ravel(), shape)
+        return result
     if out_type == 'dictionary' :
-        return { 'x':X.ravel(), 'y':Y.ravel(), 'z':Z.ravel() }, shape
+        result = ({ 'x':X.ravel(), 'y':Y.ravel(), 'z':Z.ravel() }, shape)
+        return result
 
 # -----------------------------------------------------------------------------
 
@@ -5264,7 +5301,8 @@ def xyzp2array3d( x, y, z, p, xi=None, yi=None, zi=None, lim=None, step=None, pl
     if len( P ) == 1 :
         P = P[ 0 ]
 
-    return X, Y, Z, P
+    result = (X, Y, Z, P)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -5352,7 +5390,8 @@ def dayyear2daymonth(day_numbers, years):
     # Get the day of the month
     days = np.vectorize(lambda date: date.day)(dates)
 
-    return days, months
+    result = (days, months)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -5496,7 +5535,8 @@ def reshapexyz_1D_2D( x, y, z=None, flipud=False, fliplr=False,
         plt.scatter(X.ravel(), Y.ravel(), c=Z.ravel(), vmin=vmin, vmax=vmax)
         plt.show()
 
-    return X, Y, Z
+    result = (X, Y, Z)
+    return result
 
 # -----------------------------------------------------------------------------
 
@@ -5957,7 +5997,8 @@ def calculate_julian_century(timestamp):
         + timestamp.second / 3600.0
     )
 
-    return decimal_julian_century, julian_hour
+    result = (decimal_julian_century, julian_hour)
+    return result
 
 
 # -----------------------------------------------------------------------------
