@@ -2,7 +2,7 @@
 
 RelGravPy provides one Python implementation of minimum-curvature gridding:
 `min_curvature()` in `relgravpy/utils.py`. Its sparse numerical engine is
-maintained separately in `relgravpy/_min_curvature_robust.py` for readability.
+maintained separately in `relgravpy/_min_curvature_core.py` for readability.
 No external gridding executable or Numba installation is required.
 
 ## Numerical formulation
@@ -122,7 +122,7 @@ Run the interpolation, padding and preprocessing regression tests:
 ```bash
 PYTHONPATH=tests:. python -m pytest \
     tests/test_min_curvature.py \
-    tests/test_min_curvature_robust.py \
+    tests/test_min_curvature_core.py \
     tests/test_min_curvature_integration.py
 ```
 
