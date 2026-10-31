@@ -156,8 +156,7 @@ def benchmark(reference, source_row, source_col, folder, sha256):
         incomplete = core.copy()
         incomplete[~keep] = np.nan
         gx, gy, calculated, info = min_curvature(
-            xc, yc, incomplete, spacing=_STEP, solver="robust",
-            tension=0.15, anchor=0.01, data_weight=1e4,
+            xc, yc, incomplete, spacing=_STEP, tension=0.15, anchor=0.01, data_weight=1e4,
             return_info=True,
         )
         assert calculated.shape == core.shape
@@ -173,7 +172,7 @@ def benchmark(reference, source_row, source_col, folder, sha256):
     # Padding: train on the 51x51 central subwindow, recover a 67x67 field.
     xpad, ypad, padded, diag = min_curvature(
         xc, yc, core, spacing=_STEP,
-        solver="robust", padding=_BORDER,
+        padding=_BORDER,
         tension=0.15, anchor=0.01,
         data_weight=1e4, return_info=True,
     )
