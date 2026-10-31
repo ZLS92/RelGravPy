@@ -46,8 +46,7 @@ def test_scattered_robust_full_grid_and_observation_mismatch():
     y=rng.uniform(2,98,170)
     z=_truth(x,y)
     gx,gy,grid,info=min_curvature(
-        x,y,z,(0,100,0,100),2,solver="robust",
-        tension=0,return_info=True)
+        x,y,z,(0,100,0,100),2,tension=0,return_info=True)
     assert grid.shape==(51,51)
     assert np.isfinite(grid).all()
     assert info["converged"] and info["linear_solver"]=="direct"
@@ -64,8 +63,7 @@ def test_grid_nan_holes_and_padding_are_completely_filled():
     data[7:15,7:15]=np.nan
     data[3:7,12:17]=np.nan
     gx,gy,grid,info=min_curvature(
-        x,y,data,spacing=5,solver="robust",
-        padding=(4,6),anchor=0.02,return_info=True)
+        x,y,data,spacing=5,padding=(4,6),anchor=0.02,return_info=True)
     assert grid.shape==(33,29)
     assert gx[0]==-20 and gx[-1]==120
     assert gy[0]==130 and gy[-1]==-30
@@ -84,8 +82,7 @@ def test_robust_sparse_center_with_large_padding_is_stable():
     y=rng.uniform(27,73,85)
     z=_truth(x,y)
     gx,gy,grid,info=min_curvature(
-        x,y,z,(20,80,20,80),2,solver="robust",
-        padding=10,anchor=0.01,tension=0,return_info=True)
+        x,y,z,(20,80,20,80),2,padding=10,anchor=0.01,tension=0,return_info=True)
     assert grid.shape==(51,51)
     assert np.isfinite(grid).all()
     assert info["converged"]
@@ -101,8 +98,7 @@ def test_block_mean_median_call_existing_block_m():
     z=_truth(x,y)+rng.normal(0,0.04,n)
     # Positive outliers in dense clusters should be limited by medians.
     z[rng.choice(n,35,replace=False)]+=10.
-    kw=dict(region=(0,100,0,100),spacing=2,solver="robust",
-            tension=0.15,anchor=0.02,block_size=8,return_info=True)
+    kw=dict(region=(0,100,0,100),spacing=2,tension=0.15,anchor=0.02,block_size=8,return_info=True)
     gx,gy,mean,mi=min_curvature(x,y,z,block="mean",**kw)
     _,_,median,mdi=min_curvature(x,y,z,block="median",**kw)
     xx,yy=np.meshgrid(gx,gy)
@@ -122,8 +118,7 @@ def test_cg_and_direct_agree_for_medium_grid():
     x=rng.uniform(0,100,85)
     y=rng.uniform(0,100,85)
     z=_truth(x,y)
-    kw=dict(region=(0,100,0,100),spacing=2,solver="robust",
-            tension=0.25,anchor=0.1,data_weight=500,return_info=True)
+    kw=dict(region=(0,100,0,100),spacing=2,tension=0.25,anchor=0.1,data_weight=500,return_info=True)
     _,_,direct,di=min_curvature(x,y,z,linear_solver="direct",**kw)
     _,_,cg,ci=min_curvature(x,y,z,linear_solver="cg",
                             max_iterations=4000,tolerance=1e-9,**kw)
@@ -141,7 +136,7 @@ def test_block_and_solver_validation():
     with pytest.raises(ValueError):
         min_curvature(x,y,z,(0,20,0,20),2,padding=1.5)
     with pytest.raises(ValueError):
-        min_curvature(x,y,z,(0,20,0,20),2,solver="none")
+        min_curvature(x,y,z,(0,20,0,20),2,linear_solver="none")
 
 
 
@@ -213,8 +208,7 @@ def test_all_nan_outer_border_does_not_shrink_region():
     z[0,:]=np.nan
     z[:,0]=np.nan
     gx,gy,grid,info=min_curvature(
-        x,y,z,spacing=5,padding=2,solver="robust",
-        return_info=True)
+        x,y,z,spacing=5,padding=2,return_info=True)
     assert grid.shape==(15,15)
     assert gx[0]==-10 and gx[-1]==60
     assert gy[0]==60 and gy[-1]==-10
@@ -232,8 +226,7 @@ def test_auto_sparse_cg_on_extended_padding_grid():
     z=_truth(X,Y)
     z[10:19,12:20]=np.nan
     gx,gy,grid,info=min_curvature(
-        x,y,z,spacing=2,padding=30,solver="robust",
-        tension=0.25,anchor=0.05,return_info=True)
+        x,y,z,spacing=2,padding=30,tension=0.25,anchor=0.05,return_info=True)
     assert grid.shape==(91,91)
     assert np.isfinite(grid).all()
     assert info["linear_solver"]=="cg"
@@ -252,11 +245,11 @@ def test_offset_projected_grid_origin_preserved():
     z=_truth((X-x[0])/400, (Y-y[-1])/400)
     z[9:12,8:13]=np.nan
     gx,gy,filled=min_curvature(
-        x,y,z,spacing=400,solver="robust",anchor=0.01)
+        x,y,z,spacing=400,anchor=0.01)
     assert filled.shape==(21,21)
     np.testing.assert_allclose(gx,x,rtol=0,atol=1e-8)
     np.testing.assert_allclose(gy,y,rtol=0,atol=1e-8)
     assert np.isfinite(filled).all()
     _,_,padded=min_curvature(
-        x,y,z,spacing=400,solver="robust",padding=5)
+        x,y,z,spacing=400,padding=5)
     assert padded.shape==(31,31)
