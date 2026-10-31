@@ -101,10 +101,49 @@ settings. Values below are in the same units as the synthetic `z` data.
 For the difficult `T=0` test, **both the GMT and Python solvers report
 convergence but disagree significantly in outer unsampled regions**.
 The Python and GMT iteration counts in the final data-constrained pass
-are 762 and 7981, respectively. This has not yet been explained;
-it may involve sensitivity to termination/precision or a remaining
-implementation discrepancy. The algorithm must not be treated as
-numerically interchangeable with GMT for large unconstrained regions.
+are 762 and 7981, respectively. The final single-step SOR tolerance does
+**not** reliably bound the error of a near-singular global solution.
+
+### Numerical diagnosis (2026-10-31)
+
+We independently evaluated the 12-point finite-difference equations on the
+actual output grids, using the same off-node Briggs constraints. In normalized
+z units, the residuals are small in **both** implementations:
+
+| Scenario | Max stencil residual, GMT | Max stencil residual, Python |
+| --- | ---: | ---: |
+| Central-only, T=0 | 7.15e-5 | 2.26e-5 |
+| Central-only, T=0.25 | 7.15e-5 | 7.15e-5 |
+
+Thus a small discrete residual and a small iteration-to-iteration change do
+not necessarily imply a small **surface-value** error in extensive
+extrapolation. For the T=0 case, even the zero-tolerance direct sparse
+solution of the same discrete system differs noticeably from the SOR
+stopping-point solution. The central-only case is markedly ill-conditioned.
+
+A separate SciPy sparse assembly and one-norm condition estimation of the
+final-grid discretization gives:
+
+- 85 observations limited to the central region, 51 x 51, T=0:
+  estimated condition number ~ **5.6e6**.
+- 180 widely spread observations on the same grid:
+  estimated condition number ~ **4.47e4**.
+
+These are numerical estimates for the stated synthetic datasets; they are
+not universal bounds. The ~125-fold condition-number increase explains why
+minor numerical and termination differences are dramatically amplified in
+the extrapolated field. The original Python implementation also had a
+north/south interpolation-fraction mismatch during multigrid refinement;
+that discrepancy has been fixed on this branch. It was a genuine porting
+error but its correction alone did not resolve the severe T=0 extrapolation
+difference.
+
+**Conclusion:** the present implementation is accurate against GMT in
+the well-covered synthetic tests, but reproducing GMT's particular
+iteration stopping point in a severely ill-conditioned, poorly observed
+region is not equivalent to obtaining a uniquely reliable physical field.
+Do not use `info["converged"]` as an error estimate, and do not yet regard
+the implementation as numerically interchangeable with GMT in this case.
 
 - Original successful CI run:
   https://github.com/ZLS92/RelGravPy/actions/runs/41196392608
