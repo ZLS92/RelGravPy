@@ -142,3 +142,60 @@ def test_block_and_solver_validation():
         min_curvature(x,y,z,(0,20,0,20),2,padding=1.5)
     with pytest.raises(ValueError):
         min_curvature(x,y,z,(0,20,0,20),2,solver="none")
+
+
+
+# -----------------------------------------------------------------------------
+# Block aggregation and conditioning are NOT monotonically related.
+# -----------------------------------------------------------------------------
+def test_block_condition_number_can_improve_or_worsen():
+    """Show both directions with real block_m and the actual robust matrix."""
+    from relgravpy._min_curvature_robust import (
+        _mc_robust_observation_matrix, _mc_robust_difference
+    )
+    from scipy import sparse
+    from scipy.sparse import linalg as spla
+
+    nx=ny=21
+    ix,iy=sparse.eye(nx,format="csr"),sparse.eye(ny,format="csr")
+    d1x=_mc_robust_difference(nx,1)
+    d1y=_mc_robust_difference(ny,1)
+    d2x=_mc_robust_difference(nx,2)
+    d2y=_mc_robust_difference(ny,2)
+    x1=sparse.kron(iy,d1x,format="csr")
+    y1=sparse.kron(d1y,ix,format="csr")
+    x2=sparse.kron(iy,d2x,format="csr")
+    y2=sparse.kron(d2y,ix,format="csr")
+    xy=sparse.kron(d1y,d1x,format="csr")
+    tension=0.15
+    Q=((1-tension)*(x2.T@x2+2*xy.T@xy+y2.T@y2)
+       +tension*(x1.T@x1+y1.T@y1))
+
+    def condition_number(x,y):
+        H=_mc_robust_observation_matrix(x,y,nx,ny,0,100,5,5)
+        A=(1e4*H.T@H+Q+0.01*sparse.eye(nx*ny)).tocsc()
+        lu=spla.splu(A)
+        inverse=spla.LinearOperator(
+            A.shape,matvec=lambda v:lu.solve(v),
+            rmatvec=lambda v:lu.solve(v,trans="T"))
+        return float(spla.onenormest(A)*spla.onenormest(inverse))
+
+    centers=np.arange(5.,100.,10.)
+    xc,yc=np.meshgrid(centers,centers)
+    rng=np.random.default_rng(123)
+
+    ratios=[]
+    for jitter in (0.,2.):
+        x=np.repeat(xc.ravel(),6)+rng.normal(0,jitter,xc.size*6)
+        y=np.repeat(yc.ravel(),6)+rng.normal(0,jitter,yc.size*6)
+        xb,yb,zb=mc.block_m(
+            x,y,np.sin(x/30),wind_size=10,method="mean",
+            lim=(0,100,0,100))
+        raw_condition=condition_number(x,y)
+        block_condition=condition_number(xb,yb)
+        ratios.append(raw_condition/block_condition)
+        print(f"jitter={jitter}: raw cond={raw_condition:.6g}, "
+              f"block cond={block_condition:.6g}, "
+              f"raw/block={ratios[-1]:.3f}")
+    assert ratios[0]>3.0       # Repeated stations: averaging helps.
+    assert ratios[1]<0.75      # Spatially spread: averaging can hurt.
