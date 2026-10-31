@@ -111,6 +111,8 @@ def _polyhedral_gz(prisms, densities, observation, radius):
     Reuses the deterministic polyhedral solver from grav_modelling, rather
     than the stochastic PolyGrav.compute_gz implementation.
     """
+    if np.asarray(prisms).size == 0:
+        return 0.0
     prisms = np.atleast_2d(np.asarray(prisms, dtype=float))
     densities = np.atleast_1d(np.asarray(densities, dtype=float))
     observation = np.asarray(observation, dtype=float).reshape(1, 3)
@@ -915,11 +917,15 @@ def te( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
     # than any other pythonic method when dealing with large dtm arrays. 
     # More info https://gdal.org/user/virtual_file_systems.html.
     
-    if type( dtm1 ) == str : 
-        gdal.Open( dtm1 )
-        
-    if type( dtm2 ) == str : 
-        gdal.Open( dtm2 )
+    if isinstance(dtm1, str):
+        dtm1 = gdal.Open(dtm1)
+        if dtm1 is None:
+            raise FileNotFoundError("Cannot open near-field DTM")
+
+    if isinstance(dtm2, str):
+        dtm2 = gdal.Open(dtm2)
+        if dtm2 is None:
+            raise FileNotFoundError("Cannot open far-field DTM")
     
     if dtm2 == None : 
         dtm2 = dtm1
@@ -929,6 +935,10 @@ def te( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
     # Estimate R1 -------------------------------------------------------------
     if R1==None:
         R1 = Radi1( herr, R=R )      
+
+    # gs1 is needed for the crop extent, so resolve it before computing lim1.
+    if gs1 is None:
+        gs1 = float(np.mean(rt.raster_res(dtm1)))
 
     # Define lim1 -------------------------------------------------------------
     minx, maxx, miny, maxy = np.min(xm), np.max(xm), np.min(ym), np.max(ym)
