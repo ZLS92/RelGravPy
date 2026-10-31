@@ -119,17 +119,26 @@ def test_sparse_center_and_extrapolation_match_gmt(tension):
         folder = Path(tmpdir)
         samples = folder / "sparse.xyz"
         output = folder / "reference.nc"
+        log_file = folder / "gmt_convergence.log"
         np.savetxt(samples, np.column_stack((x, y, z)), fmt="%.16g")
         subprocess.run([
             "gmt", "surface", str(samples), "-R0/100/0/100",
             "-I2", f"-G{output}", f"-T{tension}",
-            "-N15000", "-Z1.4", "-Qr",
+            "-N15000", "-Z1.4", "-Qr", f"-W{log_file}",
         ], cwd=folder, capture_output=True, text=True, check=True)
         raw = subprocess.run(
             ["gmt", "grd2xyz", str(output)], cwd=folder,
             capture_output=True, text=True, check=True
         ).stdout
         points = np.loadtxt(io.StringIO(raw))
+        lines = log_file.read_text().splitlines()
+        stages = []
+        for line in lines:
+            if "Grid size =" in line:
+                stages.append([line, ""])
+            elif stages and line and not line.startswith(">") and not line.startswith("#"):
+                stages[-1][1] = line
+        print("GMT stages:", stages)
     reference = np.full((51, 51), np.nan)
     col = np.rint(points[:, 0] / 2).astype(int)
     row = np.rint((100 - points[:, 1]) / 2).astype(int)
@@ -145,5 +154,6 @@ def test_sparse_center_and_extrapolation_match_gmt(tension):
     print(f"central-only tension={tension}: rmse={rmse:.9g}, "
           f"max_abs={peak_error:.9g}, span={scale:.9g}, "
           f"converged={info['converged']}")
+    print("Python stages:", info["iterations"])
     assert rmse / scale < 0.01
     assert peak_error / scale < 0.05
