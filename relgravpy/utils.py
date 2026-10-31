@@ -873,7 +873,10 @@ def pad_array( array, padw=25, mode='edge', alpha=None,
                constant_values=np.nan,
                plot=False, vmin=None, vmax=None, iter=1,
                ptype='percentage', sqr_area=False,
-               equal_shape=False, smooth=0 ):
+               equal_shape=False, smooth=0, xy=None,
+               tension=0.35, block=None, block_size=None,
+               anchor=0.01, data_weight=1e4,
+               linear_solver='auto', max_iterations=None ):
 
     ny, nx = array.shape
 
@@ -896,12 +899,45 @@ def pad_array( array, padw=25, mode='edge', alpha=None,
             padw[0] += diff // 2
             padw[1] += diff - diff // 2
 
-    if mode in ( 'surface', 'gdal', 'thin_plate' ):
+    # -------------------------------------------------------------------------
+    # Curvature padding solves the new cells on the EXTENDED grid.
+    # The existing edge/reflect/GDAL/GMT/thin-plate modes are unchanged.
+    # -------------------------------------------------------------------------
+    if mode in ( 'surface', 'gdal', 'thin_plate',
+                  'min_curvature', 'robust' ):
         pad_array = np.pad( array, pad_width=( ( padw[0], padw[0] ),
                             ( padw[1], padw[1] ) ),
                             mode='constant', constant_values=np.nan )
-        pad_array = fillnan( pad_array, method=mode,
-                             iter=iter, smooth=smooth )
+
+        if mode in ( 'min_curvature', 'robust' ):
+            # Pixel-space by default; optionally use real projected axes.
+            padded_xy = None
+            if xy is not None:
+                xv, yv = (np.asarray(axis, dtype=float)
+                          for axis in xy)
+                if xv.ndim == 2 and yv.ndim == 2:
+                    if xv.shape != array.shape or yv.shape != array.shape:
+                        raise ValueError("xy meshgrids must match array")
+                    xv, yv = xv[0, :], yv[:, 0]
+                if (xv.ndim != 1 or yv.ndim != 1 or
+                        len(xv) != nx or len(yv) != ny or
+                        min(len(xv), len(yv)) < 2):
+                    raise ValueError("xy must describe the original grid")
+                dx = xv[1] - xv[0]
+                dy = yv[1] - yv[0]
+                xpad = np.arange(-padw[1], nx + padw[1])
+                ypad = np.arange(-padw[0], ny + padw[0])
+                padded_xy = (xv[0] + xpad * dx, yv[0] + ypad * dy)
+
+            pad_array = fillnan(
+                pad_array, xy=padded_xy, method='min_curvature',
+                tension=tension, block=block, block_size=block_size,
+                anchor=anchor, data_weight=data_weight,
+                linear_solver=linear_solver,
+                max_iterations=max_iterations )
+        else:
+            pad_array = fillnan( pad_array, method=mode,
+                                 iter=iter, smooth=smooth )
 
     elif mode == 'constant' :
         pad_array = np.pad( array, pad_width=((padw[0], padw[0]),
@@ -1836,7 +1872,10 @@ def fillnan( array,
              vmin=None,
              vmax=None,
              edges=False,
-             tension=0.35 ) :
+             tension=0.35,
+             block=None, block_size=None,
+             anchor=0.01, data_weight=1e4,
+             linear_solver='auto', max_iterations=None ) :
 
     zz = np.copy( array )
 
@@ -1848,7 +1887,9 @@ def fillnan( array,
         xx, yy = np.meshgrid( xi, yi )
 
     if xy is not None:
-        xx, yy = xy[0], xy[1]
+        xx, yy = np.asarray(xy[0]), np.asarray(xy[1])
+        if xx.ndim == 1 and yy.ndim == 1:
+            xx, yy = np.meshgrid(xx, yy)
 
     zz_nan = np.isnan( zz )
 
@@ -1915,6 +1956,50 @@ def fillnan( array,
                          tension_factor=tension )
         zzfn = xyz2xy( ( xxs, yys, zzs ), (xx, yy), method='nearest' )
         print( zzfn.shape )
+
+    # -------------------------------------------------------------------------
+    # Regularized minimum curvature: solve missing cells, preserve the
+    # original finite observations and input coordinate orientation.
+    # -------------------------------------------------------------------------
+    if method in ( 'min_curvature', 'robust' ):
+        if xx.shape != zz.shape or yy.shape != zz.shape:
+            raise ValueError("xy and array must have the same shape")
+        if np.any( zz_nan ):
+            xv = np.asarray(xx[0, :], dtype=float)
+            yv = np.asarray(yy[:, 0], dtype=float)
+            dxx = np.diff(xv)
+            dyy = np.diff(yv)
+            if (len(dxx) < 1 or len(dyy) < 1 or
+                    not np.isfinite(xx).all() or
+                    not np.isfinite(yy).all() or
+                    np.any(dxx == 0) or np.any(dyy == 0) or
+                    np.any(np.sign(dxx) != np.sign(dxx[0])) or
+                    np.any(np.sign(dyy) != np.sign(dyy[0])) or
+                    not np.allclose(dxx, dxx[0], rtol=1e-6, atol=1e-8) or
+                    not np.allclose(dyy, dyy[0], rtol=1e-6, atol=1e-8) or
+                    not np.allclose(xx, xv[None, :],
+                                    rtol=0, atol=1e-6) or
+                    not np.allclose(yy, yv[:, None],
+                                    rtol=0, atol=1e-6)):
+                raise ValueError(
+                    "min_curvature requires a regular rectilinear grid; "
+                    "supply x/y vectors or 2-D meshgrids in xy"
+                )
+            dxdy = (abs(float(dxx[0])), abs(float(dyy[0])))
+            _gx, _gy, modeled = min_curvature(
+                xv, yv, zz, spacing=dxdy,
+                solver='robust', tension=tension,
+                block=block, block_size=block_size,
+                anchor=anchor, data_weight=data_weight,
+                linear_solver=linear_solver,
+                max_iterations=max_iterations )
+            if xv[0] > xv[-1]:
+                modeled = modeled[:, ::-1]
+            if yv[0] < yv[-1]:
+                modeled = modeled[::-1, :]
+            zzfn = np.where(zz_nan, modeled, zz)
+        else:
+            zzfn = zz
 
     if edges is True :
         zzfn = filt_edges( zzfn, mask=~zz_nan*1, iter=iter, size=size, smooth=smooth )
@@ -5892,3 +5977,703 @@ def match_nearest_xy(dat_ref, dat_mov, max_dist, reciprocal=False):
         "i_mov": i_mov,
         "dist_xy": dist_xy,
     }
+
+
+# -----------------------------------------------------------------------------
+# Minimum curvature: continuous-curvature splines in tension
+# -----------------------------------------------------------------------------
+# Numerical translation of the core finite-difference algorithm in GMT 6
+# surface.c, Copyright (c) 1991-2026 GMT Team, LGPL-3.0-or-later.
+# https://github.com/GenericMappingTools/gmt/blob/master/src/surface.c
+#
+# This section does NOT call the GMT executable and does NOT add required
+# package dependencies. In a normal RelGravPy installation NumPy is already
+# imported as np. Numba is used only if the optional [fast] extra is present.
+#
+import numpy as np
+from math import gcd as _gmt_surface_gcd
+import warnings as _gmt_surface_warnings
+
+try:
+    from numba import njit as _gmt_surface_njit
+except ImportError:
+    def _gmt_surface_njit(*args, **kwargs):
+        """Fallback decorator: preserve the pure Python kernel without Numba."""
+        def _decorate(func):
+            return func
+        return _decorate
+
+
+# Exact order of GMT SURFACE enum: N2 NW N1 NE W2 W1 E1 E2 SW S1 SE S2.
+_GMT_SURFACE_NEIGHBORS = np.array([
+    (-2, 0), (-1, -1), (-1, 0), (-1, 1),
+    (0, -2), (0, -1), (0, 1), (0, 2),
+    (1, -1), (1, 0), (1, 1), (2, 0),
+], dtype=np.int64)
+# Briggs quadrants: C->p[quadrant][k]  (index into _GMT_SURFACE_NEIGHBORS)
+_GMT_SURFACE_QUADRANTS = np.array([
+    [0, 0, 0, 0], [1, 5, 9, 10], [8, 9, 6, 3],
+    [10, 6, 2, 1], [3, 2, 5, 8]
+], dtype=np.int64)
+
+
+
+
+def _gmt_surface_primes(n: int) -> list[int]:
+    f = []
+    p = 2
+    while p * p <= n:
+        while n % p == 0:
+            f.append(p)
+            n //= p
+        p += 1
+    if n > 1:
+        f.append(n)
+    return f
+
+
+def _gmt_surface_coefficients(alpha: float, t: float):
+    """GMT surface_set_coefficients: (constrained, unconstrained) weights."""
+    a2 = alpha * alpha
+    a4 = a2 * a2
+    loose = 1.0 - t
+    one_plus = 1 + a2
+    denominator = 6 * a4 * loose + 10 * a2 * loose + 8 * loose - 2 * one_plus + 4 * t * one_plus
+    a0 = 1 / denominator
+    c = np.zeros((2, 12), dtype=np.float64)
+    # GMT set == SURFACE_CONSTRAINED (1) vs SURFACE_UNCONSTRAINED (0)
+    c[1, [4, 7]] = -loose
+    c[1, [0, 11]] = -loose * a4
+    c[0, [4, 7]] = -loose * a0
+    c[0, [0, 11]] = -loose * a4 * a0
+    c[1, [5, 6]] = 2 * loose * one_plus
+    c[0, [5, 6]] = (2 * c[1, 5] + t) * a0
+    c[1, [2, 9]] = c[1, 5] * a2
+    c[0, [2, 9]] = c[0, 5] * a2
+    c[1, [1, 3, 8, 10]] = -2 * loose * a2
+    c[0, [1, 3, 8, 10]] = c[1, 1] * a0
+    a0_const_1 = 2 * loose * (1 + a4)
+    a0_const_2 = 2 - t + 2 * loose * a2
+    return c, a0_const_1, a0_const_2
+
+
+def _gmt_surface_boundary(u: np.ndarray, nx: int, ny: int, alpha: float, tb: float) -> None:
+    """Port of GMT surface_set_BCs, Eqs. A-8..A-10 (non-periodic case)."""
+    x0 = 4 * (1 - tb) / (2 - tb)
+    x1 = (3 * tb - 2) / (2 - tb)
+    den = 2 * alpha * (1 - tb) + tb
+    y0 = 4 * alpha * (1 - tb) / den
+    y1 = (tb - 2 * alpha * (1 - tb)) / den
+    eps_m2 = 1 / (alpha * alpha)
+    eps_p2 = alpha * alpha
+
+    # First auxiliary layer on all four edges.
+    u[1, 2:nx+2] = y0 * u[2, 2:nx+2] + y1 * u[3, 2:nx+2]
+    u[ny+2, 2:nx+2] = y0 * u[ny+1, 2:nx+2] + y1 * u[ny, 2:nx+2]
+    u[2:ny+2, 1] = x1 * u[2:ny+2, 3] + x0 * u[2:ny+2, 2]
+    u[2:ny+2, nx+2] = x1 * u[2:ny+2, nx] + x0 * u[2:ny+2, nx+1]
+    # Mixed derivatives = 0 at the four corners (first auxiliary diagonal).
+    u[ny+2, 1] = u[ny+2, 3] + u[ny, 1] - u[ny, 3]
+    u[1, 1] = u[1, 3] + u[3, 1] - u[3, 3]
+    u[ny+2, nx+2] = u[ny+2, nx] + u[ny, nx+2] - u[ny, nx]
+    u[1, nx+2] = u[1, nx] + u[3, nx+2] - u[3, nx]
+    # Second auxiliary row/column: normal derivative of curvature = 0.
+    u[ny+3, 2:nx+2] = (
+        u[ny-1, 2:nx+2] + eps_m2 *
+        (u[ny, 1:nx+1] + u[ny, 3:nx+3] - u[ny+2, 1:nx+1] - u[ny+2, 3:nx+3])
+        + (2 + 2*eps_m2) * (u[ny+2, 2:nx+2] - u[ny, 2:nx+2])
+    )
+    u[0, 2:nx+2] = (
+        u[4, 2:nx+2] + eps_m2 *
+        (u[3, 1:nx+1] + u[3, 3:nx+3] - u[1, 1:nx+1] - u[1, 3:nx+3])
+        + (2 + 2*eps_m2) * (u[1, 2:nx+2] - u[3, 2:nx+2])
+    )
+    u[2:ny+2, 0] = (
+        u[2:ny+2, 4] + eps_p2 *
+        (u[1:ny+1, 3] + u[3:ny+3, 3] - u[1:ny+1, 1] - u[3:ny+3, 1])
+        + (2 + 2*eps_p2) * (u[2:ny+2, 1] - u[2:ny+2, 3])
+    )
+    u[2:ny+2, nx+3] = (
+        u[2:ny+2, nx-1] + eps_p2 *
+        (u[1:ny+1, nx] + u[3:ny+3, nx] - u[1:ny+1, nx+2] - u[3:ny+3, nx+2])
+        + (2 + 2*eps_p2) * (u[2:ny+2, nx+2] - u[2:ny+2, nx])
+    )
+
+
+@_gmt_surface_njit(cache=True)
+def _gmt_surface_sor_step(u, status, briggs, coeff, neighbors, quadrants, a0_const_2, omega):
+    """Sequential Gauss-Seidel SOR: same 12-neighbour update as GMT C."""
+    ny, nx = status.shape
+    max_change = 0.0
+    for row in range(ny):
+        r = row + 2
+        for col in range(nx):
+            kind = status[row, col]
+            if kind == 5:
+                continue
+            c = col + 2
+            set_idx = 0 if kind == 0 else 1
+            u00 = 0.0
+            for k in range(12):
+                u00 += u[r+neighbors[k, 0], c+neighbors[k, 1]] * coeff[set_idx, k]
+            if set_idx == 1:
+                sum_b = 0.0
+                for k in range(4):
+                    off_idx = quadrants[kind, k]
+                    sum_b += briggs[row, col, k] * u[r+neighbors[off_idx, 0], c+neighbors[off_idx, 1]]
+                u00 = (u00 + a0_const_2 * (sum_b + briggs[row, col, 4])) * briggs[row, col, 5]
+            u00 = (1.0 - omega) * u[r, c] + omega * u00
+            delta = abs(u00 - u[r, c])
+            if delta > max_change:
+                max_change = delta
+            u[r, c] = u00
+    return max_change
+
+
+def _gmt_surface_constraints(x, y, z, nx, ny, region, dx, dy, alpha, a0_const_1, a0_const_2,
+                 trend, rms, stride, u, from_coarse=False):
+    """Nearest station per node; construct Briggs weights on off-node observations."""
+    west, east, south, north = region
+    col = np.floor((x - west) / dx + 0.5).astype(np.int64)
+    row = ny - 1 - np.floor((y - south) / dy + 0.5).astype(np.int64)
+    valid = (col >= 0) & (col < nx) & (row >= 0) & (row < ny)
+    ids = np.where(valid)[0]
+    if not len(ids):
+        raise ValueError('No observation projects onto the current grid')
+    # Sort by node and Euclidean physical distance (GMT surface_compare_points).
+    cx = west + col[ids] * dx
+    cy = north - row[ids] * dy
+    dist2 = (x[ids] - cx)**2 + (y[ids] - cy)**2
+    ordered = np.lexsort((dist2, col[ids] + nx * row[ids]))
+    ids = ids[ordered]
+    keys = col[ids] + nx * row[ids]
+    ids = ids[np.r_[True, keys[1:] != keys[:-1]]]
+    status = np.zeros((ny, nx), dtype=np.uint8)
+    b = np.zeros((ny, nx, 6), dtype=np.float64)
+    for k in ids:
+        r, c = int(row[k]), int(col[k])
+        fx = (x[k] - (west + c*dx)) / dx
+        fy = (y[k] - (north - r*dy)) / dy
+        if abs(fx) < 0.05 and abs(fy) < 0.05:
+            status[r, c] = 5
+            # GMT offset by planar trend when snapping off-grid data to nodes.
+            u[r+2, c+2] = z[k] + (trend[1]*fx + trend[2]*fy) * stride / rms
+            continue
+        if fy >= 0:
+            if fx >= 0:
+                quad, xx, yy = 1, fx, fy
+            else:
+                quad, xx, yy = 2, fy, -fx
+        else:
+            if fx >= 0:
+                quad, xx, yy = 4, -fy, fx
+            else:
+                quad, xx, yy = 3, -fx, -fy
+        xy = xx + yy
+        # Briggs (1974) weights, surface_solve_Briggs_coefficients.
+        inv_sum = 1.0 / (1.0 + xy)
+        inv_delta = inv_sum / xy
+        bb0 = (xx*xx + 2*xx*yy + xx - yy*yy - yy) * inv_delta
+        bb1 = 2*(yy - xx + 1)*inv_sum
+        bb2 = 2*(xx - yy + 1)*inv_sum
+        bb3 = (-xx*xx + 2*xx*yy - xx + yy*yy + yy)*inv_delta
+        bb4 = 4*inv_delta
+        b[r, c, :] = (bb0, bb1, bb2, bb3, bb4*z[k],
+                        1/(a0_const_1 + a0_const_2*(bb0+bb1+bb2+bb3+bb4)))
+        status[r, c] = quad
+    return status, b
+
+
+def _gmt_surface_bilinear(previous: np.ndarray, nx: int, ny: int, factor: int, previous_stride: int):
+    """Expand coarser GMT grid (including its old nodes as temporary fixed constraints)."""
+    old = previous[2:-2, 2:-2]
+    # The C source uses i/previous_stride instead of i/factor for
+    # each intermediate fraction; this matters during multigrid refinement.
+    xnew = np.arange(nx) // factor + (np.arange(nx) % factor) / previous_stride
+    # GMT's fill_in_forecast sweeps each coarse-grid cell from its southern
+    # row toward the north. Its y fraction is measured from the southern
+    # baseline, not from the northern baseline as in NumPy's row order.
+    # Reproduce that direction explicitly, including the old-node positions.
+    r = np.arange(ny)
+    ynew = r // factor + np.where(
+        r % factor == 0, 0.0,
+        1.0 - (factor - r % factor) / previous_stride
+    )
+    oldx = np.arange(old.shape[1])
+    oldy = np.arange(old.shape[0])
+    hx = np.array([np.interp(xnew, oldx, row) for row in old])
+    highres = np.array([np.interp(ynew, oldy, hx[:, col]) for col in range(nx)]).T
+    u = np.zeros((ny + 4, nx + 4), dtype=np.float32)
+    u[2:-2, 2:-2] = highres
+    status = np.zeros((ny, nx), dtype=np.uint8)
+    status[::factor, ::factor] = 5
+    return u, status
+
+
+def _gmt_surface_iterate(u, status, briggs, coeff, a02, alpha, tb, omega,
+             stride, limit, rms, max_iterations):
+    ny, nx = status.shape
+    iteration_count = 0
+    max_change = float('inf')
+    target = limit / stride
+    while iteration_count < max_iterations * stride:
+        _gmt_surface_boundary(u, nx, ny, alpha, tb)
+        max_change = _gmt_surface_sor_step(u, status, briggs, coeff, _GMT_SURFACE_NEIGHBORS, _GMT_SURFACE_QUADRANTS, a02, omega)
+        iteration_count += 1
+        if max_change * rms <= target:
+            break
+    return iteration_count, float(max_change * rms), bool(max_change * rms <= target)
+
+
+def _min_curvature_gmt( x, y, z, region, spacing, *,
+                    tension=0.0, boundary_tension=None,
+                    convergence=None, max_iterations=500,
+                    relaxation=1.4, aspect_ratio=1.0,
+                    return_info=False ) :
+    """
+    Interpolate scattered XYZ data using the GMT ``surface`` numerical scheme.
+
+    The solution minimizes continuous curvature (``tension=0``) or uses
+    continuous-curvature splines in tension (``0 < tension <= 1``). In
+    particular, it solves for EVERY node inside the specified rectangular
+    region, including nodes outside the convex hull of the observations.
+    It does NOT fill empty areas using nearest-neighbour interpolation.
+
+    The core implementation reproduces GMT surface.c's finite-difference
+    12-neighbour stencil, Briggs off-node constraints, natural boundary
+    conditions, planar detrending, multigrid refinement and SOR iterations.
+
+    Parameters
+    ----------
+    x, y, z : array-like
+        One-dimensional vectors of scattered coordinates and measurements.
+        Arrays are flattened and non-finite observations are discarded.
+        For gravimetry, use planar projected coordinates (e.g., metres).
+    region : tuple of float
+        Target region ``(xmin, xmax, ymin, ymax)``. It may extend well beyond
+        the observation coverage. All grid nodes must be included.
+    spacing : float or tuple of float
+        Grid step ``dx`` or ``(dx, dy)``. The region lengths must be integer
+        multiples of the requested step; coordinates use node registration.
+    tension : float, optional
+        Interior tension in [0, 1]. Default 0 reproduces classical minimum
+        curvature; 1 produces the harmonic solution.
+    boundary_tension : float, optional
+        Tension at the boundaries, in [0, 1]. Default uses ``tension``.
+    convergence : float, optional
+        Maximum nodal change for convergence, expressed in units of z.
+        Default is 1e-4 times the detrended RMS, as in GMT surface.
+    max_iterations : int, optional
+        Maximum iteration count per final grid pass; GMT default is 500.
+        Coarser grids receive this value multiplied by their stride.
+    relaxation : float, optional
+        Successive over-relaxation factor. GMT default is 1.4.
+    aspect_ratio : float, optional
+        GMT ``-A`` parameter. Defaults to 1.0 (isotropic Cartesian case),
+        independently of numerical dx/dy. For coordinates in different units,
+        set this value to represent their physical relative scale.
+    return_info : bool, optional
+        Return a dictionary with retained samples, discarded samples,
+        multigrid strides, iteration counts and convergence flags.
+
+    Returns
+    -------
+    xg : numpy.ndarray, shape (nx,)
+        X coordinates, increasing from xmin to xmax.
+    yg : numpy.ndarray, shape (ny,)
+        Y coordinates, decreasing from ymax to ymin (GMT row order).
+    zg : numpy.ndarray, shape (ny, nx)
+        Interpolated continuous surface. No NaNs are left in the grid.
+    info : dict, optional
+        Diagnostic results, only when ``return_info=True``. The
+        ``converged`` entry means that each multigrid stage passed the
+        change-per-iteration stopping rule; it is not an error bound.
+
+    Examples
+    --------
+    >>> rng = np.random.default_rng(42)
+    >>> x = rng.uniform(0, 1000, 100)
+    >>> y = rng.uniform(0, 1000, 100)
+    >>> gz = 2.5 * np.exp(-((x-400)**2 + (y-600)**2) / 70000)
+    >>> xg, yg, grid = min_curvature(x, y, gz,
+    ...                              region=(0, 1000, 0, 1000),
+    ...                              spacing=20, tension=0.0)
+    >>> grid.shape
+    (51, 51)
+    >>> np.isfinite(grid).all()
+    True
+
+    Notes
+    -----
+    Convergence is assessed using the GMT criterion based on the maximum
+    node change between SOR iterations. This is NOT a guarantee that the
+    numerical solution is accurate. In large areas without constraints,
+    especially with tension=0, the biharmonic system may be ill-conditioned.
+    Two grids can satisfy the iteration criterion yet differ significantly
+    near the outer boundary. Inspect regional coverage and validate
+    extrapolation independently before interpreting gravimetric gradients.
+
+    Output values outside the observation convex hull are extrapolations of
+    the chosen surface model, NOT measured values. Such estimates should be
+    interpreted cautiously in sparsely sampled areas.
+
+    Comparison with GMT 6.4+ should specify ``-Qr`` to disable its optional
+    automatic working-region expansion; this port does not include that step.
+    This function does not yet implement geographical periodicity, breaklines,
+    lower/upper constrained grids, masking or GMT binary grid I/O. Therefore
+    Numerical equivalence with GMT has not yet been established through a
+    direct reference comparison. This implementation is experimental.
+
+    References
+    ----------
+    Smith, W.H.F. and Wessel, P. (1990). Gridding with continuous curvature
+    splines in tension. Geophysics, 55(3), 293-305.
+    DOI: https://doi.org/10.1190/1.1442837
+    GMT Team (2026). GMT source code: src/surface.c (LGPL-3.0-or-later).
+    """
+    x = np.asarray(x, dtype=np.float64).ravel()
+    y = np.asarray(y, dtype=np.float64).ravel()
+    z = np.asarray(z, dtype=np.float64).ravel()
+    if not (len(x) == len(y) == len(z)) or len(x) < 3:
+        raise ValueError('Need at least three x/y/z samples, of equal length')
+    n_original = len(x)
+
+    # Ignore missing measurements, as GMT does when reading XYZ tables.
+    finite = np.isfinite(x) & np.isfinite(y) & np.isfinite(z)
+    x, y, z = x[finite], y[finite], z[finite]
+    if len(x) < 3:
+        raise ValueError('Fewer than three valid XYZ observations')
+    west, east, south, north = (float(a) for a in region)
+    if not (np.isfinite([west,east,south,north]).all() and west < east and south < north):
+        raise ValueError('Invalid region: expected west<east and south<north')
+    if np.isscalar(spacing):
+        dx = dy = float(spacing)
+    else:
+        dx, dy = map(float, spacing)
+    if not (np.isfinite(dx) and np.isfinite(dy) and dx > 0 and dy > 0):
+        raise ValueError('Spacing must be finite and positive')
+    qx, qy = (east-west)/dx, (north-south)/dy
+    if not (np.isclose(qx, round(qx), rtol=0, atol=1e-8) and
+            np.isclose(qy, round(qy), rtol=0, atol=1e-8)):
+        raise ValueError('Region dimensions must be integer multiples of spacing')
+    nx, ny = round(qx)+1, round(qy)+1
+    if min(nx, ny) < 4:
+        raise ValueError('GMT surface requires >=4 nodes along each axis')
+    if not (0 <= tension <= 1):
+        raise ValueError('Tension must be in [0,1]')
+    tb = tension if boundary_tension is None else float(boundary_tension)
+    if not 0 <= tb <= 1:
+        raise ValueError('Boundary tension must be in [0,1]')
+    if not np.isfinite(aspect_ratio) or aspect_ratio <= 0:
+        raise ValueError('Aspect ratio must be finite and positive')
+    if int(max_iterations) != max_iterations:
+        raise ValueError('max_iterations must be an integer')
+    if not 0 < relaxation < 2 or max_iterations < 1:
+        raise ValueError('Invalid relaxation or max_iterations')
+    if convergence is not None and convergence <= 0:
+        raise ValueError('Convergence must be > 0')
+
+    valid = (x >= west) & (x <= east) & (y >= south) & (y <= north)
+    x, y, z = x[valid], y[valid], z[valid]
+    if len(x) < 3:
+        raise ValueError('Fewer than three samples inside region')
+    # GMT retains only the nearest sample to each final grid node.
+    col = np.floor((x-west)/dx+0.5).astype(np.int64)
+    row = ny-1-np.floor((y-south)/dy+0.5).astype(np.int64)
+    col = np.clip(col, 0, nx-1)
+    row = np.clip(row, 0, ny-1)
+    dist = (x - (west+col*dx))**2 + (y - (north-row*dy))**2
+    idx = np.lexsort((dist, col+nx*row))
+    first = np.r_[True, (col[idx[1:]]+nx*row[idx[1:]]) != (col[idx[:-1]]+nx*row[idx[:-1]])]
+    idx = idx[first]
+    x, y, z = x[idx], y[idx], z[idx]
+    if len(z) < 3:
+        raise ValueError('Fewer than three unique constraining grid nodes')
+    # Least-squares plane in grid-cell coordinates, as in GMT surface.c.
+    xf = (x-west)/dx
+    yf = (y-south)/dy
+    design = np.stack((np.ones_like(xf), xf, yf), axis=1)
+    if np.linalg.matrix_rank(design) < 3:
+        plane = np.array([0., 0., 0.])
+    else:
+        plane = np.linalg.lstsq(design, z, rcond=None)[0]
+    residual = z - design @ plane
+    rms = float(np.sqrt(np.mean(residual**2)))
+    xs = west + np.arange(nx)*dx
+    ys = north - np.arange(ny)*dy
+    if rms < 1e-12:
+        grid = (plane[0] + plane[1]*np.arange(nx)[None,:] +
+                plane[2]*np.arange(ny-1,-1,-1)[:,None]).astype(np.float64)
+        info = dict(retained_observations=len(z), discarded_observations=n_original-len(z),
+                    strides=(1,), iterations=(), converged=True, residual_rms=rms)
+        return (xs, ys, grid, info) if return_info else (xs, ys, grid)
+    zn = residual / rms
+    convergence = float(convergence) if convergence is not None else 1e-4*rms
+    # Dimension-scaled coordinates: GMT's -A defaults to 1 for Cartesian data;
+    # pixels are effectively square here unless user controls anisotropy.
+    alpha = float(aspect_ratio)
+    coeff, a01, a02 = _gmt_surface_coefficients(alpha, float(tension))
+    strides = [_gmt_surface_gcd(nx-1, ny-1)]
+    factors = _gmt_surface_primes(strides[0])
+    # GMT discards largest factors until each coarse dimension has >=4 nodes.
+    while min((nx-1)//strides[0]+1, (ny-1)//strides[0]+1) < 4:
+        strides[0] //= factors.pop()
+    # GMT then successively divides by largest remaining prime factors.
+    while strides[-1] > 1:
+        strides.append(strides[-1] // factors.pop())
+    stages = []
+    previous = None
+    info_iterations = []
+    for stride in strides:
+        cx = (nx-1)//stride+1
+        cy = (ny-1)//stride+1
+        if previous is None:
+            u = np.zeros((cy+4, cx+4), dtype=np.float32)
+        else:
+            expand = previous_stride//stride
+            u, frozen = _gmt_surface_bilinear(previous, cx, cy, expand, previous_stride)
+            blank_b = np.zeros((cy, cx, 6), dtype=np.float64)
+            niter, error, ok = _gmt_surface_iterate(u, frozen, blank_b, coeff, a02, alpha, tb,
+                                        relaxation, stride, convergence, rms, max_iterations)
+            info_iterations.append((stride, 'I', niter, error, ok))
+        status, briggs = _gmt_surface_constraints(x, y, zn, cx, cy, region,
+                                       stride*dx, stride*dy, alpha, a01, a02,
+                                       plane, rms, stride, u)
+        niter, error, ok = _gmt_surface_iterate(u, status, briggs, coeff, a02, alpha, tb,
+                                    relaxation, stride, convergence, rms, max_iterations)
+        info_iterations.append((stride, 'D', niter, error, ok))
+        previous_stride = stride
+        previous = u
+        stages.append(stride)
+    grid = (previous[2:-2,2:-2].astype(np.float64)*rms +
+            plane[0] + plane[1]*np.arange(nx)[None,:] +
+            plane[2]*np.arange(ny-1,-1,-1)[:,None])
+    if not np.isfinite(grid).all():
+        raise FloatingPointError('Non-finite values detected during surface iteration')
+    success = all(t[4] for t in info_iterations)
+    if not success:
+        _gmt_surface_warnings.warn('One or more surface multigrid stages hit max_iterations', RuntimeWarning, stacklevel=2)
+    info = dict(retained_observations=len(z), discarded_observations=n_original-len(z),
+                strides=tuple(stages), iterations=tuple(info_iterations),
+                converged=success, residual_rms=rms)
+    return (xs, ys, grid, info) if return_info else (xs, ys, grid)
+
+# -----------------------------------------------------------------------------
+# MINIMUM CURVATURE — GMT-compatible or stable variational solver
+# -----------------------------------------------------------------------------
+def min_curvature(x, y, z, region=None, spacing=1.0, *,
+                  tension=0.0, solver="gmt",
+                  block=None, block_size=None, padding=0,
+                  data_weight=1e4, anchor=1e-2,
+                  linear_solver="auto", tolerance=1e-9,
+                  boundary_tension=None, convergence=None,
+                  max_iterations=None, relaxation=1.4, aspect_ratio=1.0,
+                  return_info=False):
+    """
+    Interpolate scattered gravity data or fill/pad an incomplete regular grid.
+
+    The output covers EVERY node of the selected rectangular region,
+    including gaps and areas outside the convex hull of the measurements.
+    Two independent numerical methods are offered:
+
+    - `solver="gmt"`: GMT surface C-style spline stencil and multigrid SOR;
+      see Smith & Wessel (1990). Suitable for a numerical GMT comparison.
+    - `solver="robust"`: SciPy sparse variational minimum curvature, with
+      bilinear off-node measurements, positive regularization and direct/CG
+      solve. Recommended for extensive padding and large gaps. Results are
+      not numerically identical to GMT or Oasis montaj minimum curvature.
+
+    Parameters
+    ----------
+    x, y, z : 1-D or 2-D arrays
+        Scattered XYZ observations. Alternatively, x and y may be ascending
+        coordinate vectors of an existing grid, with z shaped (ny, nx) and
+        NaN for missing cells. Nonfinite XYZ triples are discarded.
+    region : (west, east, south, north) or None
+        Output bounds; if None, infer an outward-aligned rectangle from data.
+        To pad an existing grid, provide its original region and set padding.
+    spacing : positive float or pair (dx, dy)
+        Target grid spacing in projected Cartesian coordinate units.
+    tension : float in [0, 1]
+        Zero gives minimum curvature; a positive value damps far-field trends.
+        Note that `robust` uses an energy functional, not GMT's equation.
+    solver : {"gmt", "robust"}
+        The GMT-style implementation stays the default for compatibility.
+    block : {"mean", "median", None, False, True}
+        Optional pre-gridding aggregation via RelGravPy's existing
+        `block_m(..., method="mean"/"median")`. True selects "mean".
+    block_size : positive float or None
+        Block width; defaults to the smaller grid spacing when enabled.
+        Pre-blocking reduces duplicate/noisy data, but is NOT guaranteed to
+        improve conditioning and may remove valuable spatial constraints.
+    padding : nonnegative int or (px, py)
+        Extra number of grid cells per side in X and Y. Padding extends
+        the computational DOMAIN and solves for new nodes; no NaN fill or
+        nearest-neighbour postprocessing is applied.
+    data_weight : positive float
+        Data fidelity weight used only by `solver="robust"`; default 1e4.
+    anchor : positive float
+        Background-planar-trend regularization used only by `robust`.
+        Default 1e-2. A stronger anchor reduces low-frequency drift in
+        poorly covered domains, but also changes the extrapolated surface.
+    linear_solver : {"auto","direct","cg"}
+        SciPy solver for the robust method. Auto uses sparse direct <= 7000
+        grid nodes, else preconditioned CG.
+    tolerance : float
+        Relative linear system tolerance used for CG in the robust method.
+    boundary_tension, convergence, relaxation, aspect_ratio
+        Parameters of the GMT-style SOR implementation only.
+    max_iterations : int or None
+        Iteration budget. With None, use GMT's original 500 per final
+        pass (scaled by stride) or 4000 for robust sparse CG.
+    return_info : bool
+        Return diagnostics, including method, observation RMSE and solver
+        convergence. Neither convergence nor output completeness establishes
+        accuracy of unconstrained extrapolation.
+
+    Returns
+    -------
+    gx, gy : numpy.ndarray
+        East-increasing X, north-to-south Y grid vectors.
+    grid : numpy.ndarray
+        Fully populated (ny, nx) output, including any requested padding.
+    info : dict, optional
+        Solver diagnostics if `return_info=True`.
+
+    Examples
+    --------
+    >>> x = np.array([0., 10., 20., 0., 10., 20., 10.])
+    >>> y = np.array([0., 0., 0., 20., 20., 20., 10.])
+    >>> z = 2 + 0.1*x - 0.04*y
+    >>> gx, gy, grid = min_curvature(
+    ...     x, y, z, region=(0, 20, 0, 20), spacing=2,
+    ...     solver="robust", padding=5, block="median")
+    >>> grid.shape
+    (21, 21)
+    >>> np.isfinite(grid).all()
+    True
+
+    >>> xg = np.arange(0., 21., 2.)
+    >>> yg = np.arange(20., -1., -2.)
+    >>> X, Y = np.meshgrid(xg, yg)
+    >>> Z = 0.1*X - 0.2*Y
+    >>> Z[2:6, 3:8] = np.nan
+    >>> _, _, filled = min_curvature(
+    ...     xg, yg, Z, spacing=2, solver="robust", padding=3)
+    >>> np.isfinite(filled).all()
+    True
+
+    Notes
+    -----
+    In regions without data, the extrapolated grid is a mathematical
+    continuation, not an independently constrained physical gravity field.
+    Block aggregation does not ensure better conditioning. For large pads,
+    compare several anchor/tension settings to assess far-field uncertainty.
+
+    References
+    ----------
+    Smith, W. H. F. & Wessel, P. (1990). Gridding with continuous curvature
+    splines in tension. Geophysics 55(3), 293-305.
+    https://doi.org/10.1190/1.1442837
+    """
+    # -------------------------------------------------------------------------
+    # Normalize XYZ input, accepting a pre-existing incomplete grid.
+    # -------------------------------------------------------------------------
+    xa, ya, za = np.asarray(x), np.asarray(y), np.asarray(z)
+    regular_grid_input = (za.ndim == 2 and xa.ndim == 1 and ya.ndim == 1)
+    if regular_grid_input:
+        if za.shape != (len(ya), len(xa)):
+            raise ValueError("For grid input z must have shape (len(y),len(x))")
+        xa, ya = np.meshgrid(xa, ya)
+    xa = np.asarray(xa, dtype=float).ravel()
+    ya = np.asarray(ya, dtype=float).ravel()
+    za = np.asarray(za, dtype=float).ravel()
+    original_input_count = len(za)
+    # Full grid extent must include even edge nodes whose values are NaN.
+    # Otherwise padding would silently shrink the original raster domain.
+    ext_x = xa[np.isfinite(xa)]
+    ext_y = ya[np.isfinite(ya)]
+    if not (len(xa) == len(ya) == len(za)):
+        raise ValueError("x, y, z must be matching XYZ vectors or grid arrays")
+    finite = np.isfinite(xa) & np.isfinite(ya) & np.isfinite(za)
+    xa, ya, za = xa[finite], ya[finite], za[finite]
+    if len(za) < 3:
+        raise ValueError("At least three finite XYZ measurements required")
+
+    if np.isscalar(spacing):
+        dx = dy = float(spacing)
+    else:
+        dx, dy = (float(value) for value in spacing)
+    if not (np.isfinite([dx, dy]).all() and min(dx, dy) > 0):
+        raise ValueError("spacing must be strictly positive")
+    if region is None:
+        if regular_grid_input:
+            # Preserve the exact georeferenced coordinate origin and spacing.
+            # The first pixel centre need NOT be a multiple of grid step.
+            region = (ext_x.min(), ext_x.max(), ext_y.min(), ext_y.max())
+        else:
+            region = (np.floor(ext_x.min()/dx)*dx,
+                      np.ceil(ext_x.max()/dx)*dx,
+                      np.floor(ext_y.min()/dy)*dy,
+                      np.ceil(ext_y.max()/dy)*dy)
+    west, east, south, north = map(float, region)
+    if np.isscalar(padding):
+        px = py = padding
+    else:
+        px, py = padding
+    if (not all(isinstance(v, (int, np.integer)) for v in (px, py))
+            or min(px, py) < 0):
+        raise ValueError("padding must be nonnegative integer cell counts")
+    region = (west-px*dx, east+px*dx, south-py*dy, north+py*dy)
+
+    # -------------------------------------------------------------------------
+    # Optional block aggregation: call the EXISTING RelGravPy utility.
+    # -------------------------------------------------------------------------
+    old_count = len(za)
+    if block not in (None, False):
+        method = "mean" if block is True else str(block).lower()
+        if method not in ("mean", "median"):
+            raise ValueError("block must be None, 'mean' or 'median'")
+        width = min(dx, dy) if block_size is None else float(block_size)
+        if not np.isfinite(width) or width <= 0:
+            raise ValueError("block_size must be positive")
+        xa, ya, za = block_m(
+            xa, ya, za, method=method, wind_size=width,
+            lim=region, data_type="vector", nan=False)
+    else:
+        method = None
+
+    # -------------------------------------------------------------------------
+    # Select independent numerical backend.
+    # -------------------------------------------------------------------------
+    solver = str(solver).lower()
+    if max_iterations is not None and (
+            not isinstance(max_iterations, (int, np.integer)) or
+            max_iterations < 1):
+        raise ValueError("max_iterations must be a positive integer or None")
+    iteration_budget = (4000 if solver == "robust" else 500) if (
+        max_iterations is None) else int(max_iterations)
+    if solver == "robust":
+        from ._min_curvature_robust import _mc_robust_solver
+        result = _mc_robust_solver(
+            xa, ya, za, region, (dx, dy), tension=tension,
+            data_weight=data_weight, anchor=anchor,
+            solver=linear_solver, tolerance=tolerance,
+            max_iterations=iteration_budget, return_info=True)
+    elif solver == "gmt":
+        result = _min_curvature_gmt(
+            xa, ya, za, region, (dx, dy), tension=tension,
+            boundary_tension=boundary_tension, convergence=convergence,
+            max_iterations=iteration_budget, relaxation=relaxation,
+            aspect_ratio=aspect_ratio, return_info=True)
+    else:
+        raise ValueError("solver must be 'gmt' or 'robust'")
+
+    gx, gy, grid, info = result
+    info["discarded_observations"] += original_input_count - old_count
+    info["solver"] = solver
+    info["block_method"] = method
+    info["observations_before_block"] = old_count
+    info["observations_after_block"] = len(za)
+    info["padding"] = (int(px), int(py))
+    return (gx, gy, grid, info) if return_info else (gx, gy, grid)

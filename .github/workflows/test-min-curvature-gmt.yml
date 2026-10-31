@@ -1,0 +1,47 @@
+name: Minimum curvature - GMT reference validation
+
+on:
+  push:
+    branches:
+      - feature/min-curvature
+    paths:
+      - 'relgravpy/utils.py'
+      - 'tests/test_min_curvature.py'
+      - 'tests/test_min_curvature_vs_gmt.py'
+      - 'tests/test_min_curvature_robust.py'
+      - 'tests/test_min_curvature_integration.py'
+      - 'relgravpy/_min_curvature_robust.py'
+      - 'tests/diagnose_min_curvature_condition.py'
+      - '.github/workflows/test-min-curvature-gmt.yml'
+  pull_request:
+    paths:
+      - 'relgravpy/utils.py'
+      - 'tests/test_min_curvature.py'
+      - 'tests/test_min_curvature_vs_gmt.py'
+      - 'tests/test_min_curvature_robust.py'
+      - 'tests/test_min_curvature_integration.py'
+      - 'relgravpy/_min_curvature_robust.py'
+      - '.github/workflows/test-min-curvature-gmt.yml'
+  workflow_dispatch:
+
+jobs:
+  compare-with-gmt:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install GMT reference binary
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gmt
+          gmt --version
+      - name: Install existing Python test requirements
+        run: python -m pip install numpy scipy pytest numba
+      - name: Diagnose conditioning of unconstrained interpolation
+        run: PYTHONPATH=tests:. python tests/diagnose_min_curvature_condition.py
+      - name: Run analytical and GMT cross-validation tests
+        run: |
+          PYTHONPATH=. python -m pytest -v -s tests/test_min_curvature.py tests/test_min_curvature_robust.py tests/test_min_curvature_integration.py tests/test_min_curvature_vs_gmt.py
