@@ -1157,7 +1157,8 @@ def absolute_file_paths( directory ):
 
     path = os.path.abspath(directory)
 
-    return [entry.path for entry in os.scandir(path) if entry.is_file()]
+    files = [entry.path for entry in os.scandir(path) if entry.is_file()]
+    return files
 
 # -----------------------------------------------------------------------------
 
@@ -6049,11 +6050,12 @@ def match_nearest_xy(dat_ref, dat_mov, max_dist, reciprocal=False):
         i_mov = i_mov[good]
         dist_xy = dist_xy[good]
 
-    return {
+    result = {
         "i_ref": i_ref,
         "i_mov": i_mov,
         "dist_xy": dist_xy,
     }
+    return result
 
 
 # -----------------------------------------------------------------------------
