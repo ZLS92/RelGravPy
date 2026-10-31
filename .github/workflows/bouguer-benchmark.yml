@@ -1,0 +1,24 @@
+name: Bouguer flat/rugged terrain and R1 seam benchmark
+
+on:
+  push:
+    branches:
+      - feat/bouguer-polyhedral-curvature
+    paths:
+      - 'tests/benchmark_bouguer_polyhedra.py'
+      - '.github/workflows/bouguer-benchmark.yml'
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 18
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install numerical reference Harmonica
+        run: python -m pip install "harmonica>=0.7,<0.9" pytest numpy
+      - name: Compare Nagy, spherical polyhedra and Harmonica tesseroids
+        run: python -u tests/benchmark_bouguer_polyhedra.py
