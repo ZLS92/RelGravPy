@@ -149,13 +149,13 @@ def _point_mass_gz(points, masses, observation, radius):
     return float(gm.G*1e5 * np.sum(masses * difference[:, 2] / distance**3))
 
 
-def _ring_polyhedral_effect(spherical-cell_bounds, densities, radius, height):
+def _ring_polyhedral_effect(ring_bounds, densities, radius, height):
     """Approximate the legacy ring-estimation boxes by spherical polyhedra.
 
     Bounds use (west,east,south,north,r_bottom,r_top) with angles in degrees.
     Longitude/latitude are centred at the equator in the empirical ring tests.
     """
-    cells = np.asarray(spherical-cell_bounds, dtype=float).copy()
+    cells = np.asarray(ring_bounds, dtype=float).copy()
     cells[:, :4] = np.deg2rad(cells[:, :4]) * radius
     cells[:, 4:] -= radius
     return _polyhedral_gz(cells, densities, [0.0, 0.0, height], radius)
