@@ -239,3 +239,24 @@ def test_auto_sparse_cg_on_extended_padding_grid():
     assert info["linear_solver"]=="cg"
     assert info["converged"]
     assert info["relative_system_residual"]<1e-6
+
+
+
+# -----------------------------------------------------------------------------
+# Real ERS rasters are often registered at non-integer projected origins.
+# -----------------------------------------------------------------------------
+def test_offset_projected_grid_origin_preserved():
+    x=452904.697640 + np.arange(21)*400.
+    y=6426297.029215 - np.arange(21)*400.
+    X,Y=np.meshgrid(x,y)
+    z=_truth((X-x[0])/400, (Y-y[-1])/400)
+    z[9:12,8:13]=np.nan
+    gx,gy,filled=min_curvature(
+        x,y,z,spacing=400,solver="robust",anchor=0.01)
+    assert filled.shape==(21,21)
+    np.testing.assert_allclose(gx,x,rtol=0,atol=1e-8)
+    np.testing.assert_allclose(gy,y,rtol=0,atol=1e-8)
+    assert np.isfinite(filled).all()
+    _,_,padded=min_curvature(
+        x,y,z,spacing=400,solver="robust",padding=5)
+    assert padded.shape==(31,31)
