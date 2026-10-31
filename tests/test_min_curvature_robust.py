@@ -52,7 +52,7 @@ def test_scattered_robust_full_grid_and_observation_mismatch():
     assert info["converged"] and info["linear_solver"]=="direct"
     assert info["relative_system_residual"]<1e-8
     assert info["observation_rmse"]<0.01
-    assert info["solver"]=="robust"
+    assert info["method"]=="variational"
 
 
 def test_grid_nan_holes_and_padding_are_completely_filled():
