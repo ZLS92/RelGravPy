@@ -105,28 +105,113 @@ def _curved_cell_vertices(prism, radius):
     return np.vstack((surface(bottom), surface(top)))
 
 
-def _polyhedral_gz(prisms, densities, observation, radius):
-    """Down-positive vertical gravitational attraction in mGal.
+def _surface_integral_polyhedral_gz(prisms, densities, observation, radius):
+    """Stable, vectorised polyhedron gravity via the boundary integral.
 
-    Reuses the deterministic polyhedral solver from grav_modelling, rather
-    than the stochastic PolyGrav.compute_gz implementation.
+    For a constant-density closed polyhedron, the local *down-positive*
+    component is G*rho*integral(n_z/|source-observer|) dS over outward faces.
+    The planar triangles are integrated with 7-point Dunavant degree-5
+    quadrature. Works best for cells at several cell widths from the station,
+    i.e. precisely the far-field regime in which the old solver suffers
+    from cancellation of near-equal terms.
+    """
+    # Outward-oriented facets: two bottom, two top, two per radial side.
+    triangles = np.array([
+        [3, 2, 1], [3, 1, 0], [4, 5, 6], [4, 6, 7],
+        [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5],
+        [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]
+    ], dtype=int)
+    a = 0.059715871789770
+    b = 0.470142064105115
+    c = 0.797426985353087
+    d = 0.101286507323456
+    bary = np.array([
+        [1/3, 1/3, 1/3],
+        [a, b, b], [b, a, b], [b, b, a],
+        [c, d, d], [d, c, d], [d, d, c]
+    ])
+    weights = np.array(
+        [0.225] + [0.132394152788506]*3 + [0.125939180544827]*3
+    )
+
+    # N x 4 x 2 horizontal orthographic vertices (SW, SE, NE, NW).
+    w, e, south, north, bottom, top = prisms.T
+    xy = np.stack([
+        np.stack((w, south), axis=-1),
+        np.stack((e, south), axis=-1),
+        np.stack((e, north), axis=-1),
+        np.stack((w, north), axis=-1),
+    ], axis=1)
+    radial_sq = radius**2 - np.sum(xy**2, axis=-1)
+    if np.any(radial_sq <= 0):
+        raise ValueError("Orthographic cell lies outside reference hemisphere.")
+    local_z = np.sqrt(radial_sq)
+    scale_b = 1 + bottom[:, None] / radius
+    scale_t = 1 + top[:, None] / radius
+    bottom_vertices = np.concatenate(
+        (xy*scale_b[:, :, None],
+         (local_z*scale_b - radius)[:, :, None]), axis=-1)
+    top_vertices = np.concatenate(
+        (xy*scale_t[:, :, None],
+         (local_z*scale_t - radius)[:, :, None]), axis=-1)
+    vertices = np.concatenate((bottom_vertices, top_vertices), axis=1)
+    faces = vertices[:, triangles, :]  # N x 12 x 3 x 3
+    area_z = np.cross(faces[:,:,1] - faces[:,:,0],
+                      faces[:,:,2] - faces[:,:,0])[:,:,2] / 2
+    # Coordinates of the 7 weighted Gaussian sample points per triangle.
+    samples = np.einsum("qc,ntcj->ntqj", bary, faces)
+    distances = np.linalg.norm(
+        samples - np.asarray(observation, dtype=float).reshape(1,1,1,3),
+        axis=-1)
+    if np.any(distances == 0):
+        raise ValueError("Observation lies on a surface integration node.")
+    mean_inv_dist = np.sum(weights[None,None,:]/distances, axis=-1)
+    return float(gm.G*1e5*np.sum(densities[:,None]*area_z*mean_inv_dist))
+
+
+def _polyhedral_gz(prisms, densities, observation, radius):
+    """Down-positive mGal from curvature-following polyhedra.
+
+    For nearby cells reuse grav_modelling.gravicalc2_full. For sufficiently
+    distant cells use a stable face-integral kernel. The original solver can
+    underestimate small distant elements because its line/angle terms cancel
+    numerically; the face integral avoids that catastrophic loss of precision.
     """
     if np.asarray(prisms).size == 0:
         return 0.0
     prisms = np.atleast_2d(np.asarray(prisms, dtype=float))
     densities = np.atleast_1d(np.asarray(densities, dtype=float))
-    observation = np.asarray(observation, dtype=float).reshape(1, 3)
-    if prisms.shape[1] != 6 or len(prisms) != len(densities):
+    obs = np.asarray(observation, dtype=float).ravel()
+    if prisms.ndim != 2 or prisms.shape[1] != 6 or len(prisms) != len(densities):
         raise ValueError("Expected one density per (west,east,south,north,bottom,top) cell.")
+    if obs.size != 3:
+        raise ValueError("Expected a 3-component observation vector.")
+    dx = prisms[:,1] - prisms[:,0]
+    dy = prisms[:,3] - prisms[:,2]
+    dz = prisms[:,5] - prisms[:,4]
+    if np.any(dx <= 0) or np.any(dy <= 0) or np.any(dz <= 0):
+        raise ValueError("Terrain polyhedra must have positive dimensions.")
+    centroids = np.column_stack((
+        (prisms[:,0] + prisms[:,1])/2,
+        (prisms[:,2] + prisms[:,3])/2,
+        (prisms[:,4] + prisms[:,5])/2
+    ))
+    distances = np.linalg.norm(centroids - obs, axis=1)
+    span = np.maximum.reduce((dx, dy, dz))
+    # Use the existing analytic formulation only in its tested near range.
+    near = distances <= 1.75*span
     total = 0.0
-    for prism, density in zip(prisms, densities):
-        if density == 0 or prism[5] <= prism[4]:
+    for prism, den in zip(prisms[near], densities[near]):
+        if den == 0:
             continue
         vertices = _curved_cell_vertices(prism, radius)
-        # gravicalc2_full returns [g_x,g_y,g_z] arrays for the given observations.
         total -= gm.gravicalc2_full(
-            observation, vertices, [list(face) for face in _CURVED_FACES], density
+            obs.reshape(1, 3), vertices,
+            [list(face) for face in _CURVED_FACES], den
         )[2][0] * _POLY_G_RATIO
+    if np.any(~near):
+        total += _surface_integral_polyhedral_gz(
+            prisms[~near], densities[~near], obs, radius)
     return float(total)
 
 
