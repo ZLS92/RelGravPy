@@ -149,6 +149,61 @@ Validation in CI includes:
 - A strict expected-failure regression for the unresolved
   zero-tension GMT-vs-Python extreme extrapolation case.
 
+## Legacy utility integration: fillnan and pad_array
+
+The existing helper functions in `relgravpy/utils.py` now expose the
+regularized curvature method without replacing their previous modes or
+changing their default behavior.
+
+```python
+from relgravpy import utils as utl
+import numpy as np
+
+# A grid Z with missing (NaN) values:
+Zfilled = utl.fillnan(
+    Z, method="min_curvature",
+    tension=0.15, anchor=0.01,
+    block=None,  # or "mean", "median" via existing block_m()
+)
+
+# With real projected coordinate vectors (including an arbitrary origin):
+Zfilled = utl.fillnan(
+    Z, xy=(x_utm, y_utm),
+    method="min_curvature", tension=0.15,
+)
+
+# Add 10 cells along both axes, solve the new border AND existing gaps:
+Zpadded, original_slice = utl.pad_array(
+    Z, padw=10, ptype="cells",
+    mode="min_curvature", xy=(x_utm, y_utm),
+    tension=0.15, anchor=0.01,
+)
+
+# original_slice == (row_start, row_stop, col_start, col_stop)
+r0, r1, c0, c1 = original_slice
+assert np.array_equal(Zpadded[r0:r1,c0:c1][np.isfinite(Z)],
+                      Z[np.isfinite(Z)])
+```
+
+The additional alias `method="robust"` (or `mode="robust"`) selects
+the same implementation. The older `fillnan(method="surface")` continues
+to use the external GMT interface, while `pad_array(mode="edge")`,
+`mode="gdal"`, `mode="thin_plate"` etc. are unchanged.
+
+Unlike direct `min_curvature()`, **`fillnan` replaces only missing
+cells and preserves all finite original samples exactly**. Similarly,
+`pad_array` keeps the original finite values in the inset. The new
+methods accept `xy=(x_vector, y_vector)` or 2-D `(xx, yy)` grids;
+if `xy` is omitted, both functions use unit pixel coordinates. Real
+non-square pixels should therefore be accompanied by the physical
+coordinate vectors so the derivative operator accounts for dx/dy.
+
+The interpolation currently requires a regularly sampled rectilinear
+grid; rotated or curvilinear coordinates should first be resampled.
+`pad_array` keeps its original return signature
+`(padded_array, original_shape_idx)`, and its original percentage
+interpretation of `padw` unless `ptype="cells"` is passed.
+
 ## Parameters that control behavior
 
 `tension`: weight between bending and gradient energy. Moderate positive
