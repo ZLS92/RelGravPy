@@ -6501,6 +6501,11 @@ def min_curvature(x, y, z, region=None, spacing=1.0, *,
     xa = np.asarray(xa, dtype=float).ravel()
     ya = np.asarray(ya, dtype=float).ravel()
     za = np.asarray(za, dtype=float).ravel()
+    original_input_count = len(za)
+    # Full grid extent must include even edge nodes whose values are NaN.
+    # Otherwise padding would silently shrink the original raster domain.
+    ext_x = xa[np.isfinite(xa)]
+    ext_y = ya[np.isfinite(ya)]
     if not (len(xa) == len(ya) == len(za)):
         raise ValueError("x, y, z must be matching XYZ vectors or grid arrays")
     finite = np.isfinite(xa) & np.isfinite(ya) & np.isfinite(za)
@@ -6515,8 +6520,8 @@ def min_curvature(x, y, z, region=None, spacing=1.0, *,
     if not (np.isfinite([dx, dy]).all() and min(dx, dy) > 0):
         raise ValueError("spacing must be strictly positive")
     if region is None:
-        region = (np.floor(xa.min()/dx)*dx, np.ceil(xa.max()/dx)*dx,
-                  np.floor(ya.min()/dy)*dy, np.ceil(ya.max()/dy)*dy)
+        region = (np.floor(ext_x.min()/dx)*dx, np.ceil(ext_x.max()/dx)*dx,
+                  np.floor(ext_y.min()/dy)*dy, np.ceil(ext_y.max()/dy)*dy)
     west, east, south, north = map(float, region)
     if np.isscalar(padding):
         px = py = padding
@@ -6565,6 +6570,7 @@ def min_curvature(x, y, z, region=None, spacing=1.0, *,
         raise ValueError("solver must be 'gmt' or 'robust'")
 
     gx, gy, grid, info = result
+    info["discarded_observations"] += original_input_count - old_count
     info["solver"] = solver
     info["block_method"] = method
     info["observations_before_block"] = old_count
