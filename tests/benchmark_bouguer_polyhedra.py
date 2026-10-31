@@ -122,6 +122,7 @@ def seam_diagnostic():
         gaps.append(near_b-exact_at_seam)
     gap = np.array(gaps)
     print("SEAM", json.dumps({
+        "top_radial_horizontal_offset_m_at_300m": round(R1*300.0/R, 6),
         "R1_m": R1,
         "near_step_m": gs1,
         "far_step_m": gs2,
@@ -151,10 +152,15 @@ def seam_diagnostic():
         combined_mGal=round(near_g + far_g, 8),
     )
     print("SEAM_GRAVITY", json.dumps(result), flush=True)
+    assert abs(result["near_difference_uGal"]) < 0.01, result
     return result
 
 
 if __name__ == "__main__":
     seam_diagnostic()
     rows=run_terrain_cases()
+    for row in rows:
+        # These are cross-geometry benchmarks, not same-volume equalities.
+        tolerance = 9.0 if row["n"] == 8 else (5.0 if row["n"] == 16 else 3.0)
+        assert abs(row["difference_uGal"]) < tolerance, row
     print("RESULT_JSON", json.dumps(rows), flush=True)
