@@ -32,7 +32,8 @@ from shapely.geometry import Polygon, LineString, Point
 from shapely.geometry import MultiPolygon, MultiPoint, MultiLineString
 from scipy import signal
 import io
-import matplotlib.dates as mdates
+from matplotlib import rcParams
+from ._min_curvature_robust import _mc_robust_solver
 
 
 def _resolve_cmap(cmap_like):
@@ -142,6 +143,8 @@ if 'cmy' not in plt.colormaps():
 # ---
 
 # -----------------------------------------------------------------------------
+
+
 def modify_colormap(cmap, factor):
 
     # Get the colors from the colormap
@@ -168,6 +171,8 @@ def modify_colormap(cmap, factor):
     return modified_cmap
 
 # -----------------------------------------------------------------------------
+
+
 def cm2in( cm ) :
 
     inches = cm * 1/2.54
@@ -175,6 +180,8 @@ def cm2in( cm ) :
     return inches
 
 # -----------------------------------------------------------------------------
+
+
 def is_number(value):
     """
     Check if the given value can be converted to a float.
@@ -195,6 +202,8 @@ def is_number(value):
         return False
 
 # -----------------------------------------------------------------------------
+
+
 def tmi(t1=None, t2=None):
     """
     Print time interval from time t1 to t2
@@ -210,6 +219,8 @@ def tmi(t1=None, t2=None):
         print( t2 - t1 )
 
 # -----------------------------------------------------------------------------
+
+
 def adapt_path(path):
     """
     Convert a file path to the appropriate format for the current operating system.
@@ -224,6 +235,8 @@ def adapt_path(path):
         return path.replace("\\", "/")
 
 # -----------------------------------------------------------------------------
+
+
 def dms2dd( degrees, minutes=0.0, seconds=0.0 ):
     """
     Convert degrees, minutes, and seconds to decimal degrees.
@@ -247,6 +260,8 @@ def dms2dd( degrees, minutes=0.0, seconds=0.0 ):
     return degrees + minutes / 60 + seconds / 3600
 
 # -----------------------------------------------------------------------------
+
+
 def dd2dms( decimal_degrees ):
     """
     Convert decimal degrees to degrees, minutes, and seconds.
@@ -269,6 +284,8 @@ def dd2dms( decimal_degrees ):
     return degrees, minutes, seconds
 
 # -----------------------------------------------------------------------------
+
+
 def stat( array, decimals=None, show=True, out=None, multilines=False, sep='' ):
     """
     This function prints the statistics of a numpy array.
@@ -316,6 +333,8 @@ def stat( array, decimals=None, show=True, out=None, multilines=False, sep='' ):
         return Min, Max, Mean, Std
 
 # -----------------------------------------------------------------------------
+
+
 def extend_lim( lim, d, method='percentage', sqr_area=False, plot=False, round2=None,
                 print_lim=False ):
     """
@@ -358,6 +377,8 @@ def extend_lim( lim, d, method='percentage', sqr_area=False, plot=False, round2=
     return lim_new
 
 # -----------------------------------------------------------------------------
+
+
 def prj_( prjcode ):
     """
     Convert epsg or proj4 string to proj4 code object
@@ -371,6 +392,8 @@ def prj_( prjcode ):
     return prj4_obj
 
 # -----------------------------------------------------------------------------
+
+
 def prj_units( prjcode ):
     """
     Return EPGS or Proj4 code units ( i.e., meters or degree )
@@ -382,6 +405,8 @@ def prj_units( prjcode ):
     return units
 
 # -----------------------------------------------------------------------------
+
+
 def prjxy( prjcode_in, prjcode_out, x, y, z=None ):
     """
     Transform coordinates from a reference system to another
@@ -405,6 +430,8 @@ def prjxy( prjcode_in, prjcode_out, x, y, z=None ):
     return prj_coord
 
 # -----------------------------------------------------------------------------
+
+
 def prj2epsg( prjcode ) :
 
     crs = prj.CRS( prjcode )
@@ -413,6 +440,8 @@ def prj2epsg( prjcode ) :
     return epsg
 
 # -----------------------------------------------------------------------------
+
+
 def lim_sort( lim, p=False ):
 
     lim_out = [lim[0], lim[2], lim[1], lim[3]]
@@ -423,6 +452,8 @@ def lim_sort( lim, p=False ):
     return lim_out
 
 # -----------------------------------------------------------------------------
+
+
 def lim2points( lim ) :
 
     x = np.array( ( lim[0], lim[1], lim[1], lim[0] ) )
@@ -431,6 +462,8 @@ def lim2points( lim ) :
     return x, y
 
 # -----------------------------------------------------------------------------
+
+
 def prj_lim(lim, prjcode_in, prjcode_out, sort='xlyl'):
     """
     Transform limits of an area (i.e. [LonMin, LonMax, LatMin, LatMax]) from a
@@ -446,6 +479,8 @@ def prj_lim(lim, prjcode_in, prjcode_out, sort='xlyl'):
     return limf
 
 # -----------------------------------------------------------------------------
+
+
 def prj_centre( xy_centre, prj_type, ellps='WGS84' ):
     """
     Creates a PROJ string code, with a reference system centered (i.e tangent)
@@ -461,6 +496,8 @@ def prj_centre( xy_centre, prj_type, ellps='WGS84' ):
     return prj_cent_str
 
 # -----------------------------------------------------------------------------
+
+
 def xy_in_lim( x, y, lim, extend=0, method='percentage', plot=False, s=1, plot_lim=None ):
     """
     Return all xy points within the given limits [xmin, xmax, ymin, ymax]
@@ -484,6 +521,8 @@ def xy_in_lim( x, y, lim, extend=0, method='percentage', plot=False, s=1, plot_l
     return xl, yl, idx
 
 # -----------------------------------------------------------------------------
+
+
 def find_by_dist( xy1, xy2, dist, prj_dist=None, prj_in=4326, plot=False ):
 
     """
@@ -515,6 +554,8 @@ def find_by_dist( xy1, xy2, dist, prj_dist=None, prj_in=4326, plot=False ):
     return set1_idx, set1_new
 
 # -----------------------------------------------------------------------------
+
+
 def min_dist( x, y, prjcode_in=4326, prjcode_out=4326,
               data_type='scattered_points', factor=1000 ) :
     """
@@ -559,6 +600,8 @@ def min_dist( x, y, prjcode_in=4326, prjcode_out=4326,
     return d
 
 # -----------------------------------------------------------------------------
+
+
 def xy2XY( x, y, step=None, lim=None, dist='mean', method='distance', extend=False,
            plot=False, grid=False, rotate=True, treshold=1e-5, fix_point='first',
            s=None, return_step=False ) :
@@ -599,6 +642,8 @@ def xy2XY( x, y, step=None, lim=None, dist='mean', method='distance', extend=Fal
         return X, Y
 
 # -----------------------------------------------------------------------------
+
+
 def xyz2xy( xyz, xy, method='nearest',
             rescale=False, fillnan=True,
             plot=False, blkm='mean', smooth=0 ) :
@@ -713,6 +758,8 @@ def xyz2xy( xyz, xy, method='nearest',
     return zn
 
 # -----------------------------------------------------------------------------
+
+
 def find_by_att( dat1, dat2, col_xy, delta_xy, col_att, delta_att, condition=True,
                  prj_in=4326, prj_dist=None, unique=True, plot=False ) :
 
@@ -774,6 +821,8 @@ def find_by_att( dat1, dat2, col_xy, delta_xy, col_att, delta_att, condition=Tru
     return mask1, dat1_msk, idx21
 
 # -----------------------------------------------------------------------------
+
+
 def ell_radius( lat, h=0, radians=False, a=a_wgs84, c=c_wgs84 ) :
     """
     This function calculates the radius of the Earth at a given latitude
@@ -811,6 +860,8 @@ def ell_radius( lat, h=0, radians=False, a=a_wgs84, c=c_wgs84 ) :
     return R
 
 # -----------------------------------------------------------------------------
+
+
 def local_sph_raduis(lat):
     """
     Radius of the local sphere (based on latitude)
@@ -833,6 +884,8 @@ def local_sph_raduis(lat):
     return R
 
 # -----------------------------------------------------------------------------
+
+
 def m2deg(md, n_digits=9, R=R_wgs84, lat=None):
     """
     Convert metric distances to decimal degrees (spherical approximation)
@@ -851,6 +904,8 @@ def m2deg(md, n_digits=9, R=R_wgs84, lat=None):
     return dd
 
 # -----------------------------------------------------------------------------
+
+
 def deg2m(dd, lat=None, n_digits=3, R=R_wgs84):
     """
     Convert deg distances to meters (spherical approximation)
@@ -869,6 +924,8 @@ def deg2m(dd, lat=None, n_digits=3, R=R_wgs84):
     return md
 
 # -----------------------------------------------------------------------------
+
+
 def pad_array( array, padw=25, mode='edge', alpha=None,
                constant_values=np.nan,
                plot=False, vmin=None, vmax=None, iter=1,
@@ -909,7 +966,7 @@ def pad_array( array, padw=25, mode='edge', alpha=None,
                             ( padw[1], padw[1] ) ),
                             mode='constant', constant_values=np.nan )
 
-        if mode in ( 'min_curvature', 'robust' ):
+        if mode in ('surface', 'min_curvature', 'robust'):
             # Pixel-space by default; optionally use real projected axes.
             padded_xy = None
             if xy is not None:
@@ -962,6 +1019,8 @@ def pad_array( array, padw=25, mode='edge', alpha=None,
     return pad_array, original_shape_indx
 
 # -----------------------------------------------------------------------------
+
+
 def pad_xx_yy( pad_arr, xx, yy, plot=False ):
 
     dx = abs( np.mean(np.diff( xx, axis=1 ) ) )
@@ -986,6 +1045,8 @@ def pad_xx_yy( pad_arr, xx, yy, plot=False ):
     return xxn, yyn
 
 # -----------------------------------------------------------------------------
+
+
 def taper( array, plot=False, vmin=None, vmax=None ):
 
     nx = array.shape[1]
@@ -1018,6 +1079,8 @@ def taper( array, plot=False, vmin=None, vmax=None ):
     return tarray, taper_filt
 
 # -----------------------------------------------------------------------------
+
+
 def crop_pad(array, original_shape_idx, plot=False, vmin=None, vmax=None):
 
     array_crop = array[original_shape_idx[0]:original_shape_idx[1],
@@ -1031,6 +1094,8 @@ def crop_pad(array, original_shape_idx, plot=False, vmin=None, vmax=None):
     return array_crop
 
 # -----------------------------------------------------------------------------
+
+
 def xy2lim( x, y, prjcode_in=4326, prjcode_out=4326, extend=False,
             method='distance', sqr_area='False',
             plot=False, round_val=None, p=False ):
@@ -1075,6 +1140,8 @@ def xy2lim( x, y, prjcode_in=4326, prjcode_out=4326, extend=False,
     return lim
 
 # -----------------------------------------------------------------------------
+
+
 def absolute_file_paths( directory ):
 
     path = os.path.abspath(directory)
@@ -1082,6 +1149,8 @@ def absolute_file_paths( directory ):
     return [entry.path for entry in os.scandir(path) if entry.is_file()]
 
 # -----------------------------------------------------------------------------
+
+
 def array2step( arrays, axis=0 ) :
 
     if type( arrays ) != list :
@@ -1122,6 +1191,8 @@ def array2step( arrays, axis=0 ) :
     return steps
 
 # -----------------------------------------------------------------------------
+
+
 def plta( array,
           vmin=None,
           vmax=None,
@@ -1401,6 +1472,8 @@ def plta( array,
     return ax
 
 # -----------------------------------------------------------------------------
+
+
 def map_profile( xy_start, xy_end, X, Y, Z=[], step=None,
                  yaxis_sep=50, method='nearest',
                  colors=None,
@@ -1437,7 +1510,6 @@ def map_profile( xy_start, xy_end, X, Y, Z=[], step=None,
                  y_axis_type='multiple',
                  new_fig=True):
 
-    from matplotlib import rcParams
 
     rcParams['font.family'] = font
     if prjcode_out is None:
@@ -1556,6 +1628,8 @@ def map_profile( xy_start, xy_end, X, Y, Z=[], step=None,
     return pr_list
 
 # -----------------------------------------------------------------------------
+
+
 def XYZ_crop2lim( X, Y, Z, lim ) :
 
     if len( Z.shape ) == 2:
@@ -1585,6 +1659,8 @@ def XYZ_crop2lim( X, Y, Z, lim ) :
     return xc, yc, zc, original_shape_idx
 
 # -----------------------------------------------------------------------------
+
+
 def isiterable(p_object):
     """
     Check if an object is iterable
@@ -1598,6 +1674,8 @@ def isiterable(p_object):
     return True
 
 # -----------------------------------------------------------------------------
+
+
 def stepxy( xarray, yarray ) :
 
     " Distance between 2Darray grid data points "
@@ -1616,184 +1694,8 @@ def stepxy( xarray, yarray ) :
     return dx, dy, dmxy
 
 # -----------------------------------------------------------------------------
-def gmt_surf( x, y, z,
-              grid_step=None,
-              lim=None,
-              blkm=True,
-              pause=False,
-              filt='',
-              max_iterations=100,
-              tension_factor=0.35,
-              remove_files=True,
-              decimals=4,
-              plot=False, vmin=None, vmax=None ):
 
-    """
-    Generate a GMT surface plot using given x, y, and z data.
-    To use this function, GMT 6 sotware MUST BE installed on your system.
-    https://docs.generic-mapping-tools.org/latest/install.html
 
-    Args:
-        - x (array-like): The x-coordinates of the data points.
-        - y (array-like): The y-coordinates of the data points.
-        - z (array-like): The z-values of the data points.
-        - gstep (float, optional): The grid step size. If not provided, it will be calculated based on the mean distance between data points.
-        - lim (tuple, optional): The limits of the plot in the form of (x0, x1, y0, y1). If not provided, it will be calculated based on the minimum and maximum values of x and y.
-        - grid_shape (list, optional): The shape of the grid in the form of [num_rows, num_columns]. If not provided, it will be calculated based on the lim and gstep values.
-        - pause (bool, optional): Whether to pause after running the GMT commands. Default is False.
-        - filt (str, optional): The filter to apply to the surface. Default is an empty string.
-        - convergence_limit (str, optional): The convergence limit for the surface generation. Default is an empty string.
-        - max_iterations (int, optional): The maximum number of iterations for the surface generation. Default is 100.
-        - max_radius (float or str, optional): The maximum radius for the surface generation. Default is an empty string.
-        - tension_factor (float, optional): The tension factor for the surface generation. Default is 0.35.
-        - remove_files (bool, optional): Whether to remove intermediate files generated during the process. Default is True.
-        - plot (bool, optional): Whether to plot the generated surface. Default is False.
-        - vmin (float, optional): The minimum value for the color scale of the plot. Default is None.
-        - vmax (float, optional): The maximum value for the color scale of the plot. Default is None.
-
-    Returns:
-        - list: A list containing the x-coordinates, y-coordinates,
-          and z-values of the generated surface.
-
-    References :
-        - GMT 6: Wessel, P., Luis, J. F., Uieda, L., Scharroo,
-          R., Wobbe, F., Smith, W. H. F., & Tian, D. (2019).
-          The Generic Mapping Tools version 6. Geochemistry,
-          Geophysics, Geosystems, 20, 5556-5564.
-          https://doi.org/10.1029/2019GC008515.
-
-        - Smith, W. H. F, and P. Wessel, 1990,
-          Gridding with continuous curvature splines in tension,
-          Geophysics, 55, 293-305,
-          https://doi.org/10.1190/1.1442837.
-    """
-
-    # Remove NaN values from the data
-    nan = np.isnan(z)
-    x, y, z = x[(~nan)], y[(~nan)], z[(~nan) ]
-
-    # If no limits are provided, calculate them based on the data
-    if lim is None:
-        lim = ( np.min(x), np.max(x), np.min(y), np.max(y) )
-    x0, x1, y0, y1 = lim
-
-    # Round the limits to avoid floating point precision issues
-    x0, x1 = round(x0, decimals), round(x1, decimals)
-    y0, y1 = round(y0, decimals), round(y1, decimals)
-
-    # Calculate the mean distance between data points
-    mdist = min_dist(x, y)['mean']
-    if ( grid_step is None ) :
-        grid_step = np.round( mdist, decimals )
-        print( 'gstep : ', grid_step )
-
-    grid_step = np.round( grid_step, decimals )
-
-    # Calculate the dimensions of the grid
-    x_dim = int(np.ceil((x1 - x0) / grid_step))
-    y_dim = int(np.ceil((y1 - y0) / grid_step))
-
-    while np.gcd(x_dim, y_dim) <= 1:
-        # Increment x_dim and/or y_dim
-        x_dim += 1
-        y_dim += 1
-
-    x1 = x0 + x_dim * grid_step
-    y1 = y0 + y_dim * grid_step
-
-    # Define the grid shape
-    grid_shape = [x_dim, y_dim]
-
-    # Define the grid step for the GMT surface command
-    gs = f"-I{np.round(grid_step, decimals)}+e"
-
-    if blkm is True :
-        blkm = gs
-    elif type( blkm ) in ( int, float ) :
-        blkm = f"-I{blkm}"
-
-    # Define the limits for the GMT commands
-    Rlim = f"-R{np.round(x0,decimals)}/{np.round(x1,decimals)}/{np.round(y0,decimals)}/{np.round(y1,decimals)}"
-    xyz_temp = np.column_stack((x, y, z))
-
-    np.savetxt('xyz_temp', xyz_temp, fmt='%f')
-
-    # Define the block mean command based on the block mean parameter
-    # if blkm != '':
-    blkm = f"gmt blockmedian xyz_temp {blkm} {Rlim} > xyz_temp_blkm"
-
-    # Define the pause command based on the pause parameter
-    if pause == True:
-        pause = 'pause'
-    if pause == False:
-        pause = ''
-
-    # Define the input file name based on whether block mean is used
-    if ( blkm is not None ) or ( blkm is not False ) :
-        in_file = 'xyz_temp_blkm'
-    else :
-        blkm = ''
-        in_file = 'xyz_temp'
-
-    # Define the GMT surface command
-    surface = f"gmt surface {in_file} {gs} {Rlim} " \
-              f"-Gsurf_temp.grd -T{tension_factor} -N{max_iterations}"
-
-    if filt != '':
-        filt = f"gmt grdfilter surf_temp.grd -Fg{filt} -Gsurf_temp.grd -Dp"
-
-    # Define the script extension and prefix based on the operating system
-    if platform.system() == 'Linux' :
-        ext = '.sh'
-        pre= './'
-    else :
-        ext = '.bat'
-        pre = ''
-
-    # Write the GMT commands to a script file
-    gmt_script = 'run_temp' + ext
-    with open( gmt_script, 'w') as rsh:
-        gmt_code = blkm + '\n' +\
-                   surface + '\n' +\
-                   filt + '\n' +\
-                   'gmt grd2xyz surf_temp.grd > surf_temp.xyz\n' +\
-                   pause + '\n'
-        rsh.write( gmt_code )
-        rsh.close()
-    rsh.close()
-
-    # Run the script
-    print( gmt_code )
-    os.system( pre + gmt_script )
-    xyz = np.loadtxt('surf_temp.xyz')
-
-    # Remove intermediate files if requested
-    if remove_files == True :
-        os.remove( gmt_script )
-        os.remove('xyz_temp')
-        if os.path.exists("xyz_temp_blkm"):
-          os.remove("xyz_temp_blkm")
-        os.remove('surf_temp.grd')
-        os.remove('surf_temp.xyz')
-        os.remove('gmt.history')
-
-    # Extract the x, y, and z values from the output
-    x = np.unique(xyz[:, 0])
-    y = np.unique(xyz[:, 1])
-    zz = np.reshape(xyz[:, 2], (len(y), len(x)))
-    xx = np.reshape(xyz[:, 0], (len(y), len(x)))
-    yy = np.reshape(xyz[:, 1], (len(y), len(x)))
-
-    # Plot the output if requested
-    if plot == True :
-        plt.close("GMT surface")
-        plt.figure("GMT surface")
-        plta( zz, vmin=vmin, vmax=vmax,
-            lim=(xx, yy), axis=True )
-
-    return [xx, yy, zz]
-
-# -----------------------------------------------------------------------------
 def grid_fill( data, invalid=None ):
     """
     Replace the value of invalid 'data' cells (indicated by 'invalid')
@@ -1817,6 +1719,8 @@ def grid_fill( data, invalid=None ):
     return data[ tuple(ind) ]
 
 # -----------------------------------------------------------------------------
+
+
 def mask_edges( mask, plot=False, c='k', s=None, plt_array=None, vmin=None, vmax=None ) :
 
     """
@@ -1851,6 +1755,8 @@ def mask_edges( mask, plot=False, c='k', s=None, plt_array=None, vmin=None, vmax
     return x_ind, y_ind
 
 # -----------------------------------------------------------------------------
+
+
 def normalize( array, b=1, a=0 ) :
 
     Min = np.nanmin(  array )
@@ -1861,6 +1767,8 @@ def normalize( array, b=1, a=0 ) :
     return norm
 
 # -----------------------------------------------------------------------------
+
+
 def fillnan( array,
              xy=None,
              method='nearest',
@@ -1950,18 +1858,11 @@ def fillnan( array,
         zn[nan] = zfn
         zzfn = zn.reshape( zz.shape )
 
-    if method == 'surface':
-        print( xx.shape )
-        xxs, yys, zzs = gmt_surf( xx.ravel(), yy.ravel(), zz.ravel(),
-                         tension_factor=tension )
-        zzfn = xyz2xy( ( xxs, yys, zzs ), (xx, yy), method='nearest' )
-        print( zzfn.shape )
-
     # -------------------------------------------------------------------------
     # Regularized minimum curvature: solve missing cells, preserve the
     # original finite observations and input coordinate orientation.
     # -------------------------------------------------------------------------
-    if method in ( 'min_curvature', 'robust' ):
+    if method in ('surface', 'min_curvature', 'robust'):
         if xx.shape != zz.shape or yy.shape != zz.shape:
             raise ValueError("xy and array must have the same shape")
         if np.any( zz_nan ):
@@ -1988,7 +1889,7 @@ def fillnan( array,
             dxdy = (abs(float(dxx[0])), abs(float(dyy[0])))
             _gx, _gy, modeled = min_curvature(
                 xv, yv, zz, spacing=dxdy,
-                solver='robust', tension=tension,
+                tension=tension,
                 block=block, block_size=block_size,
                 anchor=anchor, data_weight=data_weight,
                 linear_solver=linear_solver,
@@ -2012,6 +1913,8 @@ def fillnan( array,
     return zzfn
 
 # -----------------------------------------------------------------------------
+
+
 def geo_line_dist( x_line, y_line, prjcode_in=4326, prjcode_out=4326 ) :
     """
     Calculate the distance between consecutive points in a line.
@@ -2053,6 +1956,8 @@ def geo_line_dist( x_line, y_line, prjcode_in=4326, prjcode_out=4326 ) :
     return dist
 
 # -----------------------------------------------------------------------------
+
+
 def sort_lines( xyzl, prjcode_in=None, prjcode_out=None, add_dist=True,
                 add_original_ord=True, line_c=3, x_c=0, y_c=1,
                 order_c=None, plot=False ) :
@@ -2166,6 +2071,8 @@ def sort_lines( xyzl, prjcode_in=None, prjcode_out=None, add_dist=True,
     return new_xyzl
 
 # -----------------------------------------------------------------------------
+
+
 def join_lines(xyzl, dist_th=10000, angle_th=30, line_c=3, x_c=0, y_c=1, new_line_c=None):
     """
     Joins a set of lines into larger segments based on
@@ -2265,6 +2172,8 @@ def join_lines(xyzl, dist_th=10000, angle_th=30, line_c=3, x_c=0, y_c=1, new_lin
     return xyzl_new
 
 # -----------------------------------------------------------------------------
+
+
 def split_lines( xyzl,
                  angle_th=45,
                  step=250,
@@ -2510,13 +2419,13 @@ def split_lines( xyzl,
     return xyzl_new
 
 # -----------------------------------------------------------------------------
+
+
 def pad_lines(
     xyzl, pad_dist, pad_idx=-1, prjcode_in=None,
     prjcode_out=None, x_c=0, y_c=1, z_c=2, line_c=3,
     plot=False, s=1, radius=0, order_c='same', dist=None
 ):
-    import numpy as np
-    import matplotlib.pyplot as plt
 
     xyzl = np.copy(xyzl)
 
@@ -2709,6 +2618,8 @@ def pad_lines(
     return pad_xyzl, idx_original
 
 # -----------------------------------------------------------------------------
+
+
 def cross_over_points( xyzl, method='nearest', s=2, cmap='rainbow', plot=False,
                        linewidths=0.05, vmin=None, vmax=None, colorbar=True,
                        prjcode_in=4326, prjcode_out=4326, extend_perc=50,
@@ -2806,6 +2717,8 @@ def cross_over_points( xyzl, method='nearest', s=2, cmap='rainbow', plot=False,
     return cross_over_array
 
 # -----------------------------------------------------------------------------
+
+
 def block_m( x, y, z=None, wind_size=None, method='mean', data_type='vector', lim=None,
              prjcode_in=4326, prjcode_out=4326, nan=False, adjst_lim=True,
              plot=False, s1=None, s2=None, xy_method='mean' ) :
@@ -2891,6 +2804,8 @@ def block_m( x, y, z=None, wind_size=None, method='mean', data_type='vector', li
         return Xb, Yb, Zb
 
 # -----------------------------------------------------------------------------
+
+
 def intersect_circle_line(circle_center, circle_radius, line_path):
     """
     Find intersections between a circle and a line segment.
@@ -2937,6 +2852,8 @@ def intersect_circle_line(circle_center, circle_radius, line_path):
     return intersections
 
 # -----------------------------------------------------------------------------
+
+
 def resamp_lines( xyzl, step, prjcode_in=4326, prjcode_out=4326,
                   plot=False, x_c=0, y_c=1, z_c=None,
                   line_c=None, size=None, order_c='same', new_xy=False,
@@ -3115,6 +3032,8 @@ def resamp_lines( xyzl, step, prjcode_in=4326, prjcode_out=4326,
     return xyzl_new
 
 # -----------------------------------------------------------------------------
+
+
 def lines_samp_dist( xyzl, prjcode_in=4326, prjcode_out=4326, kind='mean',
                      x_c=0, y_c=1, line_c=3, s=1, round_dist=6, print_dist=True,
                      deg_to_m=False ) :
@@ -3143,6 +3062,8 @@ def lines_samp_dist( xyzl, prjcode_in=4326, prjcode_out=4326, kind='mean',
     return minimum_dist
 
 # -----------------------------------------------------------------------------
+
+
 def array2csv( array, headers=[], sep=',', fmt='% 15.6f',
                file='new_dataset.csv', nan=None, nan_c=2, nround=6 ) :
 
@@ -3194,6 +3115,8 @@ def array2csv( array, headers=[], sep=',', fmt='% 15.6f',
     return abs_path
 
 # -----------------------------------------------------------------------------
+
+
 def read_csv( file, sep=' ',
               header=None,
               skiprows=[],
@@ -3288,6 +3211,8 @@ def read_csv( file, sep=' ',
     return dictionary, array, hd, data
 
 # -----------------------------------------------------------------------------
+
+
 def d( csv_file, sep=',', header=None, skiprows=[], encoding="utf8",
               n_col=None, adjust_last_col_fmt=True ) :
 
@@ -3298,6 +3223,8 @@ def d( csv_file, sep=',', header=None, skiprows=[], encoding="utf8",
     return d
 
 # -----------------------------------------------------------------------------
+
+
 def csv2array( csv_file, sep=',', header=None, skiprows=[], encoding="utf8",
                n_col=None, adjust_last_col_fmt=True ) :
 
@@ -3308,6 +3235,8 @@ def csv2array( csv_file, sep=',', header=None, skiprows=[], encoding="utf8",
     return a
 
 # -----------------------------------------------------------------------------
+
+
 def dict2array( dictionary, exclude=[], flen=None ) :
 
     headers = []
@@ -3349,6 +3278,8 @@ def dict2array( dictionary, exclude=[], flen=None ) :
     return array, headers
 
 # -----------------------------------------------------------------------------
+
+
 def dict2csv( dictionary, sep=',', fmt='% 15.6f', file='new_dataset.csv', **kwargs ) :
 
     array, headers = dict2array( dictionary )
@@ -3359,6 +3290,8 @@ def dict2csv( dictionary, sep=',', fmt='% 15.6f', file='new_dataset.csv', **kwar
     return abs_path
 
 # -----------------------------------------------------------------------------
+
+
 def addc2csv( csv_file, new_c=[], new_hd=[], new_fmt=[], sep=',', rep_fmt=None,
               file=None, rep_headers=None, header=None, skiprows=[],
               encoding="utf8", n_col=None, adjust_last_col_fmt=True ) :
@@ -3609,6 +3542,8 @@ def merge2Darrays( array_list,
     return Z1
 
 # -----------------------------------------------------------------------------
+
+
 def rolling_win_2d( arr, win_shape ) :
 
     if ( win_shape[0] % 2 == 0 ) or ( win_shape[1] % 2 == 0 ) :
@@ -3629,6 +3564,8 @@ def rolling_win_2d( arr, win_shape ) :
     return windows
 
 # -----------------------------------------------------------------------------
+
+
 def median_filt( array, radius=1, padw=0, pmode='linear_ramp',
                  plot=False, vmin=None, vmax=None, iter=1 ):
 
@@ -3651,6 +3588,8 @@ def median_filt( array, radius=1, padw=0, pmode='linear_ramp',
     return ar_filt
 
 # -----------------------------------------------------------------------------
+
+
 def mean_filt( array, radius=1, padw=0, pmode='linear_ramp',
                plot=False, vmin=None, vmax=None, iter=1 ) :
 
@@ -3692,6 +3631,8 @@ def hanning_filt( array, padw=0, pmode='linear_ramp',
     return ar_filt
 
 # -----------------------------------------------------------------------------
+
+
 def gauss_filt( array, radius=None, sigma=1, padw=0, pmode='linear_ramp',
                 alpha=None, iter=1, plot=False, vmin=None, vmax=None,
                 truncate=4.0 ):
@@ -3723,6 +3664,8 @@ def gauss_filt( array, radius=None, sigma=1, padw=0, pmode='linear_ramp',
     return ar_filt
 
 # -----------------------------------------------------------------------------
+
+
 def resampling_filt( array, factor, padw=0, pmode='linear_ramp',
                      alpha=None, spl_order=2,
                      plot=False, vmin=None, vmax=None ) :
@@ -3754,6 +3697,8 @@ def resampling_filt( array, factor, padw=0, pmode='linear_ramp',
     return ar_filt
 
 # -----------------------------------------------------------------------------
+
+
 def std_filt( array, padw=0, pmode='gdal', radius=1, n=1,
               alpha=None, plot=False, vmin=None, vmax=None ) :
 
@@ -3854,6 +3799,8 @@ def filt2d( array,
     return ar_filt
 
 # -----------------------------------------------------------------------------
+
+
 def filt_edges( array, mask=None, size=3, iter=1, plot=False, vmin=None, vmax=None,
                 smooth=0 ) :
 
@@ -3899,6 +3846,8 @@ def filt_edges( array, mask=None, size=3, iter=1, plot=False, vmin=None, vmax=No
     return ar_filt
 
 # -----------------------------------------------------------------------------
+
+
 def lim2grid( lim, step=None, xyz=None, plot=False, vmin=None, vmax=None, prjcode_in=4326,
               prjcode_out=4326, method='linear', blkm=False, filt=False, radius=None,
               nan=True, padw=0 ) :
@@ -3989,6 +3938,8 @@ def lim2grid( lim, step=None, xyz=None, plot=False, vmin=None, vmax=None, prjcod
         return X, Y, Z
 
 # -----------------------------------------------------------------------------
+
+
 def mask2D( xyr=None, xyzgrid=None, array=None, array_and_lim=None, mask=None,
             plot=False, vmin=None, vmax=None,
             convexhull=False ):
@@ -4115,6 +4066,8 @@ def resampling( array,
         return azr
 
 # -----------------------------------------------------------------------------
+
+
 def neighboring_points( points1,
                         points2,
                         radius,
@@ -4199,6 +4152,8 @@ def neighboring_points( points1,
     return tuple(selected_points), idx
 
 # -----------------------------------------------------------------------------
+
+
 def alpha_shape(points, alpha):
     """
     Compute the alpha shape (concave hull) of a set
@@ -4234,6 +4189,8 @@ def alpha_shape(points, alpha):
     return shapely.ops.cascaded_union(triangles), edge_points
 
 # -----------------------------------------------------------------------------
+
+
 def xy2convexhull( x, y, plot=False, close=True, size=0.5, color='b' ) :
 
     points = np.column_stack( ( x.ravel(), y.ravel() ) )
@@ -4253,6 +4210,8 @@ def xy2convexhull( x, y, plot=False, close=True, size=0.5, color='b' ) :
     return [ hull, xh, yh ]
 
 # -----------------------------------------------------------------------------
+
+
 def xy_in_hull( x, y, hull, buffer=0, plot=False ) :
 
     original_shape = np.copy( x.shape )
@@ -4282,6 +4241,8 @@ def xy_in_hull( x, y, hull, buffer=0, plot=False ) :
 
 
 # -----------------------------------------------------------------------------
+
+
 def mask2hull( mask, nan=None, plot=False, close=True, size=0.5, color='b' ) :
 
     if type( mask ) in ( list, tuple ) :
@@ -4305,6 +4266,8 @@ def mask2hull( mask, nan=None, plot=False, close=True, size=0.5, color='b' ) :
     return hull_list
 
 # -----------------------------------------------------------------------------
+
+
 def filt_voids( xyzgrid, xyr, step=None, plot=False, vmin=None, vmax=None,
                 method='mean' ) :
 
@@ -4356,6 +4319,8 @@ def filt_voids( xyzgrid, xyr, step=None, plot=False, vmin=None, vmax=None,
     return array
 
 # -----------------------------------------------------------------------------
+
+
 def mosaic_array( array_list, plot=False, vmin=None, vmax=None, ref_shape=0,
                  spl_order=1) :
 
@@ -4378,6 +4343,8 @@ def mosaic_array( array_list, plot=False, vmin=None, vmax=None, ref_shape=0,
     return array_mos, new_list
 
 # -----------------------------------------------------------------------------
+
+
 def del_in_lim( x, y, array, lim, remove='in' ) :
 
     ar = np.copy( array )
@@ -4396,6 +4363,8 @@ def del_in_lim( x, y, array, lim, remove='in' ) :
     return [x,y,ar]
 
 # -----------------------------------------------------------------------------
+
+
 def XY2bbox( X, Y, sx=0, sy=None ) :
 
     if sy is None :
@@ -4412,6 +4381,8 @@ def XY2bbox( X, Y, sx=0, sy=None ) :
     return bbox
 
 # -----------------------------------------------------------------------------
+
+
 def julian2date( jday, year, array=True, array_type=dict ) :
 
     if ( type(jday) is int ) and ( type(year) is int ) :
@@ -4438,6 +4409,8 @@ def julian2date( jday, year, array=True, array_type=dict ) :
     return date
 
 # -----------------------------------------------------------------------------
+
+
 def date2julian( yy, mm, dd ) :
 
     if type( yy ) in ( float, int ) :
@@ -4455,6 +4428,8 @@ def date2julian( yy, mm, dd ) :
     return jday
 
 # -----------------------------------------------------------------------------
+
+
 def date2datetime( date, time, fmt='%d-%m-%y %H:%M:%S', array=True,
                    array_type='datetime64[ms]' ) :
 
@@ -4487,6 +4462,8 @@ def date2datetime( date, time, fmt='%d-%m-%y %H:%M:%S', array=True,
     return np_date_time
 
 # -----------------------------------------------------------------------------
+
+
 def print_table( table,
                  headers =None,
                  space = 12,
@@ -4763,6 +4740,8 @@ def print_table( table,
 
 
 # -----------------------------------------------------------------------------
+
+
 def combine64(years, months=1, days=1, hours=None, minutes=None,
               seconds=None, milliseconds=None, microseconds=None,
               nanoseconds=None ):
@@ -4791,6 +4770,8 @@ def combine64(years, months=1, days=1, hours=None, minutes=None,
     return datetime_type
 
 # -----------------------------------------------------------------------------
+
+
 def read_file( file, rows=None, printf=False ) :
 
     f = open( file, 'r' )
@@ -4814,6 +4795,8 @@ def read_file( file, rows=None, printf=False ) :
     return lines
 
 # -----------------------------------------------------------------------------
+
+
 def open_dir( path ) :
 
     if os.name == 'nt' :
@@ -4823,6 +4806,8 @@ def open_dir( path ) :
         os.system( 'nautilus ' + path + '&' )
 
 # -----------------------------------------------------------------------------
+
+
 def del_files( path, string ) :
 
     for file in os.listdir( path ) :
@@ -4838,6 +4823,8 @@ def del_files( path, string ) :
                 os.rmdir( path + os.sep + file )
 
 # -----------------------------------------------------------------------------
+
+
 def ls( path ) :
 
     for file in os.listdir( path ) :
@@ -4845,6 +4832,8 @@ def ls( path ) :
         print( file )
 
 # -----------------------------------------------------------------------------
+
+
 def xyz2grid( x, y, z, lim=None, extend=None, extend_method='percentage',
               sqr_area=False, gstep=None, blkm=None, method='linear', prjcode_in=4326,
               prjcode_out=4326, filt=None, filt_radius=1, msk_radius=None, msk_shp=None,
@@ -4889,10 +4878,17 @@ def xyz2grid( x, y, z, lim=None, extend=None, extend_method='percentage',
     xx, yy = np.meshgrid(xg, yg)
 
 #    points = np.column_stack((xl, yl))
-    if method == 'surface':
-        xxs, yys, zzs = gmt_surf( xl, yl, zl, lim=extend_lim(lim, 10), grid_step=gstep,
-                                  tension_factor=tension_factor )
-        zz = xyz2xy( ( xxs, yys, zzs ), (xx, yy), method='linear', fillnan=False )
+    if method in ('surface', 'min_curvature'):
+        # Reuse the only curvature algorithm on the already defined grid.
+        dx_grid = abs(float(xg[1] - xg[0]))
+        dy_grid = abs(float(yg[1] - yg[0]))
+        target_region = (float(np.min(xg)), float(np.max(xg)),
+                         float(np.min(yg)), float(np.max(yg)))
+        gx, gy, zz = min_curvature(
+            xl, yl, zl, region=target_region,
+            spacing=(dx_grid, dy_grid), tension=tension_factor,
+        )
+        xx, yy = np.meshgrid(gx, gy)
     else:
 #        zz = scy.interpolate.griddata(points, zl, (xx, yy), method=method)
         zz = xyz2xy( ( xl, yl, zl ), (xx, yy), method=method, fillnan=False )
@@ -4927,6 +4923,8 @@ def xyz2grid( x, y, z, lim=None, extend=None, extend_method='percentage',
     return [ xx, yy, zz ], [ x, y, z ]
 
 # -----------------------------------------------------------------------------
+
+
 def relative_max_min_2D( array, n=2 ) :
 
     ar = np.copy( array )
@@ -4982,6 +4980,8 @@ def relative_max_min_2D( array, n=2 ) :
 
 
 # -----------------------------------------------------------------------------
+
+
 def rotate_xy( x, y, radians, shift=True, fix_point='first', plot=False ) :
 
     if shift is not None :
@@ -5025,6 +5025,8 @@ def rotate_xy( x, y, radians, shift=True, fix_point='first', plot=False ) :
     return xr, yr, fix_point
 
 # -----------------------------------------------------------------------------
+
+
 def grid_rot_angle( x, y, plot=False, treshold=1e-5,
                     fix_point='first', decimals=None ) :
 
@@ -5087,6 +5089,8 @@ def grid_rot_angle( x, y, plot=False, treshold=1e-5,
     return angle, xr, yr, fix_point, shape
 
 # -----------------------------------------------------------------------------
+
+
 def mesh3Dmodel( x=None, y=None, z=None, lim=None, step=None, plot=False,
                  sbplt=111, out_type='dictionary', size=None, centre_xy=False,
                  xm=None, ym=None, treshold=1e-5, fix_point='first' ) :
@@ -5158,6 +5162,8 @@ def mesh3Dmodel( x=None, y=None, z=None, lim=None, step=None, plot=False,
         return { 'x':X.ravel(), 'y':Y.ravel(), 'z':Z.ravel() }, shape
 
 # -----------------------------------------------------------------------------
+
+
 def despike_1D( array, treshold, radius=2, pmode='median', plot=False, kind='cubic' ) :
 
     signal = np.copy( array )
@@ -5190,6 +5196,8 @@ def despike_1D( array, treshold, radius=2, pmode='median', plot=False, kind='cub
 
 
 # -----------------------------------------------------------------------------
+
+
 def xyzp2array3d( x, y, z, p, xi=None, yi=None, zi=None, lim=None, step=None, plot=False,
                   sbplt=111, size=None, centre_xy=False, method='nearest' ) :
 
@@ -5259,6 +5267,8 @@ def xyzp2array3d( x, y, z, p, xi=None, yi=None, zi=None, lim=None, step=None, pl
     return X, Y, Z, P
 
 # -----------------------------------------------------------------------------
+
+
 def write_xyzp2vtk( x, y, z, p, path, name, nan2num=0 ):
 
     file_vtk = name + '.vtk'
@@ -5302,6 +5312,8 @@ def write_xyzp2vtk( x, y, z, p, path, name, nan2num=0 ):
      # File is automatically closed after the 'with' block
 
 # -----------------------------------------------------------------------------
+
+
 def dayyear2daymonth(day_numbers, years):
     """
     Convert day numbers to month numbers for a given year or years.
@@ -5343,6 +5355,8 @@ def dayyear2daymonth(day_numbers, years):
     return days, months
 
 # -----------------------------------------------------------------------------
+
+
 def datetime2time(  dates, unit='s', ref_time='1970-01-01T00:00:00' ) :
     """
     Convert a numpy array of datetime64 objects to time since the Unix epoch.
@@ -5372,6 +5386,8 @@ def datetime2time(  dates, unit='s', ref_time='1970-01-01T00:00:00' ) :
     return time
 
 # -----------------------------------------------------------------------------
+
+
 def get_sampling_rate(datetime_array, units='s'):
     """
     Calculate the sampling rate from a numpy datetime array.
@@ -5398,6 +5414,8 @@ def get_sampling_rate(datetime_array, units='s'):
     return sampling_rate
 
 # -----------------------------------------------------------------------------
+
+
 def normalize_moving_window( arr, window_size, a=0, b=1, smoothing_factor=1e-8 ):
     # Sostituisci i NaN con il valore di riempimento
     arr_filled = fillnan(arr)
@@ -5417,6 +5435,8 @@ def normalize_moving_window( arr, window_size, a=0, b=1, smoothing_factor=1e-8 )
     return normalized_arr
 
 # -----------------------------------------------------------------------------
+
+
 def reshapexyz_1D_2D( x, y, z=None, flipud=False, fliplr=False,
                       resamp=None, spl_order=1, mode='nearest',
                       plot=False, vmin=None, vmax=None):
@@ -5479,6 +5499,8 @@ def reshapexyz_1D_2D( x, y, z=None, flipud=False, fliplr=False,
     return X, Y, Z
 
 # -----------------------------------------------------------------------------
+
+
 def fit_segmented_line( x, y,
                         num_segments=None,
                         threshold=1e-2,
@@ -5689,6 +5711,8 @@ def fit_segmented_line( x, y,
     return fitted_segments
 
 # -----------------------------------------------------------------------------
+
+
 def refine_edges(data, radius=1):
     # Create a structuring element, which is a square here
     struct_elem = sp.ndimage.generate_binary_structure(2, 1)
@@ -5700,6 +5724,8 @@ def refine_edges(data, radius=1):
     return refined
 
 # -----------------------------------------------------------------------------
+
+
 def pad_model_3d( model, pad=1, step=100,
                   plot=False, aspect='equal', vmin=None,
                   vmax=None ) :
@@ -5746,6 +5772,8 @@ def pad_model_3d( model, pad=1, step=100,
     return model
 
 # -----------------------------------------------------------------------------
+
+
 def costum_cmap(cmap_name, range_starts=[0], range_ends=[1], num_colors=256):
     """
     Create a custom colormap by modifying parts of an existing colormap.
@@ -5787,6 +5815,8 @@ def costum_cmap(cmap_name, range_starts=[0], range_ends=[1], num_colors=256):
     return new_cmap
 
 # -----------------------------------------------------------------------------
+
+
 def shrink_cmap(cmap_name, center_start=0.4, center_end=0.6, num_colors=256):
     """
     Create a custom colormap by shrinking the central values in favor of the extremes.
@@ -5830,6 +5860,8 @@ def shrink_cmap(cmap_name, center_start=0.4, center_end=0.6, num_colors=256):
     return new_cmap
 
 # -----------------------------------------------------------------------------
+
+
 def _parse_dt64( s ):
     """
     Parse a string representation of a datetime into a numpy datetime64 object.
@@ -5884,6 +5916,8 @@ def _parse_dt64( s ):
                             f"Use e.g. 'YYYY-MM-DD HH:MM:SS' or ISO.") from e
 
 # -----------------------------------------------------------------------------
+
+
 def calculate_julian_century(timestamp):
     """
     Calculate the julian century and hour.
@@ -5927,6 +5961,8 @@ def calculate_julian_century(timestamp):
 
 
 # -----------------------------------------------------------------------------
+
+
 def match_nearest_xy(dat_ref, dat_mov, max_dist, reciprocal=False):
     """
     Match nearest neighbors in XY between two datasets.
@@ -5980,700 +6016,182 @@ def match_nearest_xy(dat_ref, dat_mov, max_dist, reciprocal=False):
 
 
 # -----------------------------------------------------------------------------
-# Minimum curvature: continuous-curvature splines in tension
+# Minimum-curvature interpolation
 # -----------------------------------------------------------------------------
-# Numerical translation of the core finite-difference algorithm in GMT 6
-# surface.c, Copyright (c) 1991-2026 GMT Team, LGPL-3.0-or-later.
-# https://github.com/GenericMappingTools/gmt/blob/master/src/surface.c
-#
-# This section does NOT call the GMT executable and does NOT add required
-# package dependencies. In a normal RelGravPy installation NumPy is already
-# imported as np. Numba is used only if the optional [fast] extra is present.
-#
-import numpy as np
-from math import gcd as _gmt_surface_gcd
-import warnings as _gmt_surface_warnings
-
-try:
-    from numba import njit as _gmt_surface_njit
-except ImportError:
-    def _gmt_surface_njit(*args, **kwargs):
-        """Fallback decorator: preserve the pure Python kernel without Numba."""
-        def _decorate(func):
-            return func
-        return _decorate
 
 
-# Exact order of GMT SURFACE enum: N2 NW N1 NE W2 W1 E1 E2 SW S1 SE S2.
-_GMT_SURFACE_NEIGHBORS = np.array([
-    (-2, 0), (-1, -1), (-1, 0), (-1, 1),
-    (0, -2), (0, -1), (0, 1), (0, 2),
-    (1, -1), (1, 0), (1, 1), (2, 0),
-], dtype=np.int64)
-# Briggs quadrants: C->p[quadrant][k]  (index into _GMT_SURFACE_NEIGHBORS)
-_GMT_SURFACE_QUADRANTS = np.array([
-    [0, 0, 0, 0], [1, 5, 9, 10], [8, 9, 6, 3],
-    [10, 6, 2, 1], [3, 2, 5, 8]
-], dtype=np.int64)
+def min_curvature(
+    x, y, z, region=None, spacing=1.0, *, tension=0.0,
+    block=None, block_size=None, padding=0, data_weight=1e4,
+    anchor=1e-2, linear_solver="auto", tolerance=1e-9,
+    max_iterations=4000, return_info=False,
+):
+    """Fill sparse grids and extended borders using regularized curvature.
 
-
-
-
-def _gmt_surface_primes(n: int) -> list[int]:
-    f = []
-    p = 2
-    while p * p <= n:
-        while n % p == 0:
-            f.append(p)
-            n //= p
-        p += 1
-    if n > 1:
-        f.append(n)
-    return f
-
-
-def _gmt_surface_coefficients(alpha: float, t: float):
-    """GMT surface_set_coefficients: (constrained, unconstrained) weights."""
-    a2 = alpha * alpha
-    a4 = a2 * a2
-    loose = 1.0 - t
-    one_plus = 1 + a2
-    denominator = 6 * a4 * loose + 10 * a2 * loose + 8 * loose - 2 * one_plus + 4 * t * one_plus
-    a0 = 1 / denominator
-    c = np.zeros((2, 12), dtype=np.float64)
-    # GMT set == SURFACE_CONSTRAINED (1) vs SURFACE_UNCONSTRAINED (0)
-    c[1, [4, 7]] = -loose
-    c[1, [0, 11]] = -loose * a4
-    c[0, [4, 7]] = -loose * a0
-    c[0, [0, 11]] = -loose * a4 * a0
-    c[1, [5, 6]] = 2 * loose * one_plus
-    c[0, [5, 6]] = (2 * c[1, 5] + t) * a0
-    c[1, [2, 9]] = c[1, 5] * a2
-    c[0, [2, 9]] = c[0, 5] * a2
-    c[1, [1, 3, 8, 10]] = -2 * loose * a2
-    c[0, [1, 3, 8, 10]] = c[1, 1] * a0
-    a0_const_1 = 2 * loose * (1 + a4)
-    a0_const_2 = 2 - t + 2 * loose * a2
-    return c, a0_const_1, a0_const_2
-
-
-def _gmt_surface_boundary(u: np.ndarray, nx: int, ny: int, alpha: float, tb: float) -> None:
-    """Port of GMT surface_set_BCs, Eqs. A-8..A-10 (non-periodic case)."""
-    x0 = 4 * (1 - tb) / (2 - tb)
-    x1 = (3 * tb - 2) / (2 - tb)
-    den = 2 * alpha * (1 - tb) + tb
-    y0 = 4 * alpha * (1 - tb) / den
-    y1 = (tb - 2 * alpha * (1 - tb)) / den
-    eps_m2 = 1 / (alpha * alpha)
-    eps_p2 = alpha * alpha
-
-    # First auxiliary layer on all four edges.
-    u[1, 2:nx+2] = y0 * u[2, 2:nx+2] + y1 * u[3, 2:nx+2]
-    u[ny+2, 2:nx+2] = y0 * u[ny+1, 2:nx+2] + y1 * u[ny, 2:nx+2]
-    u[2:ny+2, 1] = x1 * u[2:ny+2, 3] + x0 * u[2:ny+2, 2]
-    u[2:ny+2, nx+2] = x1 * u[2:ny+2, nx] + x0 * u[2:ny+2, nx+1]
-    # Mixed derivatives = 0 at the four corners (first auxiliary diagonal).
-    u[ny+2, 1] = u[ny+2, 3] + u[ny, 1] - u[ny, 3]
-    u[1, 1] = u[1, 3] + u[3, 1] - u[3, 3]
-    u[ny+2, nx+2] = u[ny+2, nx] + u[ny, nx+2] - u[ny, nx]
-    u[1, nx+2] = u[1, nx] + u[3, nx+2] - u[3, nx]
-    # Second auxiliary row/column: normal derivative of curvature = 0.
-    u[ny+3, 2:nx+2] = (
-        u[ny-1, 2:nx+2] + eps_m2 *
-        (u[ny, 1:nx+1] + u[ny, 3:nx+3] - u[ny+2, 1:nx+1] - u[ny+2, 3:nx+3])
-        + (2 + 2*eps_m2) * (u[ny+2, 2:nx+2] - u[ny, 2:nx+2])
-    )
-    u[0, 2:nx+2] = (
-        u[4, 2:nx+2] + eps_m2 *
-        (u[3, 1:nx+1] + u[3, 3:nx+3] - u[1, 1:nx+1] - u[1, 3:nx+3])
-        + (2 + 2*eps_m2) * (u[1, 2:nx+2] - u[3, 2:nx+2])
-    )
-    u[2:ny+2, 0] = (
-        u[2:ny+2, 4] + eps_p2 *
-        (u[1:ny+1, 3] + u[3:ny+3, 3] - u[1:ny+1, 1] - u[3:ny+3, 1])
-        + (2 + 2*eps_p2) * (u[2:ny+2, 1] - u[2:ny+2, 3])
-    )
-    u[2:ny+2, nx+3] = (
-        u[2:ny+2, nx-1] + eps_p2 *
-        (u[1:ny+1, nx] + u[3:ny+3, nx] - u[1:ny+1, nx+2] - u[3:ny+3, nx+2])
-        + (2 + 2*eps_p2) * (u[2:ny+2, nx+2] - u[2:ny+2, nx])
-    )
-
-
-@_gmt_surface_njit(cache=True)
-def _gmt_surface_sor_step(u, status, briggs, coeff, neighbors, quadrants, a0_const_2, omega):
-    """Sequential Gauss-Seidel SOR: same 12-neighbour update as GMT C."""
-    ny, nx = status.shape
-    max_change = 0.0
-    for row in range(ny):
-        r = row + 2
-        for col in range(nx):
-            kind = status[row, col]
-            if kind == 5:
-                continue
-            c = col + 2
-            set_idx = 0 if kind == 0 else 1
-            u00 = 0.0
-            for k in range(12):
-                u00 += u[r+neighbors[k, 0], c+neighbors[k, 1]] * coeff[set_idx, k]
-            if set_idx == 1:
-                sum_b = 0.0
-                for k in range(4):
-                    off_idx = quadrants[kind, k]
-                    sum_b += briggs[row, col, k] * u[r+neighbors[off_idx, 0], c+neighbors[off_idx, 1]]
-                u00 = (u00 + a0_const_2 * (sum_b + briggs[row, col, 4])) * briggs[row, col, 5]
-            u00 = (1.0 - omega) * u[r, c] + omega * u00
-            delta = abs(u00 - u[r, c])
-            if delta > max_change:
-                max_change = delta
-            u[r, c] = u00
-    return max_change
-
-
-def _gmt_surface_constraints(x, y, z, nx, ny, region, dx, dy, alpha, a0_const_1, a0_const_2,
-                 trend, rms, stride, u, from_coarse=False):
-    """Nearest station per node; construct Briggs weights on off-node observations."""
-    west, east, south, north = region
-    col = np.floor((x - west) / dx + 0.5).astype(np.int64)
-    row = ny - 1 - np.floor((y - south) / dy + 0.5).astype(np.int64)
-    valid = (col >= 0) & (col < nx) & (row >= 0) & (row < ny)
-    ids = np.where(valid)[0]
-    if not len(ids):
-        raise ValueError('No observation projects onto the current grid')
-    # Sort by node and Euclidean physical distance (GMT surface_compare_points).
-    cx = west + col[ids] * dx
-    cy = north - row[ids] * dy
-    dist2 = (x[ids] - cx)**2 + (y[ids] - cy)**2
-    ordered = np.lexsort((dist2, col[ids] + nx * row[ids]))
-    ids = ids[ordered]
-    keys = col[ids] + nx * row[ids]
-    ids = ids[np.r_[True, keys[1:] != keys[:-1]]]
-    status = np.zeros((ny, nx), dtype=np.uint8)
-    b = np.zeros((ny, nx, 6), dtype=np.float64)
-    for k in ids:
-        r, c = int(row[k]), int(col[k])
-        fx = (x[k] - (west + c*dx)) / dx
-        fy = (y[k] - (north - r*dy)) / dy
-        if abs(fx) < 0.05 and abs(fy) < 0.05:
-            status[r, c] = 5
-            # GMT offset by planar trend when snapping off-grid data to nodes.
-            u[r+2, c+2] = z[k] + (trend[1]*fx + trend[2]*fy) * stride / rms
-            continue
-        if fy >= 0:
-            if fx >= 0:
-                quad, xx, yy = 1, fx, fy
-            else:
-                quad, xx, yy = 2, fy, -fx
-        else:
-            if fx >= 0:
-                quad, xx, yy = 4, -fy, fx
-            else:
-                quad, xx, yy = 3, -fx, -fy
-        xy = xx + yy
-        # Briggs (1974) weights, surface_solve_Briggs_coefficients.
-        inv_sum = 1.0 / (1.0 + xy)
-        inv_delta = inv_sum / xy
-        bb0 = (xx*xx + 2*xx*yy + xx - yy*yy - yy) * inv_delta
-        bb1 = 2*(yy - xx + 1)*inv_sum
-        bb2 = 2*(xx - yy + 1)*inv_sum
-        bb3 = (-xx*xx + 2*xx*yy - xx + yy*yy + yy)*inv_delta
-        bb4 = 4*inv_delta
-        b[r, c, :] = (bb0, bb1, bb2, bb3, bb4*z[k],
-                        1/(a0_const_1 + a0_const_2*(bb0+bb1+bb2+bb3+bb4)))
-        status[r, c] = quad
-    return status, b
-
-
-def _gmt_surface_bilinear(previous: np.ndarray, nx: int, ny: int, factor: int, previous_stride: int):
-    """Expand coarser GMT grid (including its old nodes as temporary fixed constraints)."""
-    old = previous[2:-2, 2:-2]
-    # The C source uses i/previous_stride instead of i/factor for
-    # each intermediate fraction; this matters during multigrid refinement.
-    xnew = np.arange(nx) // factor + (np.arange(nx) % factor) / previous_stride
-    # GMT's fill_in_forecast sweeps each coarse-grid cell from its southern
-    # row toward the north. Its y fraction is measured from the southern
-    # baseline, not from the northern baseline as in NumPy's row order.
-    # Reproduce that direction explicitly, including the old-node positions.
-    r = np.arange(ny)
-    ynew = r // factor + np.where(
-        r % factor == 0, 0.0,
-        1.0 - (factor - r % factor) / previous_stride
-    )
-    oldx = np.arange(old.shape[1])
-    oldy = np.arange(old.shape[0])
-    hx = np.array([np.interp(xnew, oldx, row) for row in old])
-    highres = np.array([np.interp(ynew, oldy, hx[:, col]) for col in range(nx)]).T
-    u = np.zeros((ny + 4, nx + 4), dtype=np.float32)
-    u[2:-2, 2:-2] = highres
-    status = np.zeros((ny, nx), dtype=np.uint8)
-    status[::factor, ::factor] = 5
-    return u, status
-
-
-def _gmt_surface_iterate(u, status, briggs, coeff, a02, alpha, tb, omega,
-             stride, limit, rms, max_iterations):
-    ny, nx = status.shape
-    iteration_count = 0
-    max_change = float('inf')
-    target = limit / stride
-    while iteration_count < max_iterations * stride:
-        _gmt_surface_boundary(u, nx, ny, alpha, tb)
-        max_change = _gmt_surface_sor_step(u, status, briggs, coeff, _GMT_SURFACE_NEIGHBORS, _GMT_SURFACE_QUADRANTS, a02, omega)
-        iteration_count += 1
-        if max_change * rms <= target:
-            break
-    return iteration_count, float(max_change * rms), bool(max_change * rms <= target)
-
-
-def _min_curvature_gmt( x, y, z, region, spacing, *,
-                    tension=0.0, boundary_tension=None,
-                    convergence=None, max_iterations=500,
-                    relaxation=1.4, aspect_ratio=1.0,
-                    return_info=False ) :
-    """
-    Interpolate scattered XYZ data using the GMT ``surface`` numerical scheme.
-
-    The solution minimizes continuous curvature (``tension=0``) or uses
-    continuous-curvature splines in tension (``0 < tension <= 1``). In
-    particular, it solves for EVERY node inside the specified rectangular
-    region, including nodes outside the convex hull of the observations.
-    It does NOT fill empty areas using nearest-neighbour interpolation.
-
-    The core implementation reproduces GMT surface.c's finite-difference
-    12-neighbour stencil, Briggs off-node constraints, natural boundary
-    conditions, planar detrending, multigrid refinement and SOR iterations.
+    There is one interpolation model: a SciPy sparse, variational bending-
+    energy minimization with bilinear observation constraints. Data gaps,
+    the convex-hull exterior and new padding cells are all solved together.
 
     Parameters
     ----------
     x, y, z : array-like
-        One-dimensional vectors of scattered coordinates and measurements.
-        Arrays are flattened and non-finite observations are discarded.
-        For gravimetry, use planar projected coordinates (e.g., metres).
-    region : tuple of float
-        Target region ``(xmin, xmax, ymin, ymax)``. It may extend well beyond
-        the observation coverage. All grid nodes must be included.
-    spacing : float or tuple of float
-        Grid step ``dx`` or ``(dx, dy)``. The region lengths must be integer
-        multiples of the requested step; coordinates use node registration.
-    tension : float, optional
-        Interior tension in [0, 1]. Default 0 reproduces classical minimum
-        curvature; 1 produces the harmonic solution.
-    boundary_tension : float, optional
-        Tension at the boundaries, in [0, 1]. Default uses ``tension``.
-    convergence : float, optional
-        Maximum nodal change for convergence, expressed in units of z.
-        Default is 1e-4 times the detrended RMS, as in GMT surface.
-    max_iterations : int, optional
-        Maximum iteration count per final grid pass; GMT default is 500.
-        Coarser grids receive this value multiplied by their stride.
-    relaxation : float, optional
-        Successive over-relaxation factor. GMT default is 1.4.
-    aspect_ratio : float, optional
-        GMT ``-A`` parameter. Defaults to 1.0 (isotropic Cartesian case),
-        independently of numerical dx/dy. For coordinates in different units,
-        set this value to represent their physical relative scale.
-    return_info : bool, optional
-        Return a dictionary with retained samples, discarded samples,
-        multigrid strides, iteration counts and convergence flags.
-
-    Returns
-    -------
-    xg : numpy.ndarray, shape (nx,)
-        X coordinates, increasing from xmin to xmax.
-    yg : numpy.ndarray, shape (ny,)
-        Y coordinates, decreasing from ymax to ymin (GMT row order).
-    zg : numpy.ndarray, shape (ny, nx)
-        Interpolated continuous surface. No NaNs are left in the grid.
-    info : dict, optional
-        Diagnostic results, only when ``return_info=True``. The
-        ``converged`` entry means that each multigrid stage passed the
-        change-per-iteration stopping rule; it is not an error bound.
-
-    Examples
-    --------
-    >>> rng = np.random.default_rng(42)
-    >>> x = rng.uniform(0, 1000, 100)
-    >>> y = rng.uniform(0, 1000, 100)
-    >>> gz = 2.5 * np.exp(-((x-400)**2 + (y-600)**2) / 70000)
-    >>> xg, yg, grid = min_curvature(x, y, gz,
-    ...                              region=(0, 1000, 0, 1000),
-    ...                              spacing=20, tension=0.0)
-    >>> grid.shape
-    (51, 51)
-    >>> np.isfinite(grid).all()
-    True
-
-    Notes
-    -----
-    Convergence is assessed using the GMT criterion based on the maximum
-    node change between SOR iterations. This is NOT a guarantee that the
-    numerical solution is accurate. In large areas without constraints,
-    especially with tension=0, the biharmonic system may be ill-conditioned.
-    Two grids can satisfy the iteration criterion yet differ significantly
-    near the outer boundary. Inspect regional coverage and validate
-    extrapolation independently before interpreting gravimetric gradients.
-
-    Output values outside the observation convex hull are extrapolations of
-    the chosen surface model, NOT measured values. Such estimates should be
-    interpreted cautiously in sparsely sampled areas.
-
-    Comparison with GMT 6.4+ should specify ``-Qr`` to disable its optional
-    automatic working-region expansion; this port does not include that step.
-    This function does not yet implement geographical periodicity, breaklines,
-    lower/upper constrained grids, masking or GMT binary grid I/O. Therefore
-    Numerical equivalence with GMT has not yet been established through a
-    direct reference comparison. This implementation is experimental.
-
-    References
-    ----------
-    Smith, W.H.F. and Wessel, P. (1990). Gridding with continuous curvature
-    splines in tension. Geophysics, 55(3), 293-305.
-    DOI: https://doi.org/10.1190/1.1442837
-    GMT Team (2026). GMT source code: src/surface.c (LGPL-3.0-or-later).
-    """
-    x = np.asarray(x, dtype=np.float64).ravel()
-    y = np.asarray(y, dtype=np.float64).ravel()
-    z = np.asarray(z, dtype=np.float64).ravel()
-    if not (len(x) == len(y) == len(z)) or len(x) < 3:
-        raise ValueError('Need at least three x/y/z samples, of equal length')
-    n_original = len(x)
-
-    # Ignore missing measurements, as GMT does when reading XYZ tables.
-    finite = np.isfinite(x) & np.isfinite(y) & np.isfinite(z)
-    x, y, z = x[finite], y[finite], z[finite]
-    if len(x) < 3:
-        raise ValueError('Fewer than three valid XYZ observations')
-    west, east, south, north = (float(a) for a in region)
-    if not (np.isfinite([west,east,south,north]).all() and west < east and south < north):
-        raise ValueError('Invalid region: expected west<east and south<north')
-    if np.isscalar(spacing):
-        dx = dy = float(spacing)
-    else:
-        dx, dy = map(float, spacing)
-    if not (np.isfinite(dx) and np.isfinite(dy) and dx > 0 and dy > 0):
-        raise ValueError('Spacing must be finite and positive')
-    qx, qy = (east-west)/dx, (north-south)/dy
-    if not (np.isclose(qx, round(qx), rtol=0, atol=1e-8) and
-            np.isclose(qy, round(qy), rtol=0, atol=1e-8)):
-        raise ValueError('Region dimensions must be integer multiples of spacing')
-    nx, ny = round(qx)+1, round(qy)+1
-    if min(nx, ny) < 4:
-        raise ValueError('GMT surface requires >=4 nodes along each axis')
-    if not (0 <= tension <= 1):
-        raise ValueError('Tension must be in [0,1]')
-    tb = tension if boundary_tension is None else float(boundary_tension)
-    if not 0 <= tb <= 1:
-        raise ValueError('Boundary tension must be in [0,1]')
-    if not np.isfinite(aspect_ratio) or aspect_ratio <= 0:
-        raise ValueError('Aspect ratio must be finite and positive')
-    if int(max_iterations) != max_iterations:
-        raise ValueError('max_iterations must be an integer')
-    if not 0 < relaxation < 2 or max_iterations < 1:
-        raise ValueError('Invalid relaxation or max_iterations')
-    if convergence is not None and convergence <= 0:
-        raise ValueError('Convergence must be > 0')
-
-    valid = (x >= west) & (x <= east) & (y >= south) & (y <= north)
-    x, y, z = x[valid], y[valid], z[valid]
-    if len(x) < 3:
-        raise ValueError('Fewer than three samples inside region')
-    # GMT retains only the nearest sample to each final grid node.
-    col = np.floor((x-west)/dx+0.5).astype(np.int64)
-    row = ny-1-np.floor((y-south)/dy+0.5).astype(np.int64)
-    col = np.clip(col, 0, nx-1)
-    row = np.clip(row, 0, ny-1)
-    dist = (x - (west+col*dx))**2 + (y - (north-row*dy))**2
-    idx = np.lexsort((dist, col+nx*row))
-    first = np.r_[True, (col[idx[1:]]+nx*row[idx[1:]]) != (col[idx[:-1]]+nx*row[idx[:-1]])]
-    idx = idx[first]
-    x, y, z = x[idx], y[idx], z[idx]
-    if len(z) < 3:
-        raise ValueError('Fewer than three unique constraining grid nodes')
-    # Least-squares plane in grid-cell coordinates, as in GMT surface.c.
-    xf = (x-west)/dx
-    yf = (y-south)/dy
-    design = np.stack((np.ones_like(xf), xf, yf), axis=1)
-    if np.linalg.matrix_rank(design) < 3:
-        plane = np.array([0., 0., 0.])
-    else:
-        plane = np.linalg.lstsq(design, z, rcond=None)[0]
-    residual = z - design @ plane
-    rms = float(np.sqrt(np.mean(residual**2)))
-    xs = west + np.arange(nx)*dx
-    ys = north - np.arange(ny)*dy
-    if rms < 1e-12:
-        grid = (plane[0] + plane[1]*np.arange(nx)[None,:] +
-                plane[2]*np.arange(ny-1,-1,-1)[:,None]).astype(np.float64)
-        info = dict(retained_observations=len(z), discarded_observations=n_original-len(z),
-                    strides=(1,), iterations=(), converged=True, residual_rms=rms)
-        return (xs, ys, grid, info) if return_info else (xs, ys, grid)
-    zn = residual / rms
-    convergence = float(convergence) if convergence is not None else 1e-4*rms
-    # Dimension-scaled coordinates: GMT's -A defaults to 1 for Cartesian data;
-    # pixels are effectively square here unless user controls anisotropy.
-    alpha = float(aspect_ratio)
-    coeff, a01, a02 = _gmt_surface_coefficients(alpha, float(tension))
-    strides = [_gmt_surface_gcd(nx-1, ny-1)]
-    factors = _gmt_surface_primes(strides[0])
-    # GMT discards largest factors until each coarse dimension has >=4 nodes.
-    while min((nx-1)//strides[0]+1, (ny-1)//strides[0]+1) < 4:
-        strides[0] //= factors.pop()
-    # GMT then successively divides by largest remaining prime factors.
-    while strides[-1] > 1:
-        strides.append(strides[-1] // factors.pop())
-    stages = []
-    previous = None
-    info_iterations = []
-    for stride in strides:
-        cx = (nx-1)//stride+1
-        cy = (ny-1)//stride+1
-        if previous is None:
-            u = np.zeros((cy+4, cx+4), dtype=np.float32)
-        else:
-            expand = previous_stride//stride
-            u, frozen = _gmt_surface_bilinear(previous, cx, cy, expand, previous_stride)
-            blank_b = np.zeros((cy, cx, 6), dtype=np.float64)
-            niter, error, ok = _gmt_surface_iterate(u, frozen, blank_b, coeff, a02, alpha, tb,
-                                        relaxation, stride, convergence, rms, max_iterations)
-            info_iterations.append((stride, 'I', niter, error, ok))
-        status, briggs = _gmt_surface_constraints(x, y, zn, cx, cy, region,
-                                       stride*dx, stride*dy, alpha, a01, a02,
-                                       plane, rms, stride, u)
-        niter, error, ok = _gmt_surface_iterate(u, status, briggs, coeff, a02, alpha, tb,
-                                    relaxation, stride, convergence, rms, max_iterations)
-        info_iterations.append((stride, 'D', niter, error, ok))
-        previous_stride = stride
-        previous = u
-        stages.append(stride)
-    grid = (previous[2:-2,2:-2].astype(np.float64)*rms +
-            plane[0] + plane[1]*np.arange(nx)[None,:] +
-            plane[2]*np.arange(ny-1,-1,-1)[:,None])
-    if not np.isfinite(grid).all():
-        raise FloatingPointError('Non-finite values detected during surface iteration')
-    success = all(t[4] for t in info_iterations)
-    if not success:
-        _gmt_surface_warnings.warn('One or more surface multigrid stages hit max_iterations', RuntimeWarning, stacklevel=2)
-    info = dict(retained_observations=len(z), discarded_observations=n_original-len(z),
-                strides=tuple(stages), iterations=tuple(info_iterations),
-                converged=success, residual_rms=rms)
-    return (xs, ys, grid, info) if return_info else (xs, ys, grid)
-
-# -----------------------------------------------------------------------------
-# MINIMUM CURVATURE — GMT-compatible or stable variational solver
-# -----------------------------------------------------------------------------
-def min_curvature(x, y, z, region=None, spacing=1.0, *,
-                  tension=0.0, solver="gmt",
-                  block=None, block_size=None, padding=0,
-                  data_weight=1e4, anchor=1e-2,
-                  linear_solver="auto", tolerance=1e-9,
-                  boundary_tension=None, convergence=None,
-                  max_iterations=None, relaxation=1.4, aspect_ratio=1.0,
-                  return_info=False):
-    """
-    Interpolate scattered gravity data or fill/pad an incomplete regular grid.
-
-    The output covers EVERY node of the selected rectangular region,
-    including gaps and areas outside the convex hull of the measurements.
-    Two independent numerical methods are offered:
-
-    - `solver="gmt"`: GMT surface C-style spline stencil and multigrid SOR;
-      see Smith & Wessel (1990). Suitable for a numerical GMT comparison.
-    - `solver="robust"`: SciPy sparse variational minimum curvature, with
-      bilinear off-node measurements, positive regularization and direct/CG
-      solve. Recommended for extensive padding and large gaps. Results are
-      not numerically identical to GMT or Oasis montaj minimum curvature.
-
-    Parameters
-    ----------
-    x, y, z : 1-D or 2-D arrays
-        Scattered XYZ observations. Alternatively, x and y may be ascending
-        coordinate vectors of an existing grid, with z shaped (ny, nx) and
-        NaN for missing cells. Nonfinite XYZ triples are discarded.
-    region : (west, east, south, north) or None
-        Output bounds; if None, infer an outward-aligned rectangle from data.
-        To pad an existing grid, provide its original region and set padding.
-    spacing : positive float or pair (dx, dy)
-        Target grid spacing in projected Cartesian coordinate units.
-    tension : float in [0, 1]
-        Zero gives minimum curvature; a positive value damps far-field trends.
-        Note that `robust` uses an energy functional, not GMT's equation.
-    solver : {"gmt", "robust"}
-        The GMT-style implementation stays the default for compatibility.
-    block : {"mean", "median", None, False, True}
-        Optional pre-gridding aggregation via RelGravPy's existing
-        `block_m(..., method="mean"/"median")`. True selects "mean".
-    block_size : positive float or None
-        Block width; defaults to the smaller grid spacing when enabled.
-        Pre-blocking reduces duplicate/noisy data, but is NOT guaranteed to
-        improve conditioning and may remove valuable spatial constraints.
-    padding : nonnegative int or (px, py)
-        Extra number of grid cells per side in X and Y. Padding extends
-        the computational DOMAIN and solves for new nodes; no NaN fill or
-        nearest-neighbour postprocessing is applied.
-    data_weight : positive float
-        Data fidelity weight used only by `solver="robust"`; default 1e4.
-    anchor : positive float
-        Background-planar-trend regularization used only by `robust`.
-        Default 1e-2. A stronger anchor reduces low-frequency drift in
-        poorly covered domains, but also changes the extrapolated surface.
-    linear_solver : {"auto","direct","cg"}
-        SciPy solver for the robust method. Auto uses sparse direct <= 7000
-        grid nodes, else preconditioned CG.
+        XYZ vectors, or coordinate vectors and a 2-D raster with NaN gaps.
+    region : (west, east, south, north), optional
+        Geographic extent in the same projected units as the input.
+    spacing : float or (dx, dy)
+        Positive distance between output grid nodes.
+    tension : float
+        Relative first-derivative versus curvature regularization, [0, 1].
+    block : None, "mean", "median" or True
+        Optional spatial aggregation using the existing block_m function.
+    block_size : float, optional
+        Aggregation width in coordinate units, defaulting to grid spacing.
+    padding : int or (px, py)
+        Nonnegative number of extra output cells along each side.
+    data_weight, anchor : float
+        Positive data-fidelity and planar-background regularization weights.
+    linear_solver : {"auto", "direct", "cg"}
+        Sparse factorization or preconditioned conjugate gradients.
     tolerance : float
-        Relative linear system tolerance used for CG in the robust method.
-    boundary_tension, convergence, relaxation, aspect_ratio
-        Parameters of the GMT-style SOR implementation only.
-    max_iterations : int or None
-        Iteration budget. With None, use GMT's original 500 per final
-        pass (scaled by stride) or 4000 for robust sparse CG.
+        Relative CG convergence threshold.
+    max_iterations : int
+        Maximum number of conjugate-gradient iterations.
     return_info : bool
-        Return diagnostics, including method, observation RMSE and solver
-        convergence. Neither convergence nor output completeness establishes
-        accuracy of unconstrained extrapolation.
+        Include fit residuals, convergence and preprocessing diagnostics.
 
     Returns
     -------
-    gx, gy : numpy.ndarray
-        East-increasing X, north-to-south Y grid vectors.
-    grid : numpy.ndarray
-        Fully populated (ny, nx) output, including any requested padding.
-    info : dict, optional
-        Solver diagnostics if `return_info=True`.
-
-    Examples
-    --------
-    >>> x = np.array([0., 10., 20., 0., 10., 20., 10.])
-    >>> y = np.array([0., 0., 0., 20., 20., 20., 10.])
-    >>> z = 2 + 0.1*x - 0.04*y
-    >>> gx, gy, grid = min_curvature(
-    ...     x, y, z, region=(0, 20, 0, 20), spacing=2,
-    ...     solver="robust", padding=5, block="median")
-    >>> grid.shape
-    (21, 21)
-    >>> np.isfinite(grid).all()
-    True
-
-    >>> xg = np.arange(0., 21., 2.)
-    >>> yg = np.arange(20., -1., -2.)
-    >>> X, Y = np.meshgrid(xg, yg)
-    >>> Z = 0.1*X - 0.2*Y
-    >>> Z[2:6, 3:8] = np.nan
-    >>> _, _, filled = min_curvature(
-    ...     xg, yg, Z, spacing=2, solver="robust", padding=3)
-    >>> np.isfinite(filled).all()
-    True
+    result : tuple
+        Grid x-vector, y-vector and the 2-D surface, optionally diagnostics.
 
     Notes
     -----
-    In regions without data, the extrapolated grid is a mathematical
-    continuation, not an independently constrained physical gravity field.
-    Block aggregation does not ensure better conditioning. For large pads,
-    compare several anchor/tension settings to assess far-field uncertainty.
-
-    References
-    ----------
-    Smith, W. H. F. & Wessel, P. (1990). Gridding with continuous curvature
-    splines in tension. Geophysics 55(3), 293-305.
-    https://doi.org/10.1190/1.1442837
+    Extrapolation beyond stations is not independently constrained: a
+    fully populated raster does not imply a physically accurate field.
     """
     # -------------------------------------------------------------------------
-    # Normalize XYZ input, accepting a pre-existing incomplete grid.
+    # Normalize irregular XYZ or an existing raster with missing cells.
     # -------------------------------------------------------------------------
-    xa, ya, za = np.asarray(x), np.asarray(y), np.asarray(z)
-    regular_grid_input = (za.ndim == 2 and xa.ndim == 1 and ya.ndim == 1)
-    if regular_grid_input:
-        if za.shape != (len(ya), len(xa)):
-            raise ValueError("For grid input z must have shape (len(y),len(x))")
-        xa, ya = np.meshgrid(xa, ya)
-    xa = np.asarray(xa, dtype=float).ravel()
-    ya = np.asarray(ya, dtype=float).ravel()
-    za = np.asarray(za, dtype=float).ravel()
-    original_input_count = len(za)
-    # Full grid extent must include even edge nodes whose values are NaN.
-    # Otherwise padding would silently shrink the original raster domain.
-    ext_x = xa[np.isfinite(xa)]
-    ext_y = ya[np.isfinite(ya)]
-    if not (len(xa) == len(ya) == len(za)):
-        raise ValueError("x, y, z must be matching XYZ vectors or grid arrays")
-    finite = np.isfinite(xa) & np.isfinite(ya) & np.isfinite(za)
-    xa, ya, za = xa[finite], ya[finite], za[finite]
-    if len(za) < 3:
-        raise ValueError("At least three finite XYZ measurements required")
+    x_input = np.asarray(x)
+    y_input = np.asarray(y)
+    z_input = np.asarray(z)
 
+    is_grid = (
+        z_input.ndim == 2
+        and x_input.ndim == 1
+        and y_input.ndim == 1
+    )
+    if is_grid:
+        if z_input.shape != (len(y_input), len(x_input)):
+            raise ValueError("Grid z must have shape (len(y), len(x))")
+        x_input, y_input = np.meshgrid(x_input, y_input)
+
+    x_array = np.asarray(x_input, dtype=float).ravel()
+    y_array = np.asarray(y_input, dtype=float).ravel()
+    z_array = np.asarray(z_input, dtype=float).ravel()
+
+    if not (len(x_array) == len(y_array) == len(z_array)):
+        raise ValueError("x, y and z must contain matching numbers of values")
+
+    original_count = len(z_array)
+    extent_x = x_array[np.isfinite(x_array)]
+    extent_y = y_array[np.isfinite(y_array)]
+
+    valid = (
+        np.isfinite(x_array)
+        & np.isfinite(y_array)
+        & np.isfinite(z_array)
+    )
+    x_array = x_array[valid]
+    y_array = y_array[valid]
+    z_array = z_array[valid]
+
+    if len(z_array) < 3:
+        raise ValueError("At least three finite observations are required")
+
+    # -------------------------------------------------------------------------
+    # Determine cell spacing, preserve registered raster origin, then pad.
+    # -------------------------------------------------------------------------
     if np.isscalar(spacing):
         dx = dy = float(spacing)
     else:
         dx, dy = (float(value) for value in spacing)
-    if not (np.isfinite([dx, dy]).all() and min(dx, dy) > 0):
+
+    if not np.isfinite([dx, dy]).all() or min(dx, dy) <= 0:
         raise ValueError("spacing must be strictly positive")
+
     if region is None:
-        if regular_grid_input:
-            # Preserve the exact georeferenced coordinate origin and spacing.
-            # The first pixel centre need NOT be a multiple of grid step.
-            region = (ext_x.min(), ext_x.max(), ext_y.min(), ext_y.max())
+        if is_grid:
+            region = (
+                float(extent_x.min()), float(extent_x.max()),
+                float(extent_y.min()), float(extent_y.max()),
+            )
         else:
-            region = (np.floor(ext_x.min()/dx)*dx,
-                      np.ceil(ext_x.max()/dx)*dx,
-                      np.floor(ext_y.min()/dy)*dy,
-                      np.ceil(ext_y.max()/dy)*dy)
-    west, east, south, north = map(float, region)
+            region = (
+                float(np.floor(extent_x.min() / dx) * dx),
+                float(np.ceil(extent_x.max() / dx) * dx),
+                float(np.floor(extent_y.min() / dy) * dy),
+                float(np.ceil(extent_y.max() / dy) * dy),
+            )
+
     if np.isscalar(padding):
-        px = py = padding
+        pad_x = pad_y = padding
     else:
-        px, py = padding
-    if (not all(isinstance(v, (int, np.integer)) for v in (px, py))
-            or min(px, py) < 0):
-        raise ValueError("padding must be nonnegative integer cell counts")
-    region = (west-px*dx, east+px*dx, south-py*dy, north+py*dy)
+        pad_x, pad_y = padding
+
+    if not (
+        isinstance(pad_x, (int, np.integer))
+        and isinstance(pad_y, (int, np.integer))
+        and min(pad_x, pad_y) >= 0
+    ):
+        raise ValueError("padding must contain nonnegative integer cells")
+
+    west, east, south, north = map(float, region)
+    padded_region = (
+        west - pad_x * dx,
+        east + pad_x * dx,
+        south - pad_y * dy,
+        north + pad_y * dy,
+    )
 
     # -------------------------------------------------------------------------
-    # Optional block aggregation: call the EXISTING RelGravPy utility.
+    # Apply the existing block_m only when requested.
     # -------------------------------------------------------------------------
-    old_count = len(za)
-    if block not in (None, False):
-        method = "mean" if block is True else str(block).lower()
-        if method not in ("mean", "median"):
+    before_block = len(z_array)
+    block_method = None
+    if block is not None and block is not False:
+        block_method = "mean" if block is True else str(block).lower()
+        if block_method not in ("mean", "median"):
             raise ValueError("block must be None, 'mean' or 'median'")
-        width = min(dx, dy) if block_size is None else float(block_size)
-        if not np.isfinite(width) or width <= 0:
+
+        block_width = min(dx, dy) if block_size is None else float(block_size)
+        if not np.isfinite(block_width) or block_width <= 0:
             raise ValueError("block_size must be positive")
-        xa, ya, za = block_m(
-            xa, ya, za, method=method, wind_size=width,
-            lim=region, data_type="vector", nan=False)
-    else:
-        method = None
+
+        x_array, y_array, z_array = block_m(
+            x_array, y_array, z_array,
+            method=block_method, wind_size=block_width,
+            lim=padded_region, data_type="vector", nan=False,
+        )
 
     # -------------------------------------------------------------------------
-    # Select independent numerical backend.
+    # Solve the unique regularized-curvature model.
     # -------------------------------------------------------------------------
-    solver = str(solver).lower()
-    if max_iterations is not None and (
-            not isinstance(max_iterations, (int, np.integer)) or
-            max_iterations < 1):
-        raise ValueError("max_iterations must be a positive integer or None")
-    iteration_budget = (4000 if solver == "robust" else 500) if (
-        max_iterations is None) else int(max_iterations)
-    if solver == "robust":
-        from ._min_curvature_robust import _mc_robust_solver
-        result = _mc_robust_solver(
-            xa, ya, za, region, (dx, dy), tension=tension,
-            data_weight=data_weight, anchor=anchor,
-            solver=linear_solver, tolerance=tolerance,
-            max_iterations=iteration_budget, return_info=True)
-    elif solver == "gmt":
-        result = _min_curvature_gmt(
-            xa, ya, za, region, (dx, dy), tension=tension,
-            boundary_tension=boundary_tension, convergence=convergence,
-            max_iterations=iteration_budget, relaxation=relaxation,
-            aspect_ratio=aspect_ratio, return_info=True)
-    else:
-        raise ValueError("solver must be 'gmt' or 'robust'")
+    grid_x, grid_y, grid, info = _mc_robust_solver(
+        x_array, y_array, z_array,
+        region=padded_region, spacing=(dx, dy),
+        tension=tension, data_weight=data_weight, anchor=anchor,
+        solver=linear_solver, tolerance=tolerance,
+        max_iterations=max_iterations, return_info=True,
+    )
+    info["discarded_observations"] += original_count - before_block
+    info["block_method"] = block_method
+    info["observations_before_block"] = before_block
+    info["observations_after_block"] = len(z_array)
+    info["padding"] = (int(pad_x), int(pad_y))
 
-    gx, gy, grid, info = result
-    info["discarded_observations"] += original_input_count - old_count
-    info["solver"] = solver
-    info["block_method"] = method
-    info["observations_before_block"] = old_count
-    info["observations_after_block"] = len(za)
-    info["padding"] = (int(px), int(py))
-    return (gx, gy, grid, info) if return_info else (gx, gy, grid)
+    result = (grid_x, grid_y, grid)
+    if return_info:
+        result = (grid_x, grid_y, grid, info)
+
+    return result
