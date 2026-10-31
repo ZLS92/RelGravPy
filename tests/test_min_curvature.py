@@ -24,7 +24,7 @@ def _load_min_curvature():
     marker = "# Minimum curvature: continuous-curvature splines in tension"
     if marker not in text:
         raise AssertionError("min_curvature implementation missing from utils.py")
-    source = marker + text.split(marker, 1)[1]
+    source = "# " + marker + text.split(marker, 1)[1]
     module = types.ModuleType("_relgravpy_min_curvature_test")
     module.__file__ = str(path)
     sys.modules[module.__name__] = module
