@@ -6200,7 +6200,9 @@ def min_curvature( x, y, z, region, spacing, *,
     zg : numpy.ndarray, shape (ny, nx)
         Interpolated continuous surface. No NaNs are left in the grid.
     info : dict, optional
-        Diagnostic results, only when ``return_info=True``.
+        Diagnostic results, only when ``return_info=True``. The
+        ``converged`` entry means that each multigrid stage passed the
+        change-per-iteration stopping rule; it is not an error bound.
 
     Examples
     --------
@@ -6218,6 +6220,14 @@ def min_curvature( x, y, z, region, spacing, *,
 
     Notes
     -----
+    Convergence is assessed using the GMT criterion based on the maximum
+    node change between SOR iterations. This is NOT a guarantee that the
+    numerical solution is accurate. In large areas without constraints,
+    especially with tension=0, the biharmonic system may be ill-conditioned.
+    Two grids can satisfy the iteration criterion yet differ significantly
+    near the outer boundary. Inspect regional coverage and validate
+    extrapolation independently before interpreting gravimetric gradients.
+
     Output values outside the observation convex hull are extrapolations of
     the chosen surface model, NOT measured values. Such estimates should be
     interpreted cautiously in sparsely sampled areas.
