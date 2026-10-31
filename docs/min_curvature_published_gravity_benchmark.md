@@ -14,7 +14,7 @@ For a lightweight, reproducible benchmark we downloaded the independently publis
 
 ## Numerical results (verified 2026-10-31)
 
-The published grid is taken as a **numerical reference**, not as the true gravity field. We remove values under controlled masks, reconstruct with `solver="robust"`, `tension=0.15`, `anchor=0.01`, `data_weight=10000`, then compare reconstructed values ONLY at withheld positions.
+The published grid is taken as a **numerical reference**, not as the true gravity field. We remove values under controlled masks, reconstruct with the unique `min_curvature()` implementation, `tension=0.15`, `anchor=0.01`, `data_weight=10000`, then compare reconstructed values ONLY at withheld positions.
 
 | Mask | Measured cells | Withheld cells | RMSE mGal | MAE mGal | Max abs. difference mGal |
 | --- | ---: | ---: | ---: | ---: | ---: |
