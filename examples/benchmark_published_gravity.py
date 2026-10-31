@@ -82,7 +82,7 @@ def download_reference(folder: Path):
             with urllib.request.urlopen(_SOURCE + path.name, timeout=90) as r:
                 path.write_bytes(r.read())
     header = header_path.read_text(encoding="utf-8")
-    for expected in ("NrOfLines\t=\t743", "NrOfCellsPerLine\t=\t730",
+    for expected in ("NrOfLines\t= 743", "NrOfCellsPerLine\t= 730",
                      "IEEE4ByteReal", "Xdimension\t= 400",
                      "Ydimension\t= 400", "mGal"):
         assert expected in header, f"Unexpected ERS header: {expected}"
