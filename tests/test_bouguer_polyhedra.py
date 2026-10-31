@@ -48,8 +48,8 @@ GM = _load_numerical_subset(
 )
 BC = _load_numerical_subset(
     ROOT / "relgravpy" / "_bouguer_correction.py",
-    {"_curved_cell_vertices", "_polyhedral_gz", "_point_mass_gz",
-     "_ring_polyhedral_effect"},
+    {"_curved_cell_vertices", "_surface_integral_polyhedral_gz",
+     "_polyhedral_gz", "_point_mass_gz", "_ring_polyhedral_effect"},
     gm=GM,
 )
 
@@ -113,3 +113,28 @@ def test_empirical_ring_is_finite_without_harmonica():
     ring = [[-0.10, 0.10, 0.10, 0.12, radius, radius + 200]]
     g = BC._ring_polyhedral_effect(ring, [2670], radius, 200)
     assert np.isfinite(g)
+
+
+def test_small_far_cell_no_longer_suffers_cancellation():
+    """The original polyhedral solver nearly erased this 0.38-uGal signal."""
+    radius = 6_371_000.0
+    prism = np.array([[7750, 8000, -125, 125, 0, 300.0]], float)
+    obs = np.array([0, 0, 700.0], float)
+    sag = (8000**2 + 125**2)/(2*radius)
+    shifted = prism.copy()
+    shifted[:,4:] -= sag
+    nagy = GM.nagy([obs], shifted, 2670.0).gz()[0]
+    curved = BC._polyhedral_gz(prism, [2670.0], obs, radius)
+    assert nagy > 0.0002
+    assert curved > 0.0002
+    np.testing.assert_allclose(curved, nagy, rtol=0.03, atol=2e-6)
+
+
+def test_surface_quadrature_matches_nagy_at_large_radius():
+    """Ensure numerical surface integration gives a stable distant field."""
+    prism = [[7750, 8000, -125, 125, 0, 300.0]]
+    obs = [0, 0, 700.0]
+    nagy = GM.nagy([obs], np.array(prism), 2670.0).gz()[0]
+    surf = BC._surface_integral_polyhedral_gz(
+        np.array(prism), np.array([2670.0]), obs, 1e10)
+    np.testing.assert_allclose(surf, nagy, rtol=3e-4, atol=2e-7)
