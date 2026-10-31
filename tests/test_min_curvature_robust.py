@@ -145,18 +145,18 @@ def test_block_and_solver_validation():
 # -----------------------------------------------------------------------------
 def test_block_condition_number_can_improve_or_worsen():
     """Show both directions with real block_m and the actual robust matrix."""
-    from relgravpy._min_curvature_robust import (
-        _mc_robust_observation_matrix, _mc_robust_difference
+    from relgravpy._min_curvature_core import (
+        _curvature_observation_matrix, _curvature_difference
     )
     from scipy import sparse
     from scipy.sparse import linalg as spla
 
     nx=ny=21
     ix,iy=sparse.eye(nx,format="csr"),sparse.eye(ny,format="csr")
-    d1x=_mc_robust_difference(nx,1)
-    d1y=_mc_robust_difference(ny,1)
-    d2x=_mc_robust_difference(nx,2)
-    d2y=_mc_robust_difference(ny,2)
+    d1x=_curvature_difference(nx,1)
+    d1y=_curvature_difference(ny,1)
+    d2x=_curvature_difference(nx,2)
+    d2y=_curvature_difference(ny,2)
     x1=sparse.kron(iy,d1x,format="csr")
     y1=sparse.kron(d1y,ix,format="csr")
     x2=sparse.kron(iy,d2x,format="csr")
@@ -167,7 +167,7 @@ def test_block_condition_number_can_improve_or_worsen():
        +tension*(x1.T@x1+y1.T@y1))
 
     def condition_number(x,y):
-        H=_mc_robust_observation_matrix(x,y,nx,ny,0,100,5,5)
+        H=_curvature_observation_matrix(x,y,nx,ny,0,100,5,5)
         A=(1e4*H.T@H+Q+0.01*sparse.eye(nx*ny)).tocsc()
         lu=spla.splu(A)
         inverse=spla.LinearOperator(
