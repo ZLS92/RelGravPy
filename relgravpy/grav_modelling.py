@@ -552,7 +552,7 @@ class Polygrav:
         if self.density==0:
             return float(results[0]) if scalar else results
         distances=np.linalg.norm(obs-self._centre,axis=1)
-        near = distances <= 1.75*self._span
+        near = distances <= 5.0*self._span
         if method=="analytic": near[:]=True
         elif method=="surface": near[:]=False
         if np.any(near):
