@@ -37,6 +37,8 @@ def _load_numerical_subset(path, function_names, class_names=(), gm=None):
         module.G = 6.6743e-11
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), "exec"),
          module.__dict__)
+    if "Nagy" in class_names:
+        module.nagy = module.Nagy  # compatibility alias used by Bouguer tests
     return module
 
 
@@ -44,7 +46,7 @@ GM = _load_numerical_subset(
     ROOT / "relgravpy" / "grav_modelling.py",
     {"anglegravi_exact", "build_edge_table", "prism_to_corners_faces",
      "nagy_fz", "nagy_gz"},
-    class_names={"nagy", "Polygrav"},
+    class_names={"Nagy", "Polygrav"},
 )
 BC = _load_numerical_subset(
     ROOT / "relgravpy" / "_bouguer_correction.py",
