@@ -55,6 +55,73 @@ def spherical_wedge_reference(horizontal_half_width, rbottom, rtop,
     return BC.gm.G*DENSITY*1e5*float(total)
 
 
+def independent_polyhedron_volume_gz(vertices, density, observation, order=4):
+    """Independent 3-D volume integral over tetrahedra of an eight-vertex cell.
+
+    Decompose each face triangle with the internal centroid and apply a
+    tensor-product Gauss-Legendre cubature after a Duffy transformation.
+    This uses Newton's 1/r**3 field directly, not the surface integral in
+    the RelGravPy kernel. It is stable for these distant R1 boundary cells.
+    """
+    v = np.asarray(vertices, float)
+    centre = v.mean(axis=0)
+    faces = np.array([
+        [3,2,1],[3,1,0],[4,5,6],[4,6,7],
+        [0,1,5],[0,5,4],[1,2,6],[1,6,5],
+        [2,3,6],[3,7,6],[3,0,7],[0,4,7]
+    ],dtype=int)
+    nodes, weights = np.polynomial.legendre.leggauss(order)
+    nodes=(nodes+1)/2
+    weights=weights/2
+    U,V,W=np.meshgrid(nodes,nodes,nodes,indexing="ij")
+    wu,wv,ww=np.meshgrid(weights,weights,weights,indexing="ij")
+    u,vp,w=U.ravel(),V.ravel(),W.ravel()
+    factor=(wu*wv*ww).ravel()*(1-u)**2*(1-vp)
+    obs=np.asarray(observation,float)
+    integral=0.
+    for a,b,c in faces:
+        e1,e2,e3 = v[a]-centre,v[b]-centre,v[c]-centre
+        jac=abs(np.linalg.det(np.stack((e1,e2,e3),axis=1)))
+        xyz=(centre[None,:]+u[:,None]*e1
+             +((1-u)*vp)[:,None]*e2
+             +((1-u)*(1-vp)*w)[:,None]*e3)
+        diff=obs[None,:]-xyz
+        distance=np.linalg.norm(diff,axis=1)
+        integral+=jac*np.sum(factor*diff[:,2]/distance**3)
+    return float(BC.gm.G*1e5*density*integral)
+
+
+def independent_bridge_mass_difference(refined, near, observation, R1):
+    """Independent 3D volume correction: bridged vs non-bridged far cells."""
+    near=np.asarray(near,float)
+    tol=1e-6
+    delta=0.
+    for far in refined:
+        x0,x1,y0,y1=far[:4]
+        midx,midy=(x0+x1)/2,(y0+y1)/2
+        if abs(x0-R1)<tol and abs(midy)<R1:
+            candidates=(abs(near[:,1]-R1)<tol) & (near[:,2]<=y0+tol) & (near[:,3]>=y1-tol)
+            side="east"
+        elif abs(x1+R1)<tol and abs(midy)<R1:
+            candidates=(abs(near[:,0]+R1)<tol) & (near[:,2]<=y0+tol) & (near[:,3]>=y1-tol)
+            side="west"
+        elif abs(y0-R1)<tol and abs(midx)<R1:
+            candidates=(abs(near[:,3]-R1)<tol) & (near[:,0]<=x0+tol) & (near[:,1]>=x1-tol)
+            side="north"
+        elif abs(y1+R1)<tol and abs(midx)<R1:
+            candidates=(abs(near[:,2]+R1)<tol) & (near[:,0]<=x0+tol) & (near[:,1]>=x1-tol)
+            side="south"
+        else:
+            continue
+        match=near[candidates]
+        assert len(match)==1
+        bridge=BC._transition_cell_vertices(far,match[0],RADIUS,side)
+        sphere=BC._curved_cell_vertices(far,RADIUS)
+        delta+=independent_polyhedron_volume_gz(bridge,DENSITY,observation)
+        delta-=independent_polyhedron_volume_gz(sphere,DENSITY,observation)
+    return delta
+
+
 def run_case(near_n=80, far_n=64, R1=5000.0,
              near_top=THICKNESS, far_top=THICKNESS, station_height=None):
     # Fine mesh [-R1, R1]^2; coarse mesh [-10km,10km]^2.
@@ -110,6 +177,12 @@ def run_case(near_n=80, far_n=64, R1=5000.0,
             exact += spherical_wedge_reference(R1,far_top,near_top,station_height)
         elif near_top < far_top:
             exact -= spherical_wedge_reference(R1,near_top,far_top,station_height)
+    # The sharp-step spherical reference is *not* the same body as the
+    # prism-anchored bridge when near/far DEM heights differ. Evaluate the
+    # bridge's additional mass independently with direct 3D volume cubature.
+    bridge_delta=independent_bridge_mass_difference(
+        refined,shifted_near,observation,R1)
+    hybrid_reference=exact+bridge_delta
     data = {
         "R1_m":R1,
         "near_top_m":near_top,
@@ -121,7 +194,10 @@ def run_case(near_n=80, far_n=64, R1=5000.0,
         "far_cells_refined":len(refined),
         "near_cell_width_m":2*R1/near_n,
         "far_cell_width_m":DOMAIN/far_n,
-        "reference_mGal":exact,
+        "sharp_step_reference_mGal":exact,
+        "independent_bridge_delta_uGal":1000*bridge_delta,
+        "hybrid_reference_mGal":hybrid_reference,
+        "numerical_residual_uGal":1000*(near_g+far_g-hybrid_reference),
         "new_combined_mGal":near_g+far_g,
         "legacy_combined_mGal":near_nagy+unrefined_far,
         "unjoined_prism_spherical_mGal":near_g+unrefined_far,
@@ -130,7 +206,10 @@ def run_case(near_n=80, far_n=64, R1=5000.0,
         "transition_wedge_effect_uGal":1000*(far_g-unrefined_far)
     }
     print("R1_BENCHMARK",json.dumps(data),flush=True)
-    assert abs(data["new_error_uGal"]) < 1.0, data
+    # The sharp step measures a different body. Only the corrected
+    # reference, including the *independently integrated* bridge mass,
+    # is an appropriate numerical-error comparator.
+    assert abs(data["numerical_residual_uGal"]) < 0.2, data
     return data
 
 
