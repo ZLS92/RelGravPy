@@ -722,7 +722,8 @@ def _bgc_station_terrain_features(dtm, x, y, prjcode_in,
     return np.asarray(results, float), float(np.min(resolution))
 
 
-def _bgc_mesh_error_proxy(features, gs1, R1, gs2, density, radius):
+def _bgc_mesh_error_proxy(features, gs1, R1, gs2, density, radius,
+                          native_resolution=None):
     """Estimate error (mGal) for EACH station with cheap terrain features.
 
     Terms model fine-grid smoothing and far-field quadrature / relief
@@ -740,7 +741,22 @@ def _bgc_mesh_error_proxy(features, gs1, R1, gs2, density, radius):
     far = k*0.015*(thickness+0.20*relief)*(
         gs2/max(R1,gs2,1.))**2
     curvature = k*0.002*thickness*(R1/radius)**2
-    return near+far+curvature
+    # High relief aliased by a near-grid coarser than the source DEM is
+    # missed by the linear smoothing estimate. Full synthetic forward
+    # gravity revealed a factor-of-three UNDERestimate at 2x native
+    # resolution: gs1=60 m gave 0.126 mGal actual error while the
+    # previous proxy predicted 0.038 mGal. Penalize strongly nonlinear
+    # aliasing ONLY when gs1 exceeds native DEM resolution.
+    #
+    # This is a provisional, empirical safeguard, NOT a certified bound.
+    alias = 0.
+    if native_resolution is not None:
+        native = float(native_resolution)
+        if not np.isfinite(native) or native <= 0:
+            raise ValueError("native_resolution must be positive.")
+        excess = max(gs1/native-1., 0.)
+        alias = k*0.06*np.maximum(slope-0.25, 0.)*native*excess**2
+    return near+far+curvature+alias
 
 
 def optimize_bgc_mesh(x, y, dtm1, gs1=None, R1=None, gs2=None,
@@ -822,7 +838,8 @@ def optimize_bgc_mesh(x, y, dtm1, gs1=None, R1=None, gs2=None,
                     continue
                 if R3 is not None and float(R3) <= b+c:
                     continue
-                errors = _bgc_mesh_error_proxy(features,a,b,c,rho,R)
+                errors = _bgc_mesh_error_proxy(
+                    features,a,b,c,rho,R,native_resolution=native)
                 worst = float(np.max(errors))
                 # Proxy wall-clock cost: far-polyhedron work is batched,
                 # near Nagy prisms and seam facets cost more per element.
