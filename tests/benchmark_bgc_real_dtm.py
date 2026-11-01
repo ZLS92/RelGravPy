@@ -121,6 +121,8 @@ def run_case(config,automatic=False):
         assert intermediate.is_file(),intermediate
         assert gdal.Open(str(intermediate)) is not None
     captured=[str(item.message) for item in caught]
+    warning_locations=[f"{Path(item.filename).name}:{item.lineno}"
+                       for item in caught]
     assert not any("GDAL land/sea classification" in w for w in captured)
     record=dict(name=label,number_of_stations=len(stations),
         lat=[float(v) for v in y],lon=[float(v) for v in x],
@@ -133,6 +135,7 @@ def run_case(config,automatic=False):
         near_grid_cells=(2*R1//gs1)**2,
         far_grid_cells=(2*R2//gs2)**2,
         total_runtime_s=elapsed,warnings=captured,
+        warning_locations=warning_locations,
         nominal_R3_m=50000,source_rasters_unchanged=True,
         output_text_path=str(out),
         source_provenance=(
@@ -150,3 +153,5 @@ if __name__=="__main__":
     # Important additional regression: the 3 None parameters are
     # jointly tuned ONCE for all stations using the real source DEM.
     run_case(RUNS[0],automatic=True)
+    # A mixed sea-bottom/land campaign also shares one optimized mesh.
+    run_case(RUNS[1],automatic=True)
