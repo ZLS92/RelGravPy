@@ -404,6 +404,59 @@ def adj_mesh( gs1, R1, gs2, R2 ):
     
     return gs1, R1n, gs2n, R2n  
 
+
+def _refine_far_interface(prisms, densities, near_x, near_y, R1):
+    """Subdivide far cells adjacent to the near-field square interface.
+
+    Split each far cell *tangentially* at every fine-grid boundary it spans
+    along x=+/-R1 or y=+/-R1. This produces the exact same horizontal edge
+    nodes on both sides of R1, even when gs2/gs1 is not an integer.
+    It does not interpolate DEM elevations: distinct near/far top heights
+    may still produce genuine elevation steps and must be validated.
+    """
+    prisms = np.atleast_2d(np.asarray(prisms, dtype=float))
+    densities = np.atleast_1d(np.asarray(densities, dtype=float))
+    if prisms.size == 0:
+        return np.empty((0, 6), dtype=float), densities
+    if prisms.shape[1] != 6 or len(prisms) != len(densities):
+        raise ValueError("Expected one density per far-field cell.")
+    near_x = np.unique(np.asarray(near_x, dtype=float).ravel())
+    near_y = np.unique(np.asarray(near_y, dtype=float).ravel())
+    tol = max(1e-7, 1e-11*abs(float(R1)))
+    refined, expanded_density = [], []
+    for cell, density in zip(prisms, densities):
+        w, e, south, north, bottom, top = cell
+        split_axis = -1
+        # Only faces overlapping the near-field square, not corner contacts.
+        overlaps_y = (south < R1 - tol) and (north > -R1 + tol)
+        overlaps_x = (w < R1 - tol) and (e > -R1 + tol)
+        if overlaps_y and (abs(w - R1) < tol or abs(e + R1) < tol):
+            split_axis = 1
+            nodes = near_y[(near_y > south+tol) & (near_y < north-tol)]
+            bounds = [south, *nodes, north]
+        elif overlaps_x and (abs(south - R1) < tol or abs(north + R1) < tol):
+            split_axis = 0
+            nodes = near_x[(near_x > w+tol) & (near_x < e-tol)]
+            bounds = [w, *nodes, e]
+        if split_axis < 0:
+            refined.append(cell.copy())
+            expanded_density.append(density)
+            continue
+        for start, stop in zip(bounds[:-1], bounds[1:]):
+            if stop - start <= tol:
+                continue
+            c = cell.copy()
+            if split_axis == 1:
+                c[2], c[3] = start, stop
+            else:
+                c[0], c[1] = start, stop
+            refined.append(c)
+            expanded_density.append(density)
+    return np.asarray(refined, dtype=float).reshape(-1, 6), np.asarray(
+        expanded_density, dtype=float
+    )
+
+
 # -----------------------------------------------------------------------------
 def mesh_R3( pr2, R3, prjcode_g=None, prjcode_m=None, R=utl.R_wgs84 ) :
     
@@ -816,7 +869,7 @@ def st_loop( constant_arg, iterable_arg ) :
     
     # Split constant arguments ------------------------------------------------
     R1, R2, R3, gs1, gs2, dtm1, dtm2, prjcode_g, curved, R, dc, dw, disable_checks, tot_len, \
-    adjust_dtm, output_file, z_shift, prjcode_m = constant_arg
+    adjust_dtm, output_file, z_shift, prjcode_m, near_geometry, refine_interface = constant_arg
     
     # Split iterables arguments -----------------------------------------------     
     xg = iterable_arg[0]
@@ -842,18 +895,21 @@ def st_loop( constant_arg, iterable_arg ) :
     if st_type == 1:
         z = 0
         
-    # Separate near-field prism and far-field polyhedral correction meshes
+    # Model both sides of R1 with the same spherical geometry by default.
+    # The legacy Nagy-prism near mode remains available for comparison.
+    spherical_near = curved and near_geometry in ("auto", "spherical")
     
     if ( st_type == 0 ) or ( st_type == 1 ) :
-        pr1 = mesh_ls( Mx[0], My[0], Zc[0], msk[0], R=R, dc=dc, dw=dw, z_shift=z_shift )
+        pr1 = mesh_ls( Mx[0], My[0], Zc[0], msk[0], R=R, dc=dc, dw=dw,
+                       z_shift=(z_shift and not spherical_near) )
         if curved is False :
             pr2 = mesh_ls( Mx[1], My[1], Zc[1], msk[1], R1=R1, R=R, dc=dc, dw=dw, z_shift=z_shift )
         else :
             pr2 = mesh_ls( Mx[1], My[1], Zc[1], msk[1], R1=R1, R=R, dc=dc, dw=dw, z_shift=False )
     
     if st_type == 2 :
-        pr1 = mesh_sb( Mx[0], My[0], Zc[0], hst=z, msk=msk[0], R=R, dc=dc, dw=dw, 
-            z_shift=z_shift )
+        pr1 = mesh_sb( Mx[0], My[0], Zc[0], hst=z, msk=msk[0], R=R, dc=dc, dw=dw,
+            z_shift=(z_shift and not spherical_near) )
         if curved == False :
             pr2 = mesh_sb( Mx[1], My[1], Zc[1], hst=z, msk=msk[1], R1=R1, R=R, dc=dc, dw=dw, 
                 z_shift=z_shift ) 
@@ -861,6 +917,10 @@ def st_loop( constant_arg, iterable_arg ) :
             pr2 = mesh_sb( Mx[1], My[1], Zc[1], hst=z, msk=msk[1], R1=R1, R=R, dc=dc, dw=dw, 
                 z_shift=False ) 
        
+    if curved and refine_interface:
+        pr2 = _refine_far_interface(pr2[0], pr2[1], Mx[0][0, :],
+                                    My[0][:, 0], R1)
+
     if R3 != None :
         pr2, pr3 = mesh_R3( pr2, R3 )
     
@@ -871,8 +931,15 @@ def st_loop( constant_arg, iterable_arg ) :
     
     if prjcode_m is None : 
         prjcode_m = f'+proj=ortho +lon_0=0 +lat_0=0 +ellps=sphere +R={R}'
-    nag_near = gm.nagy( st, pr1[0], density=pr1[1] )
-    bgc_near = nag_near.gz()
+    if spherical_near:
+        # Remove zero-volume compartments (e.g. no land above sea level).
+        # The Nagy prism formula permits these; polyhedra do not.
+        finite_mass = (pr1[0][:, 5] - pr1[0][:, 4]) > 1e-10
+        bgc_near = _polyhedral_gz(pr1[0][finite_mass],
+                                  pr1[1][finite_mass], st, R)
+    else:
+        nag_near = gm.nagy(st, pr1[0], density=pr1[1])
+        bgc_near = nag_near.gz()
 
     # xpt = np.concatenate( ( pr1[0][:,0], pr1[0][:,1] ) )
     # ypt = np.concatenate( ( pr1[0][:,2], pr1[0][:,3] ) )
@@ -946,7 +1013,8 @@ def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
         errg=0.5, herr=5, dc=2670, dw=1030, R=R_wgs84, prjcode_in=4326, curved=True,
         prjcode_m=None, st_type=0, plot=None, output_file='Bouguer_correction', 
         disable_checks=True, cpu=1, ply_coast=None, new_dtm=False, adjust_dtm=False,
-        R3=50000, z_shift=True ):
+        R3=50000, z_shift=True, near_geometry="auto",
+        refine_interface=True ):
     """
     Compute the Bouguer correction model with Nagy prisms in the near field
     and curvature-following polyhedra in the far field (curved=True).
@@ -955,6 +1023,13 @@ def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
     to measured gravity to remove this modeled contribution has opposite sign.
     This function alone does not compute a complete Bouguer anomaly.
     Set curved=False to use the far-field prism approximation.
+    With curved=True, near_geometry="auto" (or "spherical") also represents
+    the near-field cells as spherical polyhedra, removing the old cell-wise
+    vertical-shift mismatch at R1. Set near_geometry="prism" to reproduce
+    the legacy Nagy near field. refine_interface=True subdivides the first
+    row of far-field cells tangentially at shared fine-grid edge positions.
+    Neither this nor identical curvature guarantees a globally watertight
+    triangulation when near/far DEM heights differ.
     
     INPUT:
     x,y,z ----->  coordinates of computational points (z can be as x,y or just a sigle value or z='dtm')
@@ -965,6 +1040,11 @@ def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
     herr ------> accuracy of dtm data [m]
     st_t ------> station_type: 0 for land st. 1 for sea-surface st., 0 for sea-bottom st.
     """
+
+    if near_geometry not in ("auto", "spherical", "prism"):
+        raise ValueError("near_geometry must be 'auto', 'spherical', or 'prism'.")
+    if near_geometry == "spherical" and not curved:
+        raise ValueError("near_geometry='spherical' requires curved=True.")
 
     # Create new directory with computation's resaults ------------------------
     cwd = os.getcwd().split( os.sep )[-1]
@@ -1198,7 +1278,7 @@ def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
         constant_arg = ( R1, R2, R3, gs1, gs2, 
                          dtm1_new, dtm2_new, prjcode_g, curved, R, dc, dw, 
                          disable_checks, tot_len, adjust_dtm, output_file, 
-                         z_shift, prjcode_m )
+                         z_shift, prjcode_m, near_geometry, refine_interface )
         
         iterable_arg = np.column_stack( ( xg, yg, z, st_num, st_type, bgc, bgc_near, bgc_far, zdtm ) ) 
                                           
@@ -1295,7 +1375,8 @@ def load_bgc( file, ds_type='dict' ) :
 def run_bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None, 
             errg=0.5, herr=5, dc=2670, dw=1030, R=R_wgs84, prjcode_in=4326, curved=True,
             prjcode_m=None, st_type=0, plot=None, output_file='Bouguer_correction', 
-            disable_checks=True, cpu=None, ply_coast=None, new_dtm=False, R3=50000 ) :
+            disable_checks=True, cpu=None, ply_coast=None, new_dtm=False, R3=50000,
+            near_geometry="auto", refine_interface=True ) :
     
     # Create new directory for computation's resaults -------------------------
     cwd = os.getcwd().split( os.sep )[-1]
@@ -1334,7 +1415,9 @@ def run_bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=Non
     if type( cpu ) != str : cpu = str( cpu ) 
     if type( ply_coast ) != str : ply_coast = str( ply_coast ) 
     if type( new_dtm ) != str : new_dtm = str( new_dtm ) 
-    if type( R3 ) != str : R3 = str( R3 )  
+    if type( R3 ) != str : R3 = str( R3 )
+    if type( near_geometry ) != str : near_geometry = str( near_geometry )
+    if type( refine_interface ) != str : refine_interface = str( refine_interface )
       
     irs = prjcode_in
     pcs = prjcode_m
@@ -1358,7 +1441,9 @@ def run_bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=Non
           f' -ply_coast {ply_coast}' + \
           f' -curved {curved}' + \
           f' -new_dtm {new_dtm}' + \
-          f' -R3 {R3}'
+          f' -R3 {R3}' + \
+          f' -near_geometry {near_geometry}' + \
+          f' -refine_interface {refine_interface}'
               
     if platform.system() == 'Linux' :
         run_str = ndir + os.sep + 'run.sh'
@@ -1393,6 +1478,8 @@ if __name__ == '__main__' :
     p.add_argument( '-gs2', '--gs2', default=None, type=str )
     p.add_argument( '-R2', '--R2', default=None, type=str )
     p.add_argument( '-R3', '--R3', default=None, type=str )
+    p.add_argument( '-near_geometry', '--near_geometry', default='auto', type=str )
+    p.add_argument( '-refine_interface', '--refine_interface', default='True', type=str )
     p.add_argument( '-irs', '--irs', default=4326, type=str )
     p.add_argument( '-pcs', '--pcs', default=None, type=str )
     p.add_argument( '-del_xyz', '--del_xyz', default=str )
@@ -1428,6 +1515,7 @@ if __name__ == '__main__' :
     arg.ply_coast = eval ( arg.ply_coast )
     arg.new_dtm = eval ( arg.new_dtm )
     arg.R3 = eval ( arg.R3 )
+    arg.refine_interface = arg.refine_interface.lower() == 'true'
 
     bgc( x, 
         y, 
@@ -1446,7 +1534,9 @@ if __name__ == '__main__' :
         ply_coast = arg.ply_coast,
         curved = arg.curved,
         new_dtm = arg.new_dtm,
-        R3 = arg.R3 )
+        R3 = arg.R3,
+        near_geometry = arg.near_geometry,
+        refine_interface = arg.refine_interface )
     
     if arg.del_xyz == True:
         os.remove( arg.xyz )
