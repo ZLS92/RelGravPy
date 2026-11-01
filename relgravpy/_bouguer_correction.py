@@ -769,9 +769,10 @@ def optimize_bgc_mesh(x, y, dtm1, gs1=None, R1=None, gs2=None,
                       terrain_features=None, raster_resolution=None):
     """Cheap one-time mesh selection for all stations in a campaign.
 
-    Only gs1, R1, gs2 set to None are searched; user-supplied parameters
-    remain nominally fixed (adj_mesh may move radii upward slightly and
-    gs2 by <=5% for geometric compatibility). The nominal R2 DEFAULT is
+    Only gs1, R1, gs2 set to None are searched; all four returned mesh
+    parameters are integer metres. User-supplied parameters must be
+    positive integers; explicit gs1 must be EVEN for a centred grid.
+    adj_mesh can increase radii slightly and adjust gs2 by <=5%. The nominal R2 DEFAULT is
     167 km, never optimized; adj_mesh can raise it slightly to an aligned
     grid boundary.
 
@@ -789,11 +790,23 @@ def optimize_bgc_mesh(x, y, dtm1, gs1=None, R1=None, gs2=None,
     if len(xs) != len(ys) or not len(xs):
         raise ValueError("x and y must have the same nonzero station count.")
     auto = (gs1 is None or R1 is None or gs2 is None)
-    R2 = 167000. if R2 is None else float(R2)
-    if not np.isfinite(R2) or R2 <= 0:
-        raise ValueError("R2 must be finite and positive.")
+    # Manual values are exact metre counts; NEVER silently round user input.
+    fixed = {"gs1": gs1, "R1": R1, "gs2": gs2,
+             "R2": 167000 if R2 is None else R2}
+    for name, value in fixed.items():
+        if value is None:
+            continue
+        v = float(value)
+        if not np.isfinite(v) or v <= 0 or abs(v-round(v)) > 1e-8:
+            raise ValueError(f"{name} must be a positive integer number of metres.")
+        fixed[name] = int(round(v))
+    if gs1 is not None and fixed["gs1"] % 2:
+        raise ValueError(
+            "gs1 must be EVEN for an integer R1 and odd-centred mesh.")
+    gs1, R1, gs2, R2 = (
+        fixed[name] for name in ("gs1", "R1", "gs2", "R2"))
     if not auto:
-        return {"gs1": float(gs1), "R1": float(R1), "gs2": float(gs2),
+        return {"gs1": gs1, "R1": R1, "gs2": gs2,
                 "R2": R2, "optimized": False,
                 "estimated_error_mgal": None, "meets_target": None,
                 "candidates": 0}
@@ -815,16 +828,19 @@ def optimize_bgc_mesh(x, y, dtm1, gs1=None, R1=None, gs2=None,
         raise ValueError("raster_resolution must be finite and positive.")
     # Small bounded Cartesian search; cheap scalar operations only. R1
     # candidates are informed by the geometric sagitta estimate (herr).
-    g1_base = max(5., float(native))
-    g1_values = ([max(g1_base, g1_base*f) for f in (1., 2., 4., 8.)]
-                 if gs1 is None else [float(gs1)])
+    # Even cell widths are mathematically necessary: (odd * step)/2
+    # must itself be an integer radius.
+    ceil_even = lambda v: 2*int(np.ceil(float(v)/2.))
+    g1_base = ceil_even(max(5., float(native)))
+    g1_values = ([g1_base*f for f in (1, 2, 4, 8)]
+                 if gs1 is None else [gs1])
     r_base = max(500., np.sqrt(2.*R*max(float(herr), 0.1)))
-    r1_values = ([max(4.*g1_base, r_base*f)
+    r1_values = ([int(np.ceil(max(4*g1_base, r_base*f)))
                   for f in (0.25, 0.5, 1., 1.5)]
-                 if R1 is None else [float(R1)])
-    g2_values = ([max(2.*g1_base, g) for g in
-                  (250., 500., 1000., 2000., 4000.)]
-                 if gs2 is None else [float(gs2)])
+                 if R1 is None else [R1])
+    g2_values = ([ceil_even(max(2*g1_base, g)) for g in
+                  (250, 500, 1000, 2000, 4000)]
+                 if gs2 is None else [gs2])
     # A conservative density factor for terrestrial and marine contrasts.
     rho = max(abs(float(dc)), abs(float(dw-float(dc))),
               abs(float(dw)))
@@ -836,7 +852,10 @@ def optimize_bgc_mesh(x, y, dtm1, gs1=None, R1=None, gs2=None,
                     continue
                 try:
                     a, b, c, d = adj_mesh(
-                        near_step, radius1, far_step, R2)
+                        near_step, radius1, far_step, R2,
+                        max_R1_increase=(
+                            max(4*near_step, 2*far_step)
+                            if R1 is None else None))
                 except ValueError:
                     continue
                 if R3 is not None and float(R3) <= b+c:
