@@ -36,7 +36,7 @@ def terrain(x, y, kind):
            +240*np.sin(x/950.)*np.cos(y/1100.)
            +160*np.sin(x/260.+y/220.)
            +290*np.tanh((x+.3*y-2100.)/600.))
-    elif kind=="coastal_bathymetry":
+    elif kind.startswith("coastal_bathymetry"):
         h=(900.*np.tanh((x+500.)/650.)
            +120.*np.sin(y/900.)*np.exp(-abs(x)/6000.)
            -450.*np.exp(-((x+2300.)/1100.)**2)
@@ -156,6 +156,10 @@ def run():
     cases=(
         ("mountain",[(0.,0.),(2200.,-1800.)]),
         ("coastal_bathymetry",[(1200.,0.),(380.,-2300.)]),
+        # An R1 boundary wholly in land, with genuine bathymetry in
+        # the far source region: isolates far-sea gravimetry from the
+        # currently unsupported coastal density crossing AT R1.
+        ("coastal_bathymetry_far_shore",[(6000.,0.),(5200.,-2300.)]),
     )
     for kind,stations in cases:
         coords=np.asarray(stations)
@@ -165,6 +169,8 @@ def run():
             t0=time.perf_counter()
             choice=BC.optimize_bgc_mesh(
                 coords[:,0],coords[:,1],None,
+                R1=2000. if kind=="coastal_bathymetry_far_shore"
+                    else None,
                 target_error=.05,R2=167000.,
                 terrain_features=features,raster_resolution=30.)
             tune_s=time.perf_counter()-t0
