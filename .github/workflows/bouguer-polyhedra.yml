@@ -9,6 +9,7 @@ on:
       - 'relgravpy/grav_modelling.py'
       - 'tests/test_bouguer_polyhedra.py'
       - 'tests/benchmark_spherical_reference.py'
+      - 'tests/benchmark_r1_transition.py'
       - '.github/workflows/bouguer-polyhedra.yml'
   pull_request:
     paths:
@@ -16,6 +17,7 @@ on:
       - 'relgravpy/grav_modelling.py'
       - 'tests/test_bouguer_polyhedra.py'
       - 'tests/benchmark_spherical_reference.py'
+      - 'tests/benchmark_r1_transition.py'
   workflow_dispatch:
 
 jobs:
@@ -37,3 +39,5 @@ jobs:
         run: PYTHONPATH=tests:. python -m pytest -v tests/test_bouguer_polyhedra.py
       - name: Verify primary independent spherical reference and mesh convergence
         run: PYTHONPATH=tests:. python -u tests/benchmark_spherical_reference.py
+      - name: Validate two-resolution R1 interface against spherical volume integral
+        run: PYTHONPATH=tests:. python -u tests/benchmark_r1_transition.py
