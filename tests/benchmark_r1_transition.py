@@ -154,7 +154,7 @@ def run_case(near_n=80, far_n=64, R1=5000.0,
     cy=(near[:,2]+near[:,3])/2
     sag = RADIUS - np.sqrt(RADIUS**2 - cx**2 - cy**2)
     shifted_near[:,4:] -= sag[:,None]
-    near_g = float(GM.nagy([observation],shifted_near,fine_dense).gz()[0])
+    near_g = float(GM.prism_grav([observation],shifted_near,fine_dense).gz()[0])
     far_g = BC._transition_polyhedral_gz(
         refined,refined_density,shifted_near,fine_dense,
         observation,RADIUS,R1
@@ -167,7 +167,7 @@ def run_case(near_n=80, far_n=64, R1=5000.0,
     xymax = np.maximum(abs(near[:,0]),abs(near[:,1]))**2
     xymax += np.maximum(abs(near[:,2]),abs(near[:,3]))**2
     shifted[:,4:] -= (xymax/(2*RADIUS))[:,None]
-    near_nagy = float(GM.nagy([observation],shifted,fine_dense).gz()[0])
+    near_nagy = float(GM.prism_grav([observation],shifted,fine_dense).gz()[0])
 
     if near_top == far_top == THICKNESS and station_height == OBS_Z:
         exact = spherical_volume_gravity(96,32)
