@@ -2085,11 +2085,11 @@ def load_bgc( file, ds_type='dict' ) :
         return array, d
 
 # -----------------------------------------------------------------------------
-def run_bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None, 
+def run_bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=167000., gs2=None, 
             errg=0.5, herr=5, dc=2670, dw=1030, R=R_wgs84, prjcode_in=4326, curved=True,
             prjcode_m=None, st_type=0, plot=None, output_file='Bouguer_correction', 
             disable_checks=True, cpu=None, ply_coast=None, new_dtm=False, R3=50000,
-            near_geometry="auto", refine_interface=True ) :
+            near_geometry="auto", refine_interface=True, target_error=0.05 ) :
     
     # Create new directory for computation's resaults -------------------------
     cwd = os.getcwd().split( os.sep )[-1]
@@ -2131,6 +2131,7 @@ def run_bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=Non
     if type( R3 ) != str : R3 = str( R3 )
     if type( near_geometry ) != str : near_geometry = str( near_geometry )
     if type( refine_interface ) != str : refine_interface = str( refine_interface )
+    if type( target_error ) != str : target_error = str( target_error )
       
     irs = prjcode_in
     pcs = prjcode_m
@@ -2138,7 +2139,8 @@ def run_bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=Non
     
     cfn = os.path.abspath(__file__)
     
-    run = f'python -W ignore' + \
+    # Do not hide warnings from the estimator.
+    run = f'python' + \
           f' -m relgravpy._bouguer_correction' + \
           f' -xyz {ndir + os.sep + "xyz"}' + \
           f' -dtm1 {dtm1}' + \
@@ -2156,7 +2158,8 @@ def run_bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=Non
           f' -new_dtm {new_dtm}' + \
           f' -R3 {R3}' + \
           f' -near_geometry {near_geometry}' + \
-          f' -refine_interface {refine_interface}'
+          f' -refine_interface {refine_interface}' + \
+          f' -target_error {target_error}'
               
     if platform.system() == 'Linux' :
         run_str = ndir + os.sep + 'run.sh'
@@ -2189,10 +2192,11 @@ if __name__ == '__main__' :
     p.add_argument( '-R1', '--R1', default=None, type=str )
     p.add_argument( '-dtm2', '--dtm2', default=None, type=str )
     p.add_argument( '-gs2', '--gs2', default=None, type=str )
-    p.add_argument( '-R2', '--R2', default=None, type=str )
+    p.add_argument( '-R2', '--R2', default='167000.', type=str )
     p.add_argument( '-R3', '--R3', default=None, type=str )
     p.add_argument( '-near_geometry', '--near_geometry', default='auto', type=str )
     p.add_argument( '-refine_interface', '--refine_interface', default='True', type=str )
+    p.add_argument( '-target_error', '--target_error', default=0.05, type=float )
     p.add_argument( '-irs', '--irs', default=4326, type=str )
     p.add_argument( '-pcs', '--pcs', default=None, type=str )
     p.add_argument( '-del_xyz', '--del_xyz', default=str )
@@ -2249,7 +2253,8 @@ if __name__ == '__main__' :
         new_dtm = arg.new_dtm,
         R3 = arg.R3,
         near_geometry = arg.near_geometry,
-        refine_interface = arg.refine_interface )
+        refine_interface = arg.refine_interface,
+        target_error = arg.target_error )
     
     if arg.del_xyz == True:
         os.remove( arg.xyz )
