@@ -123,6 +123,56 @@ will require repeated runs, isolated CPU benchmarks, and real DTM inputs.
 refined, but remains approximately 1.5-2.4 µGal at 625 m. This is not
 a demonstration of sub-µGal equivalence for real microgravity surveys.
 
+## 1 November 2026: fixed one-tesseroid, 20 m clearance benchmark
+
+The previous many-tesseroid test can confound discretisation errors in the
+reference and target meshes. A new independent test uses **one tesseroid**
+for a uniform geocentric spherical wedge, while refining ONLY the
+polyhedral mesh.
+
+- Reference radius: 6,371,000 m
+- Top height: 300 m above reference sphere; bottom: 0 m
+- Density: 2,670 kg/m³
+- Extent: approximately 20 km × 20 km, centered at lon/lat 0
+- Calculation point: lon/lat 0, radius `R+320 m` (20 m above the top)
+- `hm.tesseroid_gravity` uses a single input tesseroid with adaptive
+  quadrature. This is a tesseroidal angular wedge, **not a circular cap**.
+- Additional **independent volume quadrature** integrates the exact spherical
+  volume in spherical coordinates (Gauss-Legendre in longitude, latitude and
+  radius; denser sampling around the station and haversine distance
+  stabilization). The reference is checked at two quadrature resolutions.
+
+### Reference and convergence
+
+| Method | Gravity (mGal) | Difference from direct integral (µGal) |
+|---|---:|---:|
+| Independent spherical volume quadrature | 33.104457071 | 0 |
+| Harmonica, one tesseroid, default adaptive | 33.097690779 | -6.7663 |
+| Harmonica, one tesseroid, radial-adaptive | 33.096834501 | -7.6226 |
+| Polyhedral mesh 4 × 4 | 33.133188266 | +28.7312 |
+| Polyhedral mesh 8 × 8 | 33.114322081 | +9.8650 |
+| Polyhedral mesh 16 × 16 | 33.107357556 | +2.9005 |
+| Polyhedral mesh 32 × 32 | 33.105117792 | +0.6607 |
+| Polyhedral mesh 64 × 64 | 33.104552296 | +0.0952 |
+| Polyhedral mesh 96 × 96 | 33.104499297 | +0.0422 |
+| Polyhedral mesh 128 × 128 | 33.104476445 | +0.0194 |
+
+The calculations show that the *single-Harmonica-tesseroid output* is
+not a sufficiently accurate numerical reference at only 20 m above this
+large source. The polygonal solution converges to the independent
+high-resolution volume integral within 0.1 µGal by 64×64 cells and within
+0.02 µGal by 128×128 cells. The comparison does **not** establish
+universal accuracy for mountainous DEMs, other geometries or stations.
+
+Geometry note: the tesseroid has constant longitude/latitude bounding
+surfaces. The current polyhedra are generated from a planar orthographic
+square, resulting in a maximum east-west footprint offset of about
+0.0123 m at the north/south edges. This is small here but is not zero.
+
+Reproduce with `python -u tests/benchmark_single_tesseroid.py`.
+Harmonica remains an optional **benchmark-only** dependency; the
+processing module does not import it.
+
 ## Still to validate before scientific use
 
 
