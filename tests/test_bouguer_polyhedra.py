@@ -388,7 +388,11 @@ def test_adj_mesh_smallest_radius_satisfying_step_tolerance():
         if r_before<r1:
             continue
         odd_base=max(1,int(np.floor((2*r_before/gs2-1)/2))*2+1)
-        possible=[2*r_before/m for m in (odd_base,odd_base+2)]
+        # A fractional near-match is not a valid integer step; also
+        # require exact far-cell divisibility and an EVEN integer gs2.
+        possible=[(2*int(r_before))//m for m in (odd_base,odd_base+2)
+                  if (2*int(r_before))%m==0
+                  and ((2*int(r_before))//m)%2==0]
         assert all(abs(v/gs2-1)>0.05-1e-10 for v in possible)
 
 
