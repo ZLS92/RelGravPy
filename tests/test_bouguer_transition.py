@@ -136,3 +136,51 @@ def test_bridge_mismatching_density_fails_early():
             far,np.full(len(far),1030.),
             near,np.full(len(near),2670.),
             [0,0,350],R,R1)
+
+
+
+@pytest.mark.parametrize("xsign,ysign", [
+    (+1,+1),(+1,-1),(-1,+1),(-1,-1)
+])
+def test_all_four_corner_cells_share_identical_triangles_with_side_bridges(xsign,ysign):
+    near,_=scenario()
+    def bounds(sign):
+        return (R1,R1+GS2) if sign>0 else (-R1-GS2,-R1)
+    x0,x1=bounds(xsign)
+    y0,y1=bounds(ysign)
+    corner=[x0,x1,y0,y1,0,300]
+    corner_xyz,corner_faces=TR._corner_mesh(corner,near,R,R1)
+    # One side cell on the x side of each corner, one on its y side.
+    yinner=(R1-GS2,R1) if ysign>0 else (-R1,-R1+GS2)
+    xinner=(R1-GS2,R1) if xsign>0 else (-R1,-R1+GS2)
+    neighbours=[
+        ([x0,x1,*yinner,0,300],"east" if xsign>0 else "west"),
+        ([*xinner,y0,y1,0,300],"north" if ysign>0 else "south"),
+    ]
+    def triangle_as_coords(xyz,faces):
+        return [xyz[np.asarray(f[1:],dtype=int)] for f in faces]
+    corner_tri=triangle_as_coords(corner_xyz,corner_faces)
+    for side_cell,side in neighbours:
+        side_xyz,side_faces=TR._bridge_mesh(side_cell,near,side,R)
+        side_tri=triangle_as_coords(side_xyz,side_faces)
+        # Exactly two triangles on the plane between corner and side.
+        common=[
+            point for point in corner_xyz
+            if any(np.linalg.norm(point-q)<1e-8 for q in side_xyz)
+        ]
+        assert len(common)==4
+        def internal(mesh):
+            return [t for t in mesh if all(any(
+                np.linalg.norm(p-q)<1e-8 for q in common) for p in t)]
+        ta,tb=internal(corner_tri),internal(side_tri)
+        assert len(ta)==len(tb)==2
+        assert all(any(all(any(np.linalg.norm(p-q)<1e-8 for q in t2)
+                           for p in t1) for t2 in tb) for t1 in ta)
+
+
+def test_transition_rejects_missing_near_prism_edge_segments():
+    near,_=scenario()
+    bridge=[R1,R1+GS2,-125,125,0,300]
+    subset=near[near[:,3]<-50]  # excludes several required intervals
+    with pytest.raises(ValueError,match="incomplete|missing"):
+        TR._bridge_mesh(bridge,subset,"east",R)
