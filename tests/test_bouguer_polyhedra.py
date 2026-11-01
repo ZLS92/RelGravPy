@@ -42,9 +42,9 @@ def _load_numerical_subset(path, function_names, class_names=(), gm=None):
 
 GM = _load_numerical_subset(
     ROOT / "relgravpy" / "grav_modelling.py",
-    {"anglegravi_exact", "build_edge_table", "gravicalc2_full",
+    {"anglegravi_exact", "build_edge_table", "prism_to_corners_faces",
      "nagy_fz", "nagy_gz"},
-    class_names={"nagy"},
+    class_names={"nagy", "Polygrav"},
 )
 BC = _load_numerical_subset(
     ROOT / "relgravpy" / "_bouguer_correction.py",
