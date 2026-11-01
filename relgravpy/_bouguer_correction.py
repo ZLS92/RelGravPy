@@ -710,8 +710,8 @@ def mesh_xyz( x, y, R1, R2, gs1, gs2, dtm1, dtm2, st_num=0, z=9999,
     dtm1m = rt.raster_warp( dtm1, 
                             lim = lim1, 
                             method = gdal.GRA_Average, 
-                            width = int( R1*2/gs1 ), 
-                            height = int( R1*2/gs1 ), 
+                            width = int(round(R1*2/gs1)), 
+                            height = int(round(R1*2/gs1)), 
                             out_prjcode = prjcode_m, 
                             lim_prjcode = prjcode_m, 
                             new_name = 'mesh_dtm1_' + str( int( st_num ) ),
@@ -719,7 +719,7 @@ def mesh_xyz( x, y, R1, R2, gs1, gs2, dtm1, dtm2, st_num=0, z=9999,
                             extension = 'tif' ) 
     
     Zc1 = np.flipud( dtm1m.GetRasterBand(1).ReadAsArray() ) # elevetion grid [m]
-    cpx = int( ( Zc1.shape[0] + 1 ) / 2 ) 
+    cpx = Zc1.shape[0] // 2  # centre cell in an odd-size near grid 
     
     # dtm station height ------------------------------------------------------
     if ( z != 9999 ) and ( adjust_dtm == True )  : 
@@ -737,8 +737,8 @@ def mesh_xyz( x, y, R1, R2, gs1, gs2, dtm1, dtm2, st_num=0, z=9999,
     dtm2m = rt.raster_warp( dtm2, 
                             lim = lim2, 
                             method = gdal.GRA_Average,
-                            width = int( R2*2/gs2 ), 
-                            height = int( R2*2/gs2 ), 
+                            width = int(round(R2*2/gs2)), 
+                            height = int(round(R2*2/gs2)), 
                             out_prjcode = prjcode_m, 
                             lim_prjcode = prjcode_m, 
                             new_name = 'mesh_dtm2_' + str( int( st_num ) ),
@@ -750,9 +750,9 @@ def mesh_xyz( x, y, R1, R2, gs1, gs2, dtm1, dtm2, st_num=0, z=9999,
     Zc2[ Zc2 == dtm2m.GetRasterBand(1).GetNoDataValue() ] = 0
     Zc1[ Zc1 == dtm1m.GetRasterBand(1).GetNoDataValue() ] = 0
 
-    grid1 = np.linspace( -R1, R1, int( R1*2/gs1 ) + 1 )
+    grid1 = np.linspace(-R1, R1, int(round(R1*2/gs1)) + 1)
     # grid1 = np.arange( -R1, R1, gs1 )
-    grid2 = np.linspace( -R2, R2, int( R2*2/gs2 ) + 1 )
+    grid2 = np.linspace(-R2, R2, int(round(R2*2/gs2)) + 1)
     # grid2 = np.arange( -R2, R2, gs2 )
     Mx_1m, My_1m = np.meshgrid( grid1, grid1 ) # near field mesh
     Mx_2m, My_2m = np.meshgrid( grid2, grid2 ) # far field mesh
@@ -1310,9 +1310,26 @@ def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
     if gs1 is None:
         gs1 = float(np.mean(rt.raster_res(dtm1)))
 
+    # Align the radii BEFORE cropping the near DTM whenever gs2 is given.
+    # Otherwise an upward R1 adjustment can leave an undersized raster.
+    if gs2 is not None:
+        original_R2 = R2
+        gs1, R1, gs2, aligned_R2 = adj_mesh(
+            gs1, R1, gs2, R2 if R2 is not None else R1+gs2)
+        if original_R2 is not None:
+            R2 = aligned_R2
+        near_crop_margin = gs1
+    else:
+        # gs2 is estimated from the cropped near raster later; prepare an
+        # expanded input buffer for the subsequent R1 alignment.
+        R1 = (max(0, int(np.ceil(R1/gs1-0.5-1e-10)))+0.5)*gs1
+        near_crop_margin = max(gs1, 0.25*R1)
+
     # Define lim1 -------------------------------------------------------------
     minx, maxx, miny, maxy = np.min(xm), np.max(xm), np.min(ym), np.max(ym)
-    lim1 = [ minx-R1-gs1, maxx+R1+gs1, miny-R1-gs1, maxy+R1+gs1 ]
+    near_crop_radius = R1 + near_crop_margin
+    lim1 = [minx-near_crop_radius, maxx+near_crop_radius,
+            miny-near_crop_radius, maxy+near_crop_radius]
     
     # Create dtm1 -------------------------------------------------------------
     print( "LOADING/CREATING DTM_1 ...")        
@@ -1445,10 +1462,14 @@ def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
     bgc_far = np.zeros( np.size (xg ) ) #(2)
     bgc = np.zeros( np.size( xg ) ) #(3) 
     
-    # Adjust mesh borders and step2 to prevent overlapping or gaps between near 
-    # and far field (eventually this operation is done again within mesh_xyz function ... 
-    # it doesn't change the resault using function adj_mesh multiple times) 
-    gs1, R1, gs2, R2 = adj_mesh( gs1, R1, gs2, R2 ) 
+    # Re-apply the exact alignment when gs2 was estimated from the DTM.
+    # The function is idempotent when invoked earlier with explicit gs2.
+    gs1, R1, gs2, R2 = adj_mesh(gs1, R1, gs2, R2)
+    if R1+gs1 > near_crop_radius+1e-6:
+        raise ValueError(
+            "Estimated gs2 requires R1 to expand beyond the initial near "
+            "DTM crop. Pass gs2 explicitly, or increase the near-DTM "
+            "preprocessing buffer instead of sampling missing elevations.")
     print( 'Computational Parameters, gs1 gs2 R1 R2 :' )
     print( round(gs1), round(gs2), round(R1), round(R2) )
     
