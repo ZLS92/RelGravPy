@@ -824,9 +824,9 @@ def st_loop( constant_arg, iterable_arg ) :
     z = iterable_arg[2]
     st_num = iterable_arg[3] 
     st_type = iterable_arg[4]
-    te = iterable_arg[5]
-    te_near = iterable_arg[6]
-    te_far = iterable_arg[7]
+    bgc = iterable_arg[5]
+    bgc_near = iterable_arg[6]
+    bgc_far = iterable_arg[7]
     zdtm = iterable_arg[8]
     st_num = int(st_num.item())
     R = utl.local_sph_raduis(yg)
@@ -842,7 +842,7 @@ def st_loop( constant_arg, iterable_arg ) :
     if st_type == 1:
         z = 0
         
-    # Store mesh elements in two arry ( near-field( pr1 ), ( far-field( pr2 ) )
+    # Separate near-field prism and far-field polyhedral correction meshes
     
     if ( st_type == 0 ) or ( st_type == 1 ) :
         pr1 = mesh_ls( Mx[0], My[0], Zc[0], msk[0], R=R, dc=dc, dw=dw, z_shift=z_shift )
@@ -867,12 +867,12 @@ def st_loop( constant_arg, iterable_arg ) :
     # Coordinates of computational point (center of the mesh)
     st = [0, 0, z]
     
-    # Calculate z_gravity of prisms at station point (st) ---------------------   
+    # Evaluate near-field Bouguer correction component at station (st) ---------------------   
     
     if prjcode_m is None : 
         prjcode_m = f'+proj=ortho +lon_0=0 +lat_0=0 +ellps=sphere +R={R}'
     nag_near = gm.nagy( st, pr1[0], density=pr1[1] )
-    te_near = nag_near.gz()
+    bgc_near = nag_near.gz()
 
     # xpt = np.concatenate( ( pr1[0][:,0], pr1[0][:,1] ) )
     # ypt = np.concatenate( ( pr1[0][:,2], pr1[0][:,3] ) )
@@ -882,11 +882,11 @@ def st_loop( constant_arg, iterable_arg ) :
     if curved is True:
         # Far-field spherical polyhedra in the station-centred local frame.
         # Heights remain relative to the reference sphere (no z_shift here).
-        te_far = _polyhedral_gz(pr2[0], pr2[1], st, R)
+        bgc_far = _polyhedral_gz(pr2[0], pr2[1], st, R)
 
     else :
         nag_far = gm.nagy( st, pr2[0], density=pr2[1] )
-        te_far = nag_far.gz()
+        bgc_far = nag_far.gz()
 
         # xpt = np.concatenate( ( pr2[0][:,0], pr2[0][:,1] ) )
         # ypt = np.concatenate( ( pr2[0][:,2], pr2[0][:,3] ) )
@@ -894,18 +894,18 @@ def st_loop( constant_arg, iterable_arg ) :
         # shp.write_points( x=xpt, y=ypt, prj_code=prjcode_m, name='orhto_prism_far', path=mdir )
 
     if R3 is not None:
-        te_far += _point_mass_gz(pr3[0], pr3[1], st, R)
+        bgc_far += _point_mass_gz(pr3[0], pr3[1], st, R)
 
-    # Sum near and far grav. effects
-    te = te_near + te_far
+    # Combine near-field and far-field Bouguer correction components
+    bgc = bgc_near + bgc_far
 
-    # Convert arrays to float or integers
-    if isinstance( te, np.ndarray ) == True :
-        te = te.item()
-    if isinstance( te_near, np.ndarray ) == True :
-        te_near = te_near.item()
-    if isinstance( te_far, np.ndarray ) == True :
-        te_far = te_far.item()
+    # Convert Bouguer correction outputs and station attributes to scalar types
+    if isinstance( bgc, np.ndarray ) == True :
+        bgc = bgc.item()
+    if isinstance( bgc_near, np.ndarray ) == True :
+        bgc_near = bgc_near.item()
+    if isinstance( bgc_far, np.ndarray ) == True :
+        bgc_far = bgc_far.item()
     if isinstance( z, np.ndarray ) == True :
         z = z.item()
     if isinstance( zdtm, np.ndarray ) == True :
@@ -923,7 +923,7 @@ def st_loop( constant_arg, iterable_arg ) :
         
         line = "% 10d % 10f % 10f % 10.2f % 10.2f % 10.5f % 10.5f % 10.5f % 10d\n" % ( 
                st_num, np.round(xg, 6), np.round(yg, 6), np.round(z, 3), np.round(zdtm, 3),
-               np.round(te_near, 6), np.round(te_far, 6), np.round(te, 6), st_type)
+               np.round(bgc_near, 6), np.round(bgc_far, 6), np.round(bgc, 6), st_type)
         
         f.write( line )
         
@@ -939,20 +939,22 @@ def st_loop( constant_arg, iterable_arg ) :
     pr2 = None
      
     # Return
-    return te, te_near, te_far, z, st_num, pr1, pr2
+    return bgc, bgc_near, bgc_far, z, st_num, pr1, pr2
 
 # -----------------------------------------------------------------------------  
-def te( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None, 
+def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None, 
         errg=0.5, herr=5, dc=2670, dw=1030, R=R_wgs84, prjcode_in=4326, curved=True,
-        prjcode_m=None, st_type=0, plot=None, output_file='Te_correction', 
+        prjcode_m=None, st_type=0, plot=None, output_file='Bouguer_correction', 
         disable_checks=True, cpu=1, ply_coast=None, new_dtm=False, adjust_dtm=False,
         R3=50000, z_shift=True ):
     """
-    Compute the topographic gravitational effect with Nagy prisms in the near
-    field and curvature-following polyhedra (or prisms) in the far field.
-    No Harmonica dependency is required. Returned effects are in mGal,
-    positive downwards, consistent with the previous interface.
-    Set curved=False to use the original far-field prism approximation.
+    Compute the Bouguer correction model with Nagy prisms in the near field
+    and curvature-following polyhedra in the far field (curved=True).
+    Harmonica is not required. Returns the modeled gravitational mass
+    contribution in mGal, positive downwards. The correction to be ADDED
+    to measured gravity to remove this modeled contribution has opposite sign.
+    This function alone does not compute a complete Bouguer anomaly.
+    Set curved=False to use the far-field prism approximation.
     
     INPUT:
     x,y,z ----->  coordinates of computational points (z can be as x,y or just a sigle value or z='dtm')
@@ -1155,11 +1157,10 @@ def te( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
        z = np.repeat( z, np.size( xg ) ) # if z is only one constant variable
     if ( type( z[0].astype(object) ) == str ) and ( z[0].astype(object) == 'dtm' ) :
        z = zdtm
-    # Create empty arrays to allocate: 1)topo_effect_NearF, 2)topo_effect_FarF, 
-    # 3)topo_effect_tot    
-    te_near = np.zeros( np.size (xg ) ) #(1)
-    te_far = np.zeros( np.size (xg ) ) #(2)
-    te = np.zeros( np.size( xg ) ) #(3) 
+    # Allocate near-, far- and total Bouguer correction contributions    
+    bgc_near = np.zeros( np.size (xg ) ) #(1)
+    bgc_far = np.zeros( np.size (xg ) ) #(2)
+    bgc = np.zeros( np.size( xg ) ) #(3) 
     
     # Adjust mesh borders and step2 to prevent overlapping or gaps between near 
     # and far field (eventually this operation is done again within mesh_xyz function ... 
@@ -1172,7 +1173,7 @@ def te( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
     if plot != None :
             mesh_xyz( xrmg, yrmg, R1, R2, gs1, gs2, dtm1_new, dtm2_new, prjcode_in=prjcode_g, plot=plot )           
     
-    pcol = [ 'st_num', 'Lon', 'Lat', 'h_st', 'h_dtm', 'te_near', 'te_far', 'te_tot', 'st_type', 'prog.%' ]
+    pcol = [ 'st_num', 'Lon', 'Lat', 'h_st', 'h_dtm', 'bgc_near', 'bgc_far', 'bgc_tot', 'st_type', 'prog.%' ]
     
     tot_len = np.size( x )
     st_num = np.arange( 0, np.size(xg), dtype=int )
@@ -1199,7 +1200,7 @@ def te( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
                          disable_checks, tot_len, adjust_dtm, output_file, 
                          z_shift, prjcode_m )
         
-        iterable_arg = np.column_stack( ( xg, yg, z, st_num, st_type, te, te_near, te_far, zdtm ) ) 
+        iterable_arg = np.column_stack( ( xg, yg, z, st_num, st_type, bgc, bgc_near, bgc_far, zdtm ) ) 
                                           
         patial = functools.partial( st_loop, constant_arg ) 
 
@@ -1210,19 +1211,19 @@ def te( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
         print( header )
         if cpu > 1 :
             with mpr.Pool(cpu) as p :
-                Te_list = list( zip( *p.map( patial, iterable_arg ) ) )
+                Bgc_list = list( zip( *p.map( patial, iterable_arg ) ) )
                 
         if cpu == 1:
-            Te_list = list( zip ( *map( patial, iterable_arg ) ) ) 
+            Bgc_list = list( zip ( *map( patial, iterable_arg ) ) ) 
                
 
-        te = np.array( ( Te_list[0] ) ) 
-        te_near = np.array( ( Te_list[1] ) ) 
-        te_far = np.array( ( Te_list[2] ) ) 
-        z = np.array( ( Te_list[3] ) ) 
-        st_num = np.array( ( Te_list[4] ) )
-        pr1 = Te_list[5]
-        pr2 = Te_list[6]
+        bgc = np.array( ( Bgc_list[0] ) ) 
+        bgc_near = np.array( ( Bgc_list[1] ) ) 
+        bgc_far = np.array( ( Bgc_list[2] ) ) 
+        z = np.array( ( Bgc_list[3] ) ) 
+        st_num = np.array( ( Bgc_list[4] ) )
+        pr1 = Bgc_list[5]
+        pr2 = Bgc_list[6]
             
         # END ITERATION =======================================================   
         End = ( '==================================================================================================\n'   
@@ -1237,9 +1238,9 @@ def te( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
                                    np.round(yg, 6),
                                    np.round(z, 3),
                                    np.round(zdtm, 3),
-                                   np.round(te_near, 5),
-                                   np.round(te_far, 5),
-                                   np.round(te, 5),
+                                   np.round(bgc_near, 5),
+                                   np.round(bgc_far, 5),
+                                   np.round(bgc, 5),
                                    st_type ) )
         
         # Sort array according to st_num ( it is necessary when run parallel)
@@ -1251,10 +1252,10 @@ def te( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
         print( End )
         f.close() 
         
-    return te, te_near, te_far, R1, R2, gs1, gs2, pr1, pr2 
+    return bgc, bgc_near, bgc_far, R1, R2, gs1, gs2, pr1, pr2 
 
 # -----------------------------------------------------------------------------
-def load_te( file, ds_type='dict' ) :
+def load_bgc( file, ds_type='dict' ) :
     """
     Import results
     """
@@ -1263,7 +1264,7 @@ def load_te( file, ds_type='dict' ) :
     
     array = load_resoult[ np.argsort(load_resoult[:,0]) ] 
     
-    st_num, Lon, Lat, h_st, h_dtm, te_near, te_far, te_tot, st_type \
+    st_num, Lon, Lat, h_st, h_dtm, bgc_near, bgc_far, bgc_tot, st_type \
         = np.hsplit(array, array.shape[1])
         
     d = { 'st_num' : st_num.ravel(),
@@ -1271,9 +1272,9 @@ def load_te( file, ds_type='dict' ) :
           'Lat' : Lat.ravel(),
           'h_st' : h_st.ravel(),
           'h_dtm' : h_dtm.ravel(),
-          'te_near' : te_near.ravel(), 
-          'te_far' : te_far.ravel(), 
-          'te_tot' : te_tot.ravel(), 
+          'bgc_near' : bgc_near.ravel(), 
+          'bgc_far' : bgc_far.ravel(), 
+          'bgc_tot' : bgc_tot.ravel(), 
           'st_type' : st_type.ravel()
         }
     
@@ -1291,9 +1292,9 @@ def load_te( file, ds_type='dict' ) :
         return array, d
 
 # -----------------------------------------------------------------------------
-def run_te( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None, 
+def run_bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None, 
             errg=0.5, herr=5, dc=2670, dw=1030, R=R_wgs84, prjcode_in=4326, curved=True,
-            prjcode_m=None, st_type=0, plot=None, output_file='Te_correction', 
+            prjcode_m=None, st_type=0, plot=None, output_file='Bouguer_correction', 
             disable_checks=True, cpu=None, ply_coast=None, new_dtm=False, R3=50000 ) :
     
     # Create new directory for computation's resaults -------------------------
@@ -1372,7 +1373,7 @@ def run_te( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None
     
     out_file = ndir + os.sep + output_file.split( os.sep )[-1]
     
-    result = load_te( out_file, ds_type='all' )
+    result = load_bgc( out_file, ds_type='all' )
     
     with open( out_file, 'r' ) as f :
         print( f.read() )    
@@ -1395,7 +1396,7 @@ if __name__ == '__main__' :
     p.add_argument( '-irs', '--irs', default=4326, type=str )
     p.add_argument( '-pcs', '--pcs', default=None, type=str )
     p.add_argument( '-del_xyz', '--del_xyz', default=str )
-    p.add_argument( '-out', '--out', default='Te_correction', type=str )
+    p.add_argument( '-out', '--out', default='Bouguer_correction', type=str )
     p.add_argument( '-cpu', '--cpu', default=None, type=str )
     p.add_argument( '-ply_coast', '--ply_coast', default=None, type=str )
     p.add_argument( '-curved', '--curved', default=True, type=str )
@@ -1428,7 +1429,7 @@ if __name__ == '__main__' :
     arg.new_dtm = eval ( arg.new_dtm )
     arg.R3 = eval ( arg.R3 )
 
-    te( x, 
+    bgc( x, 
         y, 
         dtm1 = arg.dtm1, 
         z = z, 
