@@ -254,6 +254,16 @@ def run():
         assert len(out)==len(stations)
         assert np.all(np.isfinite(
             [s["reference_12p5m"]["value_mGal"] for s in out]))
+        # These are case-specific numerical regression tests, NOT proof
+        # of a global 0.05 mGal guarantee.
+        if kind in ("mountain", "coastal_bathymetry_far_shore"):
+            assert len(valid)==len(out), summary
+            assert summary["max_reference_convergence_25_12p5_mGal"]<.01, summary
+            assert summary["max_abs_actual_error_mGal"]<=.05, summary
+        if kind=="coastal_bathymetry" and len(valid)<len(out):
+            print("BGC_UNSUPPORTED_COASTAL_SEAM",
+                  "Mixed land-water densities at R1 are not implemented.",
+                  flush=True)
 
 if __name__=="__main__":
     run()
