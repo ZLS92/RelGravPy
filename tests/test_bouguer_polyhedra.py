@@ -344,3 +344,21 @@ def test_near_prism_shift_uses_cell_center():
         assert "R - np.sqrt(radial)" in snippet
         assert "Mxc**2 - Myc**2" in snippet
         assert "Mxb[Mxb<0]" not in snippet
+
+
+def test_nagy_prism_centre_base_intersects_spherical_reference():
+    path = ROOT / "relgravpy" / "_bouguer_correction.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+              and n.name == "mesh_ls")
+    ns = {"np": np, "R_wgs84": 6371000.0}
+    exec(compile(ast.Module(body=[fn], type_ignores=[]), str(path), "exec"), ns)
+    x = np.array([[5000., 5100.], [5000., 5100.]])
+    y = np.array([[1000., 1000.], [1100., 1100.]])
+    cells, density = ns["mesh_ls"](
+        x, y, np.array([[300.]]), R=6371000., z_shift=True)
+    assert cells.shape == (1, 6)
+    xc, yc = (cells[0,0]+cells[0,1])/2, (cells[0,2]+cells[0,3])/2
+    spherical_base = np.sqrt(6371000.**2 - xc**2 - yc**2) - 6371000.
+    np.testing.assert_allclose(cells[0,4], spherical_base, atol=1e-9)
+    np.testing.assert_allclose(cells[0,5] - cells[0,4], 300., atol=1e-10)
