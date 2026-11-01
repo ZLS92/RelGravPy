@@ -79,8 +79,11 @@ def run_case(config):
     assert (gs1,gs2,R1)==(300,1500,5250)
     assert R2>=167000
     assert len(pr1)==len(pr2)==1
-    assert np.all(np.isfinite(pr1[0]))
-    assert np.all(np.isfinite(pr2[0]))
+    # bgc() returns a tuple per station: (prism_vertices, density).
+    assert np.all(np.isfinite(pr1[0][0]))
+    assert np.all(np.isfinite(pr1[0][1]))
+    assert np.all(np.isfinite(pr2[0][0]))
+    assert np.all(np.isfinite(pr2[0][1]))
     out=case_dir/f"{name}_full"
     assert out.is_file(),f"Missing output file: {out}"
     text=out.read_text()
