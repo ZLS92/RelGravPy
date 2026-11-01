@@ -228,10 +228,9 @@ Where neighbouring near prisms share this density, a conformal first-row
 bridge is built as usual. **Where densities differ, or near material is
 absent, the far cell retains its original spherical-polyhedron geometry
 and density, without coastline-driven splitting or reassignment.**
-A RuntimeWarning reports how many parent cells use this no-split
-material-interface fallback. At those positions the near/far 3D faces
-are not guaranteed geometrically conformal. This is a deliberately
-simplified material-contact model and must be checked gravimetrically.
+No additional coastline-specific warnings or cell counts are produced.
+At those positions the near/far 3D faces are not guaranteed geometrically
+conformal. This simplified contact model still requires real-data validation.
 
 ### Independent gravimetric verification
 
@@ -265,9 +264,9 @@ end-to-end accuracy guarantee for arbitrary DEMs.
   on neighbouring near/far cells along R1. We **do not** subdivide source
   raster cells at the coastline; GDAL classification remains authoritative.
   The original far cell is kept at each mixed-density interface and its
-  nonconformal boundary is explicitly reported by RuntimeWarning.
-  The resulting geometrical mismatch requires full field validation with
-  real DTM coastlines and seafloor station configurations.
+  interface is accepted without a dedicated coastline warning or count.
+  The possible geometrical mismatch remains a known modelling limitation
+  requiring real DTM and seafloor-station validation.
 - The **outer** face of the transition strip now has exactly matching
   triangular facets with the next far ring (0 unmatched in the uniform
   benchmark). All individual transition polyhedra have closed oriented
@@ -364,9 +363,9 @@ The far/near DTM and density compartments may be different along R1.
 Within the same material, the first coarse-cell transition interpolates
 between two DEM surfaces and modifies the physical mass model with
 respect to a sharp elevation step. At mixed GDAL land/sea contacts,
-the original far cell is kept unsplit and an explicit RuntimeWarning
-identifies the number of nonconformal material interfaces. Truly
-invalid same-material transition geometries remain errors. Full end-to-end GDAL and
+the original far cell is kept unsplit without a dedicated coastline
+warning or cell count. Truly invalid same-material transition geometries
+remain errors. Full end-to-end GDAL and
 multi-station validation with real geographic data remains open.
 
 ## 1 November 2026: lightweight survey-wide auto-mesh (experimental)
