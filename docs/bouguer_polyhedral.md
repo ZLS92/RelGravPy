@@ -222,9 +222,16 @@ The transition is joined to the *actual* shifted-prism outer face, rather
 than joining two independently computed spherical faces. The same
 7-point stable surface integral is applied to the transitional polyhedron,
 and ordinary far polyhedra retain the standard fast kernel.
-When there is no unique matching prism/density on the R1 boundary, the
-code **raises a ValueError** instead of silently creating a discontinuity;
-marine/coastal interfaces need dedicated further handling.
+The existing GDAL land/sea mask determines each coarse cell's entire
+material and density, even if the actual coastline crosses its footprint.
+Where neighbouring near prisms share this density, a conformal first-row
+bridge is built as usual. **Where densities differ, or near material is
+absent, the far cell retains its original spherical-polyhedron geometry
+and density, without coastline-driven splitting or reassignment.**
+A RuntimeWarning reports how many parent cells use this no-split
+material-interface fallback. At those positions the near/far 3D faces
+are not guaranteed geometrically conformal. This is a deliberately
+simplified material-contact model and must be checked gravimetrically.
 
 ### Independent gravimetric verification
 
@@ -254,9 +261,13 @@ end-to-end accuracy guarantee for arbitrary DEMs.
   across the first far row. This intentionally changes the physical
   model with respect to a sharp vertical DTM discrepancy. A configurable
   transition width and explicit near/far DEM reconciliation are still needed.
-- Independent raster inputs and their density compartments can be mismatched
-  along R1. The current implementation checks for one compatible prism
-  on the boundary and fails early if matching is ambiguous or impossible.
+- Independent raster inputs can contain mixed material classifications
+  on neighbouring near/far cells along R1. We **do not** subdivide source
+  raster cells at the coastline; GDAL classification remains authoritative.
+  The original far cell is kept at each mixed-density interface and its
+  nonconformal boundary is explicitly reported by RuntimeWarning.
+  The resulting geometrical mismatch requires full field validation with
+  real DTM coastlines and seafloor station configurations.
 - The **outer** face of the transition strip now has exactly matching
   triangular facets with the next far ring (0 unmatched in the uniform
   benchmark). All individual transition polyhedra have closed oriented
@@ -349,12 +360,13 @@ point-mass reduction is blocked when `R3 <= R1 + gs2`.
 
 ### Limitations and verification still required
 
-The far/near DTM and density compartments must be compatible along
-R1. Unsupported water/land layer changes or missing near cells
-trigger explicit errors instead of silently creating disconnected
-material. The transition interpolates two DEM surfaces across the
-first coarse cell, so it changes the physical mass model relative
-to a sharp elevation discontinuity. Full end-to-end GDAL and
+The far/near DTM and density compartments may be different along R1.
+Within the same material, the first coarse-cell transition interpolates
+between two DEM surfaces and modifies the physical mass model with
+respect to a sharp elevation step. At mixed GDAL land/sea contacts,
+the original far cell is kept unsplit and an explicit RuntimeWarning
+identifies the number of nonconformal material interfaces. Truly
+invalid same-material transition geometries remain errors. Full end-to-end GDAL and
 multi-station validation with real geographic data remains open.
 
 ## 1 November 2026: lightweight survey-wide auto-mesh (experimental)
@@ -451,11 +463,11 @@ correctly emits a RuntimeWarning), whereas the measured mismatch
 in this particular case is `0.03431 mGal` across two stations.
 These are the results of the 1 November 2026 integer-only benchmark,
 not universal numerical bounds.
-These are four synthetic station cases, not a general calibration
-proof. The `tests/benchmark_bgc_full_topography.py` script now
-includes numerical regression assertions at 0.05 mGal for these
-two supported geometries. The incompatible mixed-density R1 crossing
-remains explicitly reported instead of being silently accepted.
+The `tests/benchmark_bgc_full_topography.py` regression script
+now covers **six station cases**: two alpine, two coastal with sea
+crossing R1, and two coastal with sea only in the outer field. The
+requested 0.05 mGal criterion is an empirical result for these
+synthetic cases, not a global calibrated error guarantee.
 
 Before integer-only alignment, the same mountain test used a
 fractional far step of 242.727 m and gave a 0.00767 mGal mismatch.
@@ -469,12 +481,16 @@ boundary slightly upward to 2040 m. Direct gravity mismatch is
 `0.03431 mGal` (reference convergence `0.00163 mGal`),
 with a sea density contrast beyond R1.
 
-If the coast intersects R1, `_transition_polyhedral_gz` currently
-rejects mixed land/water density transition faces with a ValueError
-rather than pretending the shared mass mesh is conformal.
-**Do not use this auto-mesh as an accuracy guarantee for mixed-density
-coastal interfaces** until that volumetric bridge is implemented and
-validated.
+When the coastline crosses R1, the GDAL-assigned classification is
+preserved for each complete source cell; no cell is clipped to the
+coastline. In a two-station synthetic example, the optimized integer
+mesh `gs1=30 m, R1=4125 m, gs2=250 m, R2=167125 m` gave a maximum
+measured discrepancy of **0.00502 mGal** relative to the 12.5-m prism
+reference. The independent 25-to-12.5-m difference was at most
+**0.00108 mGal**. The unmodified coarse cells at R1 are not
+guaranteed conformal to neighbouring fine cells; a mass-gap/overlap
+audit and real GDAL end-to-end tests are still required. The numerical
+0.05 mGal threshold is **not** certified for arbitrary real coastlines.
 
 The 0.05 mGal tests above cover a few specific synthetic morphologies
 and station locations. Further independent rugged/high-relief, sharp
