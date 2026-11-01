@@ -52,7 +52,7 @@ BC = _load_numerical_subset(
      "_surface_integral_vertices_gz", "_surface_integral_polyhedral_gz",
      "_polyhedral_gz", "_transition_cell_vertices", "_transition_polyhedral_gz",
      "_point_mass_gz", "_ring_polyhedral_effect",
-     "_refine_interface_cells", "_refine_far_interface",
+     "adj_mesh", "_refine_interface_cells", "_refine_far_interface",
      "_refine_near_interface"},
     gm=GM,
 )
@@ -372,3 +372,49 @@ def test_station_uses_caller_reference_radius_for_transition():
     body=ast.get_source_segment(src,fn)
     assert "R = float(R)" in body
     assert "R = utl.local_sph_raduis(yg)" not in body
+
+
+@pytest.mark.parametrize("gs1,r1,gs2,r2", [
+    (25., 2000., 500., 167000.),
+    (125., 5000., 312.5, 10000.),
+    (25., 3000., 1000., 166735.),
+    (7000., 42000., 25000., 167000.),
+    (50., 8000., 2000., 167000.),
+])
+def test_adj_mesh_minimal_upward_radii_and_small_step_adjustment(gs1,r1,gs2,r2):
+    a,R1,b,R2=BC.adj_mesh(gs1,r1,gs2,r2)
+    assert a == gs1
+    assert R1 >= r1-1e-7
+    assert R2 >= r2-1e-7
+    assert R2 > R1
+    assert abs(b/gs2-1.0) <= 0.0500001
+    assert np.isclose(2*R1/gs1, round(2*R1/gs1), atol=1e-9)
+    assert round(2*R1/gs1) % 2 == 1
+    assert np.isclose(2*R1/b, round(2*R1/b), atol=1e-9)
+    assert round(2*R1/b) % 2 == 1
+    assert np.isclose(2*R2/b, round(2*R2/b), atol=1e-9)
+    assert round(2*R2/b) % 2 == 1
+    assert R2 - R1 >= b - 1e-8
+    np.testing.assert_allclose(BC.adj_mesh(a,R1,b,R2), (a,R1,b,R2),
+                               atol=1e-7,rtol=1e-12)
+
+
+def test_adj_mesh_smallest_radius_satisfying_step_tolerance():
+    gs1, r1, gs2, r2 = 25., 2000., 500., 167000.
+    _,R1,s2,_=BC.adj_mesh(gs1,r1,gs2,r2)
+    assert abs(s2/gs2-1) <= 0.05+1e-12
+    for r_before in np.arange(gs1/2,R1-1e-6,gs1):
+        if r_before<r1:
+            continue
+        odd_base=max(1,int(np.floor((2*r_before/gs2-1)/2))*2+1)
+        possible=[2*r_before/m for m in (odd_base,odd_base+2)]
+        assert all(abs(v/gs2-1)>0.05-1e-10 for v in possible)
+
+
+def test_adj_mesh_rejects_bad_steps_and_tolerances():
+    for args in ((0,2000,500,167000),(-25,2000,500,167000),
+                 (25,0,500,167000)):
+        with pytest.raises(ValueError):
+            BC.adj_mesh(*args)
+    with pytest.raises(ValueError):
+        BC.adj_mesh(25,2000,500,167000,max_gs2_change=-0.01)
