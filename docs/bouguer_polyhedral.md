@@ -12,11 +12,10 @@ the local reference sphere. Local axes are East / North / Up, and the station
 is observed at `[0, 0, z]`. The reference sphere of radius `R` is tangent
 at `z=0`. Gravity returned by this module is **down-positive in mGal**.
 
-When used, the numerical routine `grav_modelling.gravicalc2_full` returns the Cartesian
-`g_z` component **up-positive** for consistently outward-oriented faces.
-Therefore `_polyhedral_gz` reverses its sign and also scales by
-`grav_modelling.G / 6.6732e-11` to match the gravitational constant used in
-`grav_modelling.nagy`.
+The gravimetric solvers are `grav_modelling.prism_grav` (rectangular
+prisms, analytic Nagy formulation) and `grav_modelling.polydron_grav`
+(arbitrary polyhedra). Both produce downward-positive `gz` in mGal
+and use the same gravitational constant.
 
 **Important:** `bgc()` is the Bouguer-correction modelling entry point.
 Its outputs (`bgc_near`, `bgc_far`, `bgc_tot`) are the modelled gravitational
@@ -38,8 +37,8 @@ chosen gravity sign convention.
   polyhedron. For well-separated cells the gravitational acceleration is
   computed from the divergence-theorem boundary integral on outward-oriented
   triangular facets, evaluated with a vectorised 7-point (degree-5) quadrature.
-  For very nearby cells we still reuse the deterministic `gravicalc2_full`
-  kernel; the latter was found to suffer severe cancellation for small,
+  For very nearby cells we use the deterministic analytic backend of
+  `polydron_grav`; this kernel can suffer cancellation for small,
   distant cells.
 - **Very far field** (beyond `R3`, when enabled): the existing
   box-to-point-mass reduction remains, but point mass gravity is now calculated
@@ -102,8 +101,8 @@ using AST extraction of numerical functions to avoid optional GIS imports.
 Source: `tests/benchmark_bouguer_polyhedra.py` and workflow
 `.github/workflows/bouguer-benchmark.yml`.
 
-The first numerical verification found that the original `gravicalc2_full`
-solver could return approximately **0.00003 µGal** for an 8-km-distant,
+The first numerical verification found that the original analytic
+polyhedral solver could return approximately **0.00003 µGal** for an 8-km-distant,
 250 x 250 x 300 m element with a **0.37686 µGal** Nagy-prism reference
 field. This motivated the stable far-cell surface-integral implementation,
 while retaining the original analytic solver at close distance.
@@ -134,7 +133,7 @@ kernel error.
 | Synthetic rugged topography | 1,250 m | 256 | +4.238 | 0.0092 | 0.0004 |
 | Synthetic rugged topography | 625 m | 1,024 | +2.410 | 0.0050 | 0.0006 |
 
-The earlier pure `gravicalc2_full` implementation took **1.6765 s**
+The earlier pure analytic polyhedral implementation took **1.6765 s**
 (flat, 1,024 cells) and **1.6795 s** (rugged, 1,024 cells), so the new
 hybrid approach is roughly **230-330 times faster** in these particular
 small, warmed-up synthetic tests. It remains around **8-12 times slower
@@ -341,7 +340,7 @@ Priority P0:
 Priority P1:
 - Replace/tune empirical selection of `R1`, `R2`, `gs2` and the `R3`
   point-mass approximation with verified error-budget criteria.
-- Benchmark the original `gravicalc2_full` / surface quadrature switching
+- Benchmark the analytic / surface quadrature switching of `polydron_grav`
   criterion and surface-face quadrature on near-singular geometries,
   demanding a smooth and stable gravity response.
 - Validate projected vs geographic DTM pixel sizes; the default `gs1`
@@ -384,6 +383,6 @@ must be evaluated separately from DTM elevation and rock-density uncertainty.
 4. **R3 point-mass approximation:** quantify the result versus increasing
    `R3` and direct polyhedral integration.
 5. **Performance:** the new far-field surface integral is vectorised and
-   significantly faster than the previous cell-by-cell `gravicalc2_full`
+   significantly faster than the previous cell-by-cell analytic polyhedron calculation
    implementation, but performance on many real survey stations and DEMs
    is still unmeasured. Profile end-to-end before considering compiled code.
