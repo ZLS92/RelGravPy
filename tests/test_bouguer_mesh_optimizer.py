@@ -141,7 +141,7 @@ def test_invalid_tolerance_rejected_only_when_tuning():
     with pytest.raises(ValueError,match="target_error"):
         BC.optimize_bgc_mesh(x,y,None,terrain_features=feat,
                              raster_resolution=25.,target_error=-1.)
-    out=BC.optimize_bgc_mesh(x,y,None,gs1=25.,R1=5000.,gs2=400.,
+    out=BC.optimize_bgc_mesh(x,y,None,gs1=30.,R1=5000.,gs2=400.,
                              target_error=-1.)
     assert out["optimized"] is False
 
