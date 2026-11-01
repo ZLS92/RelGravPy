@@ -384,8 +384,8 @@ class polydron_grav:
             raise ValueError("density must be finite and expressed in kg/m^3.")
         self.faces = []
         self._face_triangles = []
-        interior = np.mean(self.corners, axis=0)
         edge_counts = {}
+        directed_edges = {}
         for face in faces:
             ids = [int(i) for i in face]
             if len(ids) < 4 or ids[0] != len(ids)-1:
@@ -399,21 +399,38 @@ class polydron_grav:
                 normal+=np.cross(p[j]-p[0],p[j+1]-p[0])
             if np.linalg.norm(normal)==0:
                 raise ValueError("Face has zero area.")
-            # Correct orientation for convex/star-shaped cells. Orientation
-            # for general concave polyhedra must be given consistently.
-            if np.dot(normal,p.mean(axis=0)-interior)<0:
-                idx=idx[::-1]
+            # Respect the user's outward-consistent winding. A per-facet
+            # centroid heuristic reverses concave staircase faces, making
+            # otherwise watertight R1 transition meshes inconsistent.
             self.faces.append([len(idx),*idx])
             for a,b in zip(idx,idx[1:]+idx[:1]):
                 edge_counts[tuple(sorted((a,b)))] = (
                     edge_counts.get(tuple(sorted((a,b))),0)+1)
+                directed_edges[(a,b)] = directed_edges.get((a,b),0)+1
             for j in range(1,len(idx)-1):
                 self._face_triangles.append([idx[0],idx[j],idx[j+1]])
         if not self.faces:
             raise ValueError("A polyhedron needs outward-oriented faces.")
         if any(n!=2 for n in edge_counts.values()):
             raise ValueError("Polyhedron is not closed: each edge must belong to two faces.")
+        if any(directed_edges.get((b,a),0)!=1 or count!=1
+               for (a,b),count in directed_edges.items()):
+            raise ValueError("Polyhedron face winding must be consistent.")
         self._face_triangles=np.asarray(self._face_triangles,dtype=int)
+        # With a closed orientable mesh a single global orientation flip is
+        # valid; individual face flipping is not (concave bodies).
+        triangles=self.corners[self._face_triangles]
+        centre=self.corners.mean(axis=0)
+        vectors=triangles-centre
+        volume=float(np.einsum(
+            "ni,ni->n",vectors[:,0],
+            np.cross(vectors[:,1],vectors[:,2])
+        ).sum()/6.)
+        if abs(volume) < 1e-14:
+            raise ValueError("Polyhedron has zero signed volume.")
+        if volume < 0:
+            self.faces=[[n,*ids[::-1]] for n,*ids in self.faces]
+            self._face_triangles=self._face_triangles[:,::-1]
         box=np.ptp(self.corners,axis=0)
         self._span=float(np.max(box))
         self._centre=np.mean(self.corners,axis=0)
