@@ -2,6 +2,7 @@
 
 Keep the tests GDAL-free by extracting only the tested numerical functions.
 """
+import warnings
 import numpy as np
 import pytest
 
@@ -122,7 +123,8 @@ def test_bridge_mismatching_density_keeps_existing_cell_classification():
     # within a coarse far cell, do not split or replace that assignment.
     near,far=scenario()
     near_before,far_before=near.copy(),far.copy()
-    with pytest.warns(RuntimeWarning, match="GDAL land/sea"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
         total,ordinary,remaining_density=TR._transition_polyhedral_gz(
             far,np.full(len(far),1030.-2670.),
             near,np.full(len(near),2670.),
@@ -134,7 +136,8 @@ def test_bridge_mismatching_density_keeps_existing_cell_classification():
     np.testing.assert_array_equal(near,near_before)
     np.testing.assert_array_equal(far,far_before)
     # Near density must never overwrite a far cell's GDAL classification.
-    with pytest.warns(RuntimeWarning, match="GDAL land/sea"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
         alternate,alt_ordinary,alt_d=TR._transition_polyhedral_gz(
             far,np.full(len(far),2670.),
             near,np.full(len(near),-500.),
