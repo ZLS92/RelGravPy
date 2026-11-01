@@ -51,7 +51,7 @@ def main():
             elapsed=time.perf_counter()-start
         per_station=BC._bgc_mesh_error_proxy(
             feature,result["gs1"],result["R1"],result["gs2"],
-            2670.,6371000.)
+            2670.,6371000.,native_resolution=25.)
         report=dict(
             terrain=terrain,number_of_stations=len(feature),
             gs1_m=result["gs1"],R1_m=result["R1"],
