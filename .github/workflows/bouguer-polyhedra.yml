@@ -9,6 +9,7 @@ on:
       - 'relgravpy/grav_modelling.py'
       - 'tests/test_bouguer_polyhedra.py'
       - 'tests/test_polygrav_nagy.py'
+      - 'tests/benchmark_polygrav_nagy.py'
       - 'tests/benchmark_spherical_reference.py'
       - 'tests/benchmark_r1_transition.py'
       - 'tests/diagnose_r1_outer_seam.py'
@@ -19,6 +20,7 @@ on:
       - 'relgravpy/grav_modelling.py'
       - 'tests/test_bouguer_polyhedra.py'
       - 'tests/test_polygrav_nagy.py'
+      - 'tests/benchmark_polygrav_nagy.py'
       - 'tests/benchmark_spherical_reference.py'
       - 'tests/benchmark_r1_transition.py'
       - 'tests/diagnose_r1_outer_seam.py'
@@ -41,6 +43,8 @@ jobs:
           python -m py_compile relgravpy/_bouguer_correction.py
       - name: Validate unified Polygrav against Nagy and check geometry
         run: PYTHONPATH=tests:. python -m pytest -v tests/test_bouguer_polyhedra.py tests/test_polygrav_nagy.py
+      - name: Quantify Polygrav-versus-Nagy error by size distance and density
+        run: PYTHONPATH=tests:. python -u tests/benchmark_polygrav_nagy.py
       - name: Verify primary independent spherical reference and mesh convergence
         run: PYTHONPATH=tests:. python -u tests/benchmark_spherical_reference.py
       - name: Validate two-resolution R1 interface against spherical volume integral
