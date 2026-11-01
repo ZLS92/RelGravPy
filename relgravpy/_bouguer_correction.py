@@ -1025,7 +1025,10 @@ def st_loop( constant_arg, iterable_arg ) :
     bgc_far = iterable_arg[7]
     zdtm = iterable_arg[8]
     st_num = int(st_num.item())
-    R = utl.local_sph_raduis(yg)
+    # Retain the reference radius supplied to bgc(): the same radius must
+    # define the station-centred orthographic grid, the Nagy centre shift,
+    # and the outer spherical polyhedra. Never replace R inside this loop.
+    R = float(R)
 
     # Create mesh ( m1 = Near_Field, m2 = Far_Field ) -------------------------
     prjcode_m = f'+proj=ortho +lon_0={xg} +lat_0={yg} +ellps=sphere +R={R}'
