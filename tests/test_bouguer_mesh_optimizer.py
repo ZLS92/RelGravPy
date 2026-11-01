@@ -191,3 +191,18 @@ def test_station_preview_reads_only_two_small_windows_per_station(monkeypatch):
     assert dtm.band.calls==2*len(x)
     assert np.all(np.isfinite(features))
     assert np.all(features[:,2]>0)
+
+
+
+def test_rugged_terrain_prevents_unverified_coarse_near_mesh():
+    """Real full-DEM benchmark showed gs1=60 m misses 0.05 mGal."""
+    x,y=stations(2)
+    features=np.array([[.883,.902,871.6,1376.8],
+                       [.970,.898,958.6,1587.5]])
+    selected=BC.optimize_bgc_mesh(
+        x,y,None,gs1=None,R1=None,gs2=None,
+        raster_resolution=30.,terrain_features=features,
+        target_error=.05)
+    assert selected["gs1"]<=30.,selected
+    assert selected["meets_target"] is True
+    assert selected["estimated_error_mgal"]<=.05
