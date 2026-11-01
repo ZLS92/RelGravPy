@@ -336,8 +336,11 @@ def _bridge_mesh(cell, near_prisms, side, radius, tol=1e-6):
     for left, right in zip(segments[:-1], segments[1:]):
         if abs(left[1] - right[0]) > tol:
             raise ValueError("R1 bridge has overlapping or missing near faces.")
-        if min(left[3], right[3]) <= max(left[2], right[2]):
-            raise ValueError("R1 bridge near-prism height intervals are disjoint.")
+        # Consecutive land/sea prisms may touch the zero datum from
+        # opposite sides, with slightly different curvature shifts.
+        # Requiring overlapping height intervals would reject valid
+        # GDAL cell assignments across a coastal step. Geometry closure
+        # and global winding are checked below instead.
 
     xyz, lookup, faces = [], {}, []
     def add_xyz(p):
