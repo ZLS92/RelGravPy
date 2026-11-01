@@ -1136,8 +1136,16 @@ def st_loop( constant_arg, iterable_arg ) :
         pr1 = _refine_near_interface(pr1[0], pr1[1], Mx[1][0, :],
                                      My[1][:, 0], R1)
 
-    if R3 != None :
-        pr2, pr3 = mesh_R3( pr2, R3 )
+    if R3 is not None:
+        # mesh_R3 removes cells by their outer boundary. The first R1
+        # coarse ring is the explicit prism-to-sphere bridge: it must
+        # remain a polyhedron, never be replaced with a point mass.
+        if curved and refine_interface and not spherical_near and (
+                R3 <= R1 + gs2 + 1e-8):
+            raise ValueError(
+                "R3 must exceed R1 + gs2 to preserve the complete "
+                "arbitrary-facet transition ring.")
+        pr2, pr3 = mesh_R3(pr2, R3)
     
     # Coordinates of computational point (center of the mesh)
     st = [0, 0, z]
