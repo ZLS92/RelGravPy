@@ -354,14 +354,17 @@ def test_station_uses_caller_reference_radius_for_transition():
 
 
 @pytest.mark.parametrize("gs1,r1,gs2,r2", [
-    (25., 2000., 500., 167000.),
-    (125., 5000., 312.5, 10000.),
-    (25., 3000., 1000., 166735.),
-    (50., 8000., 2000., 167000.),
+    (50, 2000, 250, 167000),
+    (50, 5000, 250, 10000),
+    (50, 3000, 250, 166735),
+    (100, 8000, 500, 167000),
 ])
 def test_adj_mesh_minimal_upward_radii_and_small_step_adjustment(gs1,r1,gs2,r2):
     a,R1,b,R2=BC.adj_mesh(gs1,r1,gs2,r2)
     assert a == gs1
+    assert all(isinstance(v,int) for v in (a,R1,b,R2))
+    assert all(v==int(v) for v in (a,R1,b,R2))
+    assert gs1%2 == b%2 == 0
     assert R1 >= r1-1e-7
     assert R2 >= r2-1e-7
     assert R2 > R1
@@ -378,7 +381,7 @@ def test_adj_mesh_minimal_upward_radii_and_small_step_adjustment(gs1,r1,gs2,r2):
 
 
 def test_adj_mesh_smallest_radius_satisfying_step_tolerance():
-    gs1, r1, gs2, r2 = 25., 2000., 500., 167000.
+    gs1, r1, gs2, r2 = 50, 2000, 250, 167000
     _,R1,s2,_=BC.adj_mesh(gs1,r1,gs2,r2)
     assert abs(s2/gs2-1) <= 0.05+1e-12
     for r_before in np.arange(gs1/2,R1-1e-6,gs1):
@@ -399,7 +402,7 @@ def test_adj_mesh_rejects_bad_steps_and_tolerances():
 
 
 def test_adj_mesh_avoids_excessive_r1_growth_on_extreme_coarse_input():
-    with pytest.raises(ValueError, match="No aligned R1/gs2"):
+    with pytest.raises(ValueError, match="No EXACT integer-metre aligned"):
         BC.adj_mesh(7000.,42000.,25000.,167000.)
     # Relaxation is explicit, never a silent 17.5 km R1 expansion.
     a,R1,b,R2=BC.adj_mesh(7000.,42000.,25000.,167000.,
@@ -408,3 +411,25 @@ def test_adj_mesh_avoids_excessive_r1_growth_on_extreme_coarse_input():
     assert R1>=42000.
     assert R2>=167000.
     assert abs(b/25000.-1)<0.05
+
+
+@pytest.mark.parametrize("invalid", [
+    (125,5000,312,10000),       # odd gs1 incompatible with integer R1
+    (100,5000,312.5,10000),     # decimal gs2 forbidden
+    (100,5000.5,312,10000),     # decimal R1 forbidden
+    (100,5000,312,10000.5),     # decimal R2 forbidden
+    (100.5,5000,312,10000),     # decimal gs1 forbidden
+])
+def test_adj_mesh_rejects_noninteger_or_odd_near_steps(invalid):
+    with pytest.raises(ValueError,match="integer|EVEN"):
+        BC.adj_mesh(*invalid)
+
+
+def test_adj_mesh_keeps_exact_centred_integer_r1_r2():
+    gs1,R1,gs2,R2=BC.adj_mesh(50,5000,250,10000)
+    assert (gs1,R1,gs2,R2)==(50,5125,250,10125)
+    assert 2*R1//gs1 % 2 == 1
+    assert 2*R1//gs2 % 2 == 1
+    assert 2*R2//gs2 % 2 == 1
+    assert (2*R1)%gs1==(2*R1)%gs2==0
+    assert BC.adj_mesh(gs1,R1,gs2,R2)==(gs1,R1,gs2,R2)
