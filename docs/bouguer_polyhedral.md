@@ -275,6 +275,12 @@ near/far boundary. It has now been revised to make the constraints
 explicit and predictable.
 
 With user-supplied `gs1, R1, gs2, R2`:
+- accept only **positive integer metres**; reject fractional inputs instead
+  of rounding them silently;
+- require an **even `gs1`**. Because station-centred meshes have an
+  odd number of cells, an integer common radius requires even integer
+  steps on **both** grids; `gs2` is shifted to the nearest compatible
+  even integer within the allowed tolerance;
 - preserve `gs1` **exactly**;
 - increase `R1` to the *first permissible* near-field cell boundary
   for which the far-field grid can also share that same boundary;
@@ -294,14 +300,26 @@ Mathematically:
 `R2 = R1 + k*gs2_adjusted` for a positive integer k.
 The correction is idempotent, so repeated calls do not drift.
 
-**Example**: input `gs1=125 m, R1=5000 m, gs2=312.5 m, R2=10000 m`
-produces `gs1=125 m, R1=5062.5 m, gs2=306.8181818 m,
-R2=10278.4090909 m`. Thus the near step is preserved,
-the near radius grows 62.5 m, the far step changes by -1.82%, and
-the far radius grows 278.4 m. The far DTM crop now happens after
-alignment. If `gs2` is supplied explicitly, the near DTM crop also
-uses the aligned radius. If `gs2` is estimated later, extra initial
-raster coverage is reserved and insufficient coverage is rejected.
+**Integer-only example**: `adj_mesh(50, 5000, 250, 10000)`
+returns `(50, 5125, 250, 10125)` **as Python ints**.
+Indeed `2*5125/50=205` and `2*5125/250=41` (both odd),
+and `2*10125/250=81` (odd). The former example involving
+`gs1=125` and fractional `gs2=312.5` is now **invalid**:
+odd `gs1` and an integer `R1` are mathematically incompatible
+under the existing centred-mesh convention.
+
+The far DTM crop takes place after alignment, and the near DTM crop
+also uses the adjusted radius. Automatic tuning produces even integer
+steps and integer candidate radii before calling `adj_mesh`; when
+`R1` is automatic it may search a modestly wider growth interval
+(up to two far grid steps) to find a genuinely integral shared face.
+The default `R2=167000 m` remains the nominal requested radius;
+the aligned outer boundary may be slightly larger.
+
+The gravity arrays and polyhedron vertex coordinates remain
+`float64` even when these four control parameters are ints:
+the principal benefit is *exact discrete mesh bookkeeping* and
+reproducibility, not a material reduction in the solver's CPU cost.
 
 **The previous outer-seam defect has been resolved.** The original
 refinement created 78 hanging vertices (1.84 mm maximum offset)
