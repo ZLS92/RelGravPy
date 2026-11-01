@@ -40,7 +40,7 @@ def close_triangle(a,b,tol=2e-8):
                    for candidate in b) for vertex in a)
 
 
-def diagnose(gs1=125., R1_requested=5000., gs2_requested=312.5,
+def diagnose(gs1=100, R1_requested=5000, gs2_requested=500,
              R2_requested=10000.):
     gs1,R1,gs2,R2=BC.adj_mesh(
         gs1,R1_requested,gs2_requested,R2_requested)
