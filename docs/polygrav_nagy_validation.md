@@ -47,7 +47,13 @@ offsets, and four densities (0, 1000, 2670, -1800 kg/m³):
 For these synthetic cases, the comparison requires
 `rtol <= 1.5e-4` with `atol <= 2e-6 mGal` (0.002 µGal).
 The absolute tolerance protects near-zero signals; it must not be
-misreported as a global relative-accuracy guarantee. Additional
+misreported as a global relative-accuracy guarantee.
+The GitHub Actions benchmark reports a **maximum absolute discrepancy of
+4.45 × 10⁻⁵ µGal** in these 100 cases. The maximum relative discrepancy
+is **0.0522%**, occurring for a very small signal (~0.0853 µGal)
+from a 10 km-wide / 200 m-thick prism at eight body widths offset.
+This is a test-set statistic, not a universal error bound.
+ Additional
 tests check interior stations, stations below the body, multi-station
 cache independence, density linearity, left/right symmetry,
 arbitrary faces with extra collinear nodes, open mesh rejection, and
