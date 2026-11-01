@@ -260,8 +260,9 @@ end-to-end accuracy guarantee for arbitrary DEMs.
   still have hanging nodes relative to the next unrefined far-field ring.
   Global watertightness of arbitrary 3D meshes is not yet demonstrated.
 - Real DTM / sea / seabed / multi-station GDAL paths still require
-  end-to-end tests. The local Earth radius inconsistency remains a
-  separate known issue.
+  end-to-end tests. The station loop now consistently retains the
+  radius supplied to `bgc()` for projection, prism shift and polyhedra;
+  validating the geodetic reference and the height datum remains open.
 
 ## Verification priorities before production
 
@@ -278,9 +279,9 @@ Priority P0:
 - Verify real-DEM height/density differences across R1 (including sea/land);
   choose and validate the width of the prism-anchored sloping bridge,
   and resolve any hanging nodes in the following far-field row.
-- Verify `R` handling: the caller-specified radius is overwritten inside
-  `st_loop` by `utl.local_sph_raduis(yg)`, while prior raster projection
-  uses the caller's `R`. Choose one consistent reference model.
+- The radius-propagation inconsistency has been corrected: `st_loop` now
+  uses the caller's reference `R` consistently. Geodetic datum and
+  height-reference conventions still require end-to-end validation.
 - Verify the complete Bouguer effect using variable-thickness synthetic
   topography with a converged independent spherical reference, including
   negative height contrasts, density signs, surface and seabed stations.
