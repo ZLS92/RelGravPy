@@ -10,6 +10,7 @@ on:
       - 'tests/test_bouguer_polyhedra.py'
       - 'tests/benchmark_spherical_reference.py'
       - 'tests/benchmark_r1_transition.py'
+      - 'tests/diagnose_r1_outer_seam.py'
       - '.github/workflows/bouguer-polyhedra.yml'
   pull_request:
     paths:
@@ -18,6 +19,7 @@ on:
       - 'tests/test_bouguer_polyhedra.py'
       - 'tests/benchmark_spherical_reference.py'
       - 'tests/benchmark_r1_transition.py'
+      - 'tests/diagnose_r1_outer_seam.py'
   workflow_dispatch:
 
 jobs:
@@ -41,3 +43,5 @@ jobs:
         run: PYTHONPATH=tests:. python -u tests/benchmark_spherical_reference.py
       - name: Validate two-resolution R1 interface against spherical volume integral
         run: PYTHONPATH=tests:. python -u tests/benchmark_r1_transition.py
+      - name: Diagnose outer seam compatibility after mesh adjustment
+        run: PYTHONPATH=tests:. python -u tests/diagnose_r1_outer_seam.py
