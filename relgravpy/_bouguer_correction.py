@@ -183,7 +183,7 @@ def _surface_integral_polyhedral_gz(prisms, densities, observation, radius):
 def _polyhedral_gz(prisms, densities, observation, radius):
     """Down-positive mGal from curvature-following polyhedra.
 
-    For nearby cells reuse grav_modelling.Polygrav's analytic kernel. For sufficiently
+    For nearby cells reuse grav_modelling.polydron_grav's analytic kernel. For sufficiently
     distant cells use a stable face-integral kernel. The original solver can
     underestimate small distant elements because its line/angle terms cancel
     numerically; the face integral avoids that catastrophic loss of precision.
@@ -216,7 +216,7 @@ def _polyhedral_gz(prisms, densities, observation, radius):
         if den == 0:
             continue
         vertices = _curved_cell_vertices(prism, radius)
-        total += gm.Polygrav(
+        total += gm.polydron_grav(
             vertices, [list(face) for face in _CURVED_FACES], den
         ).compute_gz(obs, method="analytic")
     if np.any(~near):
@@ -1104,7 +1104,7 @@ def st_loop( constant_arg, iterable_arg ) :
         z = 0
         
     # Default: centre-shifted horizontal Nagy prisms. The optional
-    # 'spherical' mode uses the unified Polygrav kernel.
+    # 'spherical' mode uses the unified polydron_grav kernel.
     spherical_near = curved and near_geometry == "spherical"
     
     if ( st_type == 0 ) or ( st_type == 1 ) :
@@ -1149,7 +1149,7 @@ def st_loop( constant_arg, iterable_arg ) :
         bgc_near = _polyhedral_gz(pr1[0][finite_mass],
                                   pr1[1][finite_mass], st, R)
     else:
-        nag_near = gm.nagy(st, pr1[0], density=pr1[1])
+        nag_near = gm.prism_grav(st, pr1[0], density=pr1[1])
         bgc_near = nag_near.gz()
 
     # xpt = np.concatenate( ( pr1[0][:,0], pr1[0][:,1] ) )
@@ -1166,7 +1166,7 @@ def st_loop( constant_arg, iterable_arg ) :
             bgc_far = _polyhedral_gz(pr2[0], pr2[1], st, R)
 
     else :
-        nag_far = gm.nagy( st, pr2[0], density=pr2[1] )
+        nag_far = gm.prism_grav( st, pr2[0], density=pr2[1] )
         bgc_far = nag_far.gz()
 
         # xpt = np.concatenate( ( pr2[0][:,0], pr2[0][:,1] ) )
