@@ -157,8 +157,8 @@ def run():
         ("mountain",[(0.,0.),(2200.,-1800.)]),
         ("coastal_bathymetry",[(1200.,0.),(380.,-2300.)]),
         # An R1 boundary wholly in land, with genuine bathymetry in
-        # the far source region: isolates far-sea gravimetry from the
-        # currently unsupported coastal density crossing AT R1.
+        # the far source region: separates the R1-crossing test from a
+        # case with bathymetry only in the far field.
         ("coastal_bathymetry_far_shore",[(6000.,0.),(5200.,-2300.)]),
     )
     for kind,stations in cases:
@@ -256,14 +256,12 @@ def run():
             [s["reference_12p5m"]["value_mGal"] for s in out]))
         # These are case-specific numerical regression tests, NOT proof
         # of a global 0.05 mGal guarantee.
-        if kind in ("mountain", "coastal_bathymetry_far_shore"):
-            assert len(valid)==len(out), summary
-            assert summary["max_reference_convergence_25_12p5_mGal"]<.01, summary
-            assert summary["max_abs_actual_error_mGal"]<=.05, summary
-        if kind=="coastal_bathymetry" and len(valid)<len(out):
-            print("BGC_UNSUPPORTED_COASTAL_SEAM",
-                  "Mixed land-water densities at R1 are not implemented.",
-                  flush=True)
+        # A coastline crossing R1 is also supported without splitting
+        # any GDAL-classified source cell. Its mixed-density far parents
+        # retain their original spherical geometries (warn once).
+        assert len(valid)==len(out), summary
+        assert summary["max_reference_convergence_25_12p5_mGal"]<.01, summary
+        assert summary["max_abs_actual_error_mGal"]<=.05, summary
 
 if __name__=="__main__":
     run()
