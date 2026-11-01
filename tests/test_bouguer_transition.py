@@ -117,13 +117,29 @@ def test_whole_ring_uses_original_coarse_cells_without_subdivision():
     assert np.isfinite(total)
 
 
-def test_bridge_mismatching_density_fails_early():
+def test_bridge_mismatching_density_keeps_existing_cell_classification():
+    # GDAL has already classified each cell. Even when a coastline falls
+    # within a coarse far cell, do not split or replace that assignment.
     near,far=scenario()
-    with pytest.raises(ValueError,match="density"):
-        TR._transition_polyhedral_gz(
-            far,np.full(len(far),1030.),
-            near,np.full(len(near),2670.),
-            [0,0,350],R,R1)
+    near_before,far_before=near.copy(),far.copy()
+    total,ordinary,remaining_density=TR._transition_polyhedral_gz(
+        far,np.full(len(far),1030.-2670.),
+        near,np.full(len(near),2670.),
+        [0,0,350],R,R1)
+    assert np.isfinite(total)
+    assert len(ordinary)==len(far)-40
+    assert np.all(remaining_density==1030.-2670.)
+    np.testing.assert_array_equal(near,near_before)
+    np.testing.assert_array_equal(far,far_before)
+    # Gravity is linear in the density of each original far cell, and
+    # independent of the density of its adjacent near prisms.
+    alternate,_,_=TR._transition_polyhedral_gz(
+        far,np.full(len(far),2670.),
+        near,np.full(len(near),-500.),
+        [0,0,350],R,R1)
+    np.testing.assert_allclose(
+        total/(1030.-2670.), alternate/2670.,
+        rtol=1e-11,atol=1e-10)
 
 
 
