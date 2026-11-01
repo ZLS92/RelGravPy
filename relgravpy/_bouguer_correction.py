@@ -820,11 +820,8 @@ def optimize_bgc_mesh(x, y, dtm1, gs1=None, R1=None, gs2=None,
                         near_step, radius1, far_step, R2)
                 except ValueError:
                     continue
-                if b + c >= min(R2, max(float(R3), b+c)):
-                    # A full polyhedral transition ring must fit inside R3
-                    # if the far-field point-mass option is active.
-                    if R3 is not None and float(R3) <= b+c:
-                        continue
+                if R3 is not None and float(R3) <= b+c:
+                    continue
                 errors = _bgc_mesh_error_proxy(features,a,b,c,rho,R)
                 worst = float(np.max(errors))
                 # Proxy wall-clock cost: far-polyhedron work is batched,
@@ -1720,12 +1717,12 @@ def st_loop( constant_arg, iterable_arg ) :
     return bgc, bgc_near, bgc_far, z, st_num, pr1, pr2
 
 # -----------------------------------------------------------------------------  
-def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None, 
+def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=167000., gs2=None, 
         errg=0.5, herr=5, dc=2670, dw=1030, R=R_wgs84, prjcode_in=4326, curved=True,
         prjcode_m=None, st_type=0, plot=None, output_file='Bouguer_correction', 
         disable_checks=True, cpu=1, ply_coast=None, new_dtm=False, adjust_dtm=False,
         R3=50000, z_shift=True, near_geometry="auto",
-        refine_interface=True ):
+        refine_interface=True, target_error=0.05 ):
     """
     Compute the Bouguer correction model with Nagy prisms in the near field
     and curvature-following polyhedra in the far field (curved=True).
@@ -1737,16 +1734,19 @@ def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
     Default near_geometry="auto" retains HORIZONTAL Nagy prisms within R1,
     shifted vertically to align each base centre with the spherical surface.
     The first far polyhedral row joins their actual exterior prism vertices.
-    refine_interface=True subdivides far-side boundary faces tangentially
-    at fine grid nodes. near_geometry="spherical" remains available only
-    as an explicit experimental comparison mode.
+    refine_interface=True builds arbitrary-facet R1 polyhedra.
+    An automatic, survey-wide mesh is selected only if any of
+    gs1/R1/gs2 is None. target_error is the max *estimated* error in
+    mGal and is ignored for fully explicit meshes. Nominal R2=167 km.
     
     INPUT:
     x,y,z ----->  coordinates of computational points (z can be as x,y or just a sigle value or z='dtm')
     gs1, gs2 --> grid-step of near&far field mesh (if gs2=None, gs2 is empirically calculated)
     dtm1, dtm2 > gdal dataset objects (DTM) of 1near&2far field (if dtm2=None, dtm2=dtm1)
     prjcode_in > input projection coordinate code from proj library eg.'epsg:4326' or even 4326 as integer
-    errg ------> accuracy of gravity data [mGal]
+    errg ------> legacy tuning accuracy, unused by new auto tuner.
+    target_error --> maximum allowable ESTIMATED error [mGal] across
+                     all stations (not a certified accuracy bound).
     herr ------> accuracy of dtm data [m]
     st_t ------> station_type: 0 for land st. 1 for sea-surface st., 0 for sea-bottom st.
     """
@@ -1807,15 +1807,26 @@ def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
     if dtm2 == None : 
         dtm2 = dtm1
         
-    # Get dtm1 values at the station point ------------------------------------
-    zdtm = rt.xy2rasterVal( dtm1, x, y, prjcode=prjcode_in  )[0]           
-    # Estimate R1 -------------------------------------------------------------
-    if R1==None:
-        R1 = Radi1( herr, R=R )      
+    # Optimize exactly once for the ENTIRE input station set.
+    # With all three mesh inputs specified, target_error is ignored.
+    if R2 is None:
+        R2 = 167000.
+    if gs1 is None or R1 is None or gs2 is None:
+        chosen = optimize_bgc_mesh(
+            x, y, dtm1, gs1=gs1, R1=R1, gs2=gs2, R2=R2,
+            target_error=target_error, herr=herr, dc=dc, dw=dw,
+            R=R, R3=R3, prjcode_in=prjcode_in, prjcode_m=prjcode_m)
+        gs1, R1, gs2, R2 = (chosen[k] for k in
+                             ("gs1", "R1", "gs2", "R2"))
+        print("SURVEY-WIDE MESH ERROR PROXY:",
+              f"max={chosen['estimated_error_mgal']:.5g} mGal,",
+              f"target={target_error:.5g} mGal,",
+              f"station={chosen['critical_station_index']},",
+              f"candidates={chosen['candidates']}",
+              "(not a certified error bound)")
 
-    # gs1 is needed for the crop extent, so resolve it before computing lim1.
-    if gs1 is None:
-        gs1 = float(np.mean(rt.raster_res(dtm1)))
+    # DTM elevations of the stations ------------------------------------------
+    zdtm = rt.xy2rasterVal(dtm1, x, y, prjcode=prjcode_in)[0]
 
     # Align the radii BEFORE cropping the near DTM whenever gs2 is given.
     # Otherwise an upward R1 adjustment can leave an undersized raster.
@@ -1887,40 +1898,10 @@ def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
     else :
         dtm1_new = ndir + os.sep + 'dtm1' + os.sep + 'dtm1.tif' 
         
-    # Estimate gs2 ------------------------------------------------------------
-    print( "LOADING/CREATING DTM_2 ...")
-    if gs2 == None : 
-        topo_array = rt.raster2array( dtm1_new )[2]
-        h = np.std( np.sqrt( topo_array**2 ) *2 ) + np.mean( np.sqrt( topo_array**2 ) )   
-        print( 'Average Slab Thickness, Ring_1 =' + str( h ) )
-        gs2, gs2_deg = GrdStep2( R1, h, errg, gs1 )[0]
-        if gs2 < gs1 : 
-            gs2 = gs1
-        if gs2 > R1 : 
-            gs2 = R1
-        
-    # Estimate R2 ---------------------------------------------------------           
-    if R2==None :  
-        Rmax = 167*1e3
-        limMax = [ minx-Rmax, maxx+Rmax, miny-Rmax, maxy+Rmax ] 
-        dtmmax = rt.raster_warp( dtm2, 
-                                 limMax, 
-                                 xRes = gs2, 
-                                 yRes = gs2, 
-                                 out_prjcode = prjcode_m, 
-                                 lim_prjcode = prjcode_m, 
-                                 new_name = 'dtmmax', 
-                                 method = gdal.GRA_Bilinear, 
-                                 close = False)
+    # Parameters resolved. The old empirical gs2/R2 gravity loops
+    # remain for reference but are no longer used by bgc().
+    print("LOADING/CREATING DTM_2 ...")
 
-        topo_array = dtmmax.GetRasterBand(1).ReadAsArray()
-        h = np.mean( np.sqrt( topo_array**2 ) )
-        print( 'Average Slab Thickness, Ring_2 =' + str( h ) )
-        R2, R2_deg = Radi2( R1, h, errg, gs2 )[0]
-        if R2 < R1 : 
-            R2 = R1
-        dtmmax = None   
-    
     # Re-apply the exact alignment when gs2 was estimated from the DTM.
     # The function is idempotent when invoked earlier with explicit gs2.
     gs1, R1, gs2, R2 = adj_mesh(gs1, R1, gs2, R2)
