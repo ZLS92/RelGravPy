@@ -1931,7 +1931,11 @@ def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=167000., gs2=None
             res1 = rt.raster_res( dtm1 )
             gs1 = np.mean( res1 )  
         # Replace nan values with -99999.0 ---------------------------------------
-        dtm1 = rt.set_raster_nodata( dtm1, -32768.0 )
+        # GDAL sources supplied as paths are opened read-only. Never
+        # modify the source raster: normalize NoData in a writable copy.
+        dtm1 = rt.set_raster_nodata(
+            dtm1, -32768.0, copy=True,
+            path=ndir+os.sep+'dtm1', new_name='source_nodata')
         # Crop-Sample to lim1 -------------------------------------------------
         dtm_t1 = rt.raster_warp( dtm1, 
                                  lim1, 
@@ -1990,7 +1994,9 @@ def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=167000., gs2=None
        ( new_dtm is True ) : 
 
         # Replace nan values with -9999.0
-        dtm2 = rt.set_raster_nodata( dtm2, -32768.0 )
+        dtm2 = rt.set_raster_nodata(
+            dtm2, -32768.0, copy=True,
+            path=ndir+os.sep+'dtm2', new_name='source_nodata')
         # Crop-Resample dtm2 based on R2 and gs2 ------------------------------
         lim2 = [ minx-R2-gs2, maxx+R2+gs2, miny-R2-gs2, maxy+R2+gs2 ]          
         dtm_t2 = rt.raster_warp( dtm2, 
