@@ -124,14 +124,32 @@ def grav_candidate(station,obs_z,kind,selection):
 
 
 def grav_reference(station,obs_z,kind,step):
-    mesh_from_step.kind=kind
+    """Dense Nagy integral, streamed in narrow rows to bound memory."""
     start=time.perf_counter()
-    cells,height=mesh_from_step(station,step,ROOT)
-    prisms,density=convert_cells(cells,height,station,True)
-    g=float(GM.prism_grav([[0.,0.,obs_z]],prisms,density).
-            compute_gz()[0])
-    return dict(value_mGal=g,step_m=step,
-                cells=len(prisms),run_s=time.perf_counter()-start)
+    n=int(np.ceil(ROOT/step))+2
+    edges=(np.arange(-n,n+2)-.5)*step
+    xmid=(edges[1:]+edges[:-1])/2
+    nx=len(xmid)
+    block_rows=max(1,int(80000//nx))
+    total,cells=0.,0
+    for k in range(0,nx,block_rows):
+        jj=min(k+block_rows,nx)
+        ym=(edges[k:jj]+edges[k+1:jj+1])/2
+        xx,yy=np.meshgrid(xmid,ym)
+        heights=terrain(station[0]+xx,station[1]+yy,kind)
+        valid=np.abs(heights)>1e-7
+        if not np.any(valid):
+            continue
+        w,south=np.meshgrid(edges[:-1],edges[k:jj])
+        east,north=np.meshgrid(edges[1:],edges[k+1:jj+1])
+        footprints=np.column_stack((
+            w.ravel(),east.ravel(),south.ravel(),north.ravel()))
+        prisms,den=convert_cells(footprints,heights.ravel(),station,True)
+        cells+=len(prisms)
+        total+=float(GM.prism_grav([[0.,0.,obs_z]],prisms,den).
+                     compute_gz()[0])
+    return dict(value_mGal=total,step_m=step,cells=cells,
+                run_s=time.perf_counter()-start)
 
 
 def run():
@@ -157,15 +175,20 @@ def run():
             result=grav_candidate(station,obs_z,kind,choice)
             ref100=grav_reference(station,obs_z,kind,100.)
             ref50=grav_reference(station,obs_z,kind,50.)
+            ref25=grav_reference(station,obs_z,kind,25.)
+            ref12=grav_reference(station,obs_z,kind,12.5)
             if result["status"]=="ok":
-                result["actual_error_vs_50m_mGal"]=(
-                    result["gravity_mGal"]-ref50["value_mGal"])
+                result["actual_error_vs_12p5m_mGal"]=(
+                    result["gravity_mGal"]-ref12["value_mGal"])
                 result["abs_actual_error_mGal"]=abs(
-                    result["actual_error_vs_50m_mGal"])
+                    result["actual_error_vs_12p5m_mGal"])
             result.update(station_xy_m=station,obs_z_m=obs_z,
                           reference_100m=ref100,reference_50m=ref50,
-                          reference_convergence_mGal=abs(
-                              ref100["value_mGal"]-ref50["value_mGal"]))
+                          reference_25m=ref25,reference_12p5m=ref12,
+                          reference_convergence_50_25_mGal=abs(
+                              ref50["value_mGal"]-ref25["value_mGal"]),
+                          reference_convergence_25_12p5_mGal=abs(
+                              ref25["value_mGal"]-ref12["value_mGal"]))
             out.append(result)
             print("BGC_FULL_STATION",json.dumps(
                 dict(scenario=kind,**result)),flush=True)
@@ -182,14 +205,14 @@ def run():
             max_abs_actual_error_mGal=(
                 max(s["abs_actual_error_mGal"] for s in valid)
                 if valid else None),
-            max_reference_convergence_mGal=max(
-                s["reference_convergence_mGal"] for s in out),
-            caveat="50m prism mesh is a finite reference, not exact curved Earth")
+            max_reference_convergence_25_12p5_mGal=max(
+                s["reference_convergence_25_12p5_mGal"] for s in out),
+            caveat="12.5m prism mesh is a finite reference, not exact curved Earth")
         print("BGC_FULL_TOPOGRAPHY",json.dumps(summary),flush=True)
         assert choice["R2"] >= 167000.
         assert len(out)==len(stations)
         assert np.all(np.isfinite(
-            [s["reference_50m"]["value_mGal"] for s in out]))
+            [s["reference_12p5m"]["value_mGal"] for s in out]))
 
 if __name__=="__main__":
     run()
