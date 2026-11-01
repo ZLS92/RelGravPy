@@ -1,4 +1,4 @@
-"""Report error statistics for unified Polygrav against Nagy over 100 cases.
+"""Report error statistics for unified polydron_grav against Nagy over 100 cases.
 
 Usage: PYTHONPATH=tests:. python -u tests/benchmark_polygrav_nagy.py
 """
@@ -13,11 +13,11 @@ def main():
         prism=np.array([[-length/2,length/2,-length/2,length/2,-thickness,0.]])
         corners,faces=GM.prism_to_corners_faces(prism[0])
         for density in (0.,1000.,2670.,-1800.):
-            solver=GM.Polygrav(corners,faces,density)
+            solver=GM.polydron_grav(corners,faces,density)
             for factor in (0.,0.8,2.,8.,30.):
                 station=np.array([length*factor,-length*factor*0.21,30.])
                 g=solver.compute_gz(station)
-                ref=float(GM.Nagy([station],prism,density).compute_gz()[0])
+                ref=float(GM.prism_grav([station],prism,density).compute_gz()[0])
                 diff=1000.*(g-ref)
                 results.append(dict(
                     prism_width_m=length,thickness_m=thickness,
