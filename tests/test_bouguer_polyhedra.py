@@ -297,3 +297,50 @@ def test_r1_north_south_radial_faces_share_diagonal():
     # Southern side of northern cell: left bottom idx0 -> right top idx5
     np.testing.assert_allclose(southern[[3,6]],northern[[0,5]],
                                atol=1e-9,rtol=0)
+
+
+@pytest.mark.parametrize("side,far,near,inner_ids", [
+    ("east", [1000, 1375, -125, 125, 0, 300],
+     [750, 1000, -125, 125, -0.08, 299.92], [0, 3, 4, 7]),
+    ("west", [-1375, -1000, -125, 125, 0, 300],
+     [-1000, -750, -125, 125, -0.08, 299.92], [1, 2, 5, 6]),
+    ("north", [-125, 125, 1000, 1375, 0, 300],
+     [-125, 125, 750, 1000, -0.08, 299.92], [0, 1, 4, 5]),
+    ("south", [-125, 125, -1375, -1000, 0, 300],
+     [-125, 125, -1000, -750, -0.08, 299.92], [3, 2, 7, 6]),
+])
+def test_transition_inner_face_coincides_with_nagy_prism(side, far, near, inner_ids):
+    vertex = BC._transition_cell_vertices(far, near, 6371000., side)
+    assert vertex.shape == (8, 3)
+    inner = vertex[inner_ids]
+    np.testing.assert_allclose(inner[:2, 2], near[4], rtol=0, atol=1e-10)
+    np.testing.assert_allclose(inner[2:, 2], near[5], rtol=0, atol=1e-10)
+    if side in ("east", "west"):
+        x = far[0] if side == "east" else far[1]
+        np.testing.assert_allclose(inner[:, 0], x, rtol=0, atol=1e-10)
+        np.testing.assert_allclose(inner[:, 1], [far[2],far[3],far[2],far[3]],
+                                   rtol=0, atol=1e-10)
+    else:
+        y = far[2] if side == "north" else far[3]
+        np.testing.assert_allclose(inner[:, 1], y, rtol=0, atol=1e-10)
+        np.testing.assert_allclose(inner[:, 0], [far[0],far[1],far[0],far[1]],
+                                   rtol=0, atol=1e-10)
+
+
+def test_r1_transition_rejects_unmatched_density():
+    near = [[750,1000,-125,125,-0.08,299.92]]
+    far = [[1000,1375,-125,125,0,300]]
+    with pytest.raises(ValueError, match="matching Nagy prism"):
+        BC._transition_polyhedral_gz(far,[1030],near,[2670],
+                                      [0,0,320],6371000,1000)
+
+
+def test_near_prism_shift_uses_cell_center():
+    code = (ROOT/"relgravpy"/"_bouguer_correction.py").read_text()
+    tree = ast.parse(code)
+    for name in ("mesh_ls", "mesh_sb"):
+        fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name==name)
+        snippet = ast.get_source_segment(code,fn)
+        assert "R - np.sqrt(radial)" in snippet
+        assert "Mxc**2 - Myc**2" in snippet
+        assert "Mxb[Mxb<0]" not in snippet
