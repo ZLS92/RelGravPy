@@ -41,9 +41,9 @@ jobs:
         run: |
           python -m py_compile relgravpy/grav_modelling.py
           python -m py_compile relgravpy/_bouguer_correction.py
-      - name: Validate unified Polygrav against Nagy and check geometry
+      - name: Validate polydron_grav against prism_grav and check geometry
         run: PYTHONPATH=tests:. python -m pytest -v tests/test_bouguer_polyhedra.py tests/test_polygrav_nagy.py
-      - name: Quantify Polygrav-versus-Nagy error by size distance and density
+      - name: Quantify polydron_grav versus prism_grav error
         run: PYTHONPATH=tests:. python -u tests/benchmark_polygrav_nagy.py
       - name: Verify primary independent spherical reference and mesh convergence
         run: PYTHONPATH=tests:. python -u tests/benchmark_spherical_reference.py
