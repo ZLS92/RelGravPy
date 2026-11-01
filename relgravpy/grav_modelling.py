@@ -142,7 +142,7 @@ def prism_to_faces(prism):
 
     # Define faces (counter-clockwise as seen from outside)
     faces = [
-        [v[0], v[1], v[2], v[3]],  # bottom
+        [v[3], v[2], v[1], v[0]],  # bottom (outward normal -z)
         [v[4], v[5], v[6], v[7]],  # top
         [v[0], v[1], v[5], v[4]],  # south
         [v[1], v[2], v[6], v[5]],  # east
@@ -153,62 +153,6 @@ def prism_to_faces(prism):
     return faces
 
 # -----------------------------------------------------------
-def unit_normal(face):
-    p0 = face[0]
-    n = np.zeros(3)
-    for i in range(1, len(face) - 1):
-        v1 = face[i] - p0
-        v2 = face[i + 1] - p0
-        n += np.cross(v2, v1)
-    return n / (np.linalg.norm(n) + 1e-12)
-
-def anglegravi(p1, p2, p3, Un, epsilon=1e-6):
-    p1 = p1 + np.random.uniform(-epsilon, epsilon, size=3)
-    p2 = p2 + np.random.uniform(-epsilon, epsilon, size=3)
-    p3 = p3 + np.random.uniform(-epsilon, epsilon, size=3)
-
-    inout = np.sign(np.sum(Un * p1))
-    if inout == 0:
-        return 0.0, 1
-
-    if inout > 0:
-        x1, y1, z1 = p3
-        x2, y2, z2 = p2
-        x3, y3, z3 = p1
-    else:
-        x1, y1, z1 = p1
-        x2, y2, z2 = p2
-        x3, y3, z3 = p3
-
-    n1 = np.array([y2*z1 - y1*z2, x1*z2 - x2*z1, x2*y1 - x1*y2], dtype=float)
-    n2 = -np.array([y3*z2 - y2*z3, x2*z3 - x3*z2, x3*y2 - x2*y3], dtype=float)
-
-    n1 /= np.linalg.norm(n1) + 1e-12
-    n2 /= np.linalg.norm(n2) + 1e-12
-
-    perp = np.sign(np.dot([x3, y3, z3], n1))
-    ang = np.arccos(np.clip(np.dot(n1, n2), -1.0, 1.0))
-
-    if perp < 0:
-        ang = 2 * np.pi - ang
-
-    return ang, perp
-
-# -----------------------------------------------------------
-def solid_angle(polygon, obs):
-    polygon = [np.array(v, dtype=float) - obs for v in polygon]
-    normal = unit_normal(np.array(polygon))
-    omega = 0.0
-    n = len(polygon)
-    for i in range(n):
-        p1 = polygon[i]
-        p2 = polygon[(i+1) % n]
-        p3 = polygon[(i+2) % n]
-        ang, _ = anglegravi(p1, p2, p3, normal)
-        omega += ang
-    return omega - (n - 2) * np.pi
-
-# ---
 def prism_to_corners_faces(prism):
     """
     Converts a rectangular prism [x_min, x_max, y_min, y_max, z_min, z_max]
@@ -243,7 +187,7 @@ def prism_to_corners_faces(prism):
     ])
 
     faces = [
-        [4, 0, 1, 2, 3],  # bottom
+        [4, 3, 2, 1, 0],  # bottom (outward normal is -z)
         [4, 4, 5, 6, 7],  # top
         [4, 0, 1, 5, 4],  # south
         [4, 1, 2, 6, 5],  # east
@@ -254,7 +198,7 @@ def prism_to_corners_faces(prism):
     return corners, faces
 
 # =============================================================================
-class nagy() :
+class Nagy:
 
     def __init__( self, coordinates, prism, density ) :
 
@@ -297,65 +241,6 @@ class nagy() :
         return self.pgz
 
 # =============================================================================
-def build_edges_and_normals(corners, faces):
-    """
-    Ricrea la struttura Edge e calcola le normali Un per ogni faccia,
-    in modo fedele al comportamento di gravicalc2.m
-
-    Parameters
-    ----------
-    corners : ndarray, shape (N_vertices, 3)
-        Coordinate dei vertici del poliedro.
-    faces : list of lists
-        Ogni faccia ha il formato [n, i1, i2, ..., in] con indici 0-based.
-
-    Returns
-    -------
-    edges : ndarray, shape (N_edges, 8)
-        Matrice con [Vx, Vy, Vz, L, I, done, idx1, idx2]
-        (per ora I e done non vengono usati, ma sono presenti per compatibilità).
-    normals : ndarray, shape (N_faces, 3)
-        Normale unitaria per ogni faccia.
-    """
-    n_faces = len(faces)
-    n_edges = sum(f[0] for f in faces)
-    edges = np.zeros((n_edges, 8))
-    edge_count = 0
-
-    for f_idx, face in enumerate(faces):
-        n = face[0]
-        idx = face[1:]
-        idx_loop = idx + [idx[0]]  # chiusura della faccia
-
-        for i in range(n):
-            ends = [idx_loop[i], idx_loop[i+1]]
-            p1 = corners[ends[0]]
-            p2 = corners[ends[1]]
-            V = p2 - p1
-            L = np.linalg.norm(V)
-            edges[edge_count, 0:3] = V
-            edges[edge_count, 3] = L
-            edges[edge_count, 6:8] = ends
-            edge_count += 1
-
-    normals = np.zeros((n_faces, 3))
-    for f_idx, face in enumerate(faces):
-        n = face[0]
-        idx = face[1:]
-        ss = np.zeros(3)
-        for i in range(1, n - 1):
-            v1 = corners[idx[i+1]] - corners[idx[0]]
-            v2 = corners[idx[i]]   - corners[idx[0]]
-            ss += np.cross(v2, v1)
-        norm = np.linalg.norm(ss)
-        if norm != 0:
-            normals[f_idx] = ss / norm
-        else:
-            normals[f_idx] = ss  # vettore nullo se degenerata
-
-    return edges, normals
-
-
 def anglegravi_exact(p1, p2, p3, Un):
     """
     Traduzione fedele della funzione MATLAB 'anglegravi'.
@@ -452,6 +337,10 @@ def build_edge_table(corners, faces):
 
     return edge_table, edge_list
 
+
+
+# Legacy lowercase class access remains valid without duplicating the solver.
+nagy = Nagy
 
 
 class Polygrav:
