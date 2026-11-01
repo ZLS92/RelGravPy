@@ -305,13 +305,25 @@ def test_r1_north_south_radial_faces_share_diagonal():
                                atol=1e-9,rtol=0)
 
 
-def test_r1_transition_density_mismatch_rejected_in_single_module():
-    near = [[750,1000,-125,125,-0.08,299.92]]
-    far = [[1000,1375,-125,125,0,300]]
-    with pytest.raises(ValueError, match="density"):
-        BC._transition_polyhedral_gz(
-            far, [1030], near, [2670],
-            [0, 0, 320], 6371000, 1000)
+def test_r1_transition_preserves_discontinuous_gdal_density():
+    # Simulate a GDAL land prism meeting a differently classified sea cell.
+    # This must NOT subdivide or reclassify either original cell.
+    near = np.array([[750,1000,-125,125,-0.08,299.92]])
+    far = np.array([[1000,1375,-125,125,0,300]])
+    observation = [0, 0, 320]
+    sea_contrast = 1030 - 2670
+    result, ordinary, densities = BC._transition_polyhedral_gz(
+        far, [sea_contrast], near, [2670],
+        observation, 6371000, 1000)
+    vertices, faces = BC._bridge_mesh(
+        far[0], near, "east", 6371000)
+    independent = GM.polydron_grav(vertices, faces, sea_contrast)
+    np.testing.assert_allclose(
+        result, independent.compute_gz(observation, method="surface"),
+        rtol=1e-12, atol=1e-12)
+    assert len(ordinary) == 0
+    np.testing.assert_array_equal(near[0], [750,1000,-125,125,-0.08,299.92])
+    np.testing.assert_array_equal(far[0], [1000,1375,-125,125,0,300])
 
 
 def test_near_prism_shift_uses_cell_center():
