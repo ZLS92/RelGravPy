@@ -81,7 +81,7 @@ def run_case(config):
     assert len(pr1)==len(pr2)==1
     assert np.all(np.isfinite(pr1[0]))
     assert np.all(np.isfinite(pr2[0]))
-    out=case_dir/name+"_full"
+    out=case_dir/f"{name}_full"
     assert out.is_file(),f"Missing output file: {out}"
     text=out.read_text()
     assert "bgc_tot" in text
