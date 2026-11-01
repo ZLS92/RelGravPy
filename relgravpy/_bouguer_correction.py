@@ -515,7 +515,8 @@ def Radi2(R1, h, errg, gs=100, Rmax=166735, R=R_wgs84, dc=2670,
     return (R2, R2d), r_eff, d_eff  
 
 # -----------------------------------------------------------------------------  
-def adj_mesh(gs1, R1, gs2, R2, max_gs2_change=0.05):
+def adj_mesh(gs1, R1, gs2, R2, max_gs2_change=0.05,
+             max_R1_increase=None):
     """Align near/far square grids with minimal *upward* radius changes.
 
     The near and far grids are station-centred, with an odd number of
@@ -528,7 +529,9 @@ def adj_mesh(gs1, R1, gs2, R2, max_gs2_change=0.05):
     candidate, select the closest compatible gs2. Take the first R1
     satisfying abs(gs2_adjusted/gs2_requested - 1) <= max_gs2_change.
     R2 is then increased to the first compatible far-grid boundary,
-    preserving >= one full far cell outside R1.
+    preserving >= one full far cell outside R1. By default the R1
+    expansion is capped at max(gs1, gs2/2) to avoid excessive changes
+    when unrealistically coarse input meshes cannot be matched.
 
     A significant discrepancy between requested gs1/gs2 and a very
     small R1 may make a small gs2 adjustment impossible. In that case
@@ -544,16 +547,22 @@ def adj_mesh(gs1, R1, gs2, R2, max_gs2_change=0.05):
         raise ValueError("max_gs2_change must be finite and nonnegative.")
 
     tol = 1e-11
+    if max_R1_increase is None:
+        max_R1_increase = max(gs1, 0.5*gs2)
+    if not np.isfinite(max_R1_increase) or max_R1_increase < 0:
+        raise ValueError("max_R1_increase must be finite and nonnegative.")
     # R1 sits on a near-grid boundary, not a cell centre. Each side
     # must contain an odd count to keep a centre cell at the station.
     n1_first = max(0, int(np.ceil(R1/gs1 - 0.5 - tol)))
     # Search at most two nominal far grid steps outward. Typically
     # far fewer iterations are required because gs1 << gs2.
-    n_extra = max(2, int(np.ceil(2.0*gs2/gs1)) + 2)
+    n_extra = max(2, int(np.ceil(max_R1_increase/gs1)) + 2)
     result = None
     best = None
     for n1 in range(n1_first, n1_first+n_extra+1):
         boundary = (n1+0.5)*gs1
+        if boundary > R1+max_R1_increase + max(1e-8, gs1*tol):
+            break
         target_count = 2.0*boundary/gs2
         near_odd = max(1, 2*int(np.floor((target_count-1)/2))+1)
         for n_cells2 in (near_odd, near_odd+2):
@@ -568,12 +577,14 @@ def adj_mesh(gs1, R1, gs2, R2, max_gs2_change=0.05):
             break
 
     if result is None:
+        if best is None:
+            raise ValueError("No near-grid boundary within max_R1_increase.")
         raise ValueError(
             "No aligned R1/gs2 found within the allowed gs2 change "
             f"({100*max_gs2_change:.1f}%). Best candidate: "
             f"R1={best[1]:.3f} m, gs2={best[2]:.3f} m "
-            f"({100*best[0]:.2f}%). Consider increasing the tolerance "
-            "or reducing gs2."
+            f"({100*best[0]:.2f}%). Increase max_gs2_change, "
+            "max_R1_increase, or reduce the far grid step."
         )
     R1_new, _, gs2_new = result
     # Because R1 is an exact far boundary, the next outer boundary is
