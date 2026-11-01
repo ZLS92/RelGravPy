@@ -226,6 +226,122 @@ def _polyhedral_gz(prisms, densities, observation, radius):
     return float(total)
 
 
+def _transition_cell_vertices(cell, near_prism, radius, side):
+    """Bridge an exterior *horizontal* Nagy prism face to a spherical far face.
+
+    Each of the four inner boundary vertices lies on the outer planar face
+    of the near prism, at its *actual* shifted bottom/top heights. The
+    opposite four vertices are spherical at the outer edge of the far cell.
+    The wedge is triangulated by the same outward-oriented 12 facets as
+    all other spherical cells. Only the boundary-adjacent far cell changes.
+    """
+    cell = np.asarray(cell, dtype=float)
+    near_prism = np.asarray(near_prism, dtype=float)
+    vertices = _curved_cell_vertices(cell, radius)
+    bottom = near_prism[4]
+    top = near_prism[5]
+    w, e, south, north = cell[:4]
+    # Inner vertices (two bottom, two top); the exterior face matches
+    # the exact geometry of the original centre-shifted Nagy prism.
+    if side == "east":       # positive x; inner face at x=west
+        ids = ((0, w, south, bottom), (3, w, north, bottom),
+               (4, w, south, top), (7, w, north, top))
+    elif side == "west":     # negative x; inner face at x=east
+        ids = ((1, e, south, bottom), (2, e, north, bottom),
+               (5, e, south, top), (6, e, north, top))
+    elif side == "north":    # positive y; inner face at y=south
+        ids = ((0, w, south, bottom), (1, e, south, bottom),
+               (4, w, south, top), (5, e, south, top))
+    elif side == "south":    # negative y; inner face at y=north
+        ids = ((3, w, north, bottom), (2, e, north, bottom),
+               (7, w, north, top), (6, e, north, top))
+    else:
+        raise ValueError("Invalid transition side.")
+    for index, x, y, z in ids:
+        vertices[index] = (x, y, z)
+    return vertices
+
+
+def _transition_polyhedral_gz(far_prisms, far_densities, near_prisms,
+                              near_densities, observation, radius, R1):
+    """Join the R1 boundary to the actual outer faces of shifted Nagy prisms.
+
+    The far boundary cells must first be split with _refine_far_interface
+    so no cell segment spans two distinct near-prism edge heights.
+    On the opposite face, the cell follows the spherical reference.
+    Other far polyhedra are unchanged and retain the fast vectorized kernel.
+    """
+    far_prisms = np.asarray(far_prisms, dtype=float).reshape(-1, 6)
+    far_densities = np.asarray(far_densities, dtype=float).ravel()
+    near_prisms = np.asarray(near_prisms, dtype=float).reshape(-1, 6)
+    near_densities = np.asarray(near_densities, dtype=float).ravel()
+    if len(far_prisms) != len(far_densities):
+        raise ValueError("Far polyhedra/density count mismatch.")
+    if len(near_prisms) != len(near_densities):
+        raise ValueError("Near prisms/density count mismatch.")
+    if not len(far_prisms):
+        return 0.0
+    tol = max(1e-6, 1e-10*abs(float(R1)))
+    transition_cells = []
+    transition_density = []
+    ordinary = []
+    ordinary_density = []
+    for cell, density in zip(far_prisms, far_densities):
+        w, e, south, north = cell[:4]
+        midx, midy = (w+e)/2, (south+north)/2
+        side = None
+        if abs(w-R1) < tol and -R1 < midy < R1:
+            side = "east"
+            boundary = near_prisms[:,1]
+            lo, hi = near_prisms[:,2], near_prisms[:,3]
+            begin, end = south, north
+            edge_value = R1
+        elif abs(e+R1) < tol and -R1 < midy < R1:
+            side = "west"
+            boundary = near_prisms[:,0]
+            lo, hi = near_prisms[:,2], near_prisms[:,3]
+            begin, end = south, north
+            edge_value = -R1
+        elif abs(south-R1) < tol and -R1 < midx < R1:
+            side = "north"
+            boundary = near_prisms[:,3]
+            lo, hi = near_prisms[:,0], near_prisms[:,1]
+            begin, end = w, e
+            edge_value = R1
+        elif abs(north+R1) < tol and -R1 < midx < R1:
+            side = "south"
+            boundary = near_prisms[:,2]
+            lo, hi = near_prisms[:,0], near_prisms[:,1]
+            begin, end = w, e
+            edge_value = -R1
+
+        if side is None:
+            ordinary.append(cell)
+            ordinary_density.append(density)
+            continue
+
+        face_matches = (np.abs(boundary-edge_value) < tol) & (
+            lo <= begin+tol) & (hi >= end-tol)
+        face_matches &= np.isclose(near_densities, density, rtol=0, atol=1e-8)
+        matches = np.flatnonzero(face_matches)
+        if len(matches) != 1:
+            # Do not silently approximate a sea/coast density interface or
+            # a missing near DTM cell: a reliable 3D interface is needed.
+            raise ValueError(
+                f"R1 {side} interface expected exactly one matching Nagy "
+                f"prism for {cell.tolist()} at density={density}; "
+                f"found {len(matches)}. Check DTM/density continuity."
+            )
+        transition_cells.append(_transition_cell_vertices(
+            cell, near_prisms[matches[0]], radius, side))
+        transition_density.append(density)
+    total = _polyhedral_gz(ordinary, ordinary_density, observation, radius)
+    if transition_cells:
+        total += _surface_integral_vertices_gz(
+            np.asarray(transition_cells), transition_density, observation)
+    return float(total)
+
+
 def _point_mass_gz(points, masses, observation, radius):
     """Down-positive mGal from masses in orthographic x,y and radial height."""
     points = np.asarray(points, dtype=float).reshape(3, -1)
