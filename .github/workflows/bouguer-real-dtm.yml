@@ -1,0 +1,41 @@
+name: Bouguer real DTM end-to-end
+
+on:
+  push:
+    branches: [feat/bouguer-polyhedral-curvature]
+    paths:
+      - 'tests/probe_real_dem_sources.py'
+      - 'tests/benchmark_bgc_real_dtm.py'
+      - 'relgravpy/_bouguer_correction.py'
+      - '.github/workflows/bouguer-real-dtm.yml'
+  workflow_dispatch:
+
+jobs:
+  real-dem-gdal:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install compatible system GDAL and scientific Python
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq --no-install-recommends python3-gdal gdal-bin python3-numpy python3-scipy python3-matplotlib python3-pyproj python3-shapely python3-pandas python3-requests python3-venv
+          /usr/bin/python3 -c 'from osgeo import gdal; import numpy, scipy, matplotlib, pyproj, shapely; print("GDAL",gdal.VersionInfo(),numpy.__version__)'
+      - name: Download actual public DEM data with GDAL
+        run: |
+          /usr/bin/python3 -u tests/probe_real_dem_sources.py
+      - name: Run complete BGC on two real georeferenced DEMs
+        if: hashFiles('tests/benchmark_bgc_real_dtm.py') != ''
+        env:
+          MPLBACKEND: Agg
+        run: |
+          /usr/bin/python3 -u tests/benchmark_bgc_real_dtm.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: real-dtm-test-results
+          path: |
+            real_dem_fixtures/*.json
+            real_dem_fixtures/*.txt
+          if-no-files-found: ignore
+          retention-days: 10
