@@ -28,6 +28,7 @@ jobs:
         if: hashFiles('tests/benchmark_bgc_real_dtm.py') != ''
         env:
           MPLBACKEND: Agg
+          PYTHONPATH: .
         run: |
           /usr/bin/python3 -u tests/benchmark_bgc_real_dtm.py
       - uses: actions/upload-artifact@v4
