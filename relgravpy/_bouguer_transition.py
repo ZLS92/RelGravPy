@@ -244,6 +244,18 @@ def _corner_mesh(cell, near_prisms, radius, R1, tol=1e-6):
         (0,1,5),(0,5,4),(1,2,6),(1,6,5),
         (2,3,6),(3,7,6),(3,0,7),(0,4,7),
     ]
+    # At R1's corners the two adjoining SIDE bridges always use a
+    # diagonal from their inner-bottom vertex to the corresponding
+    # outer-top vertex. Adjust the corner's shared diagonals in the
+    # other three quadrants to match exactly. Do not modify its outward
+    # coarse faces: they must retain the standard far-grid diagonal.
+    if idx == 1:       # NW corner: inner vertex is bottom SE
+        indices[4:6] = [(0,1,4),(1,5,4)]      # south
+    elif idx == 3:     # SE corner: inner vertex is bottom NW
+        indices[10:12] = [(3,0,4),(3,4,7)]   # west
+    elif idx == 2:     # SW corner: inner vertex is bottom NE
+        indices[6:8] = [(1,2,5),(2,6,5)]     # east
+        indices[8:10] = [(2,3,7),(2,7,6)]    # north
     outward, volume = _outward_triangle_winding(vertices,indices)
     return vertices, [[3,*map(int,f)] for f in outward]
 
