@@ -439,30 +439,35 @@ coarser than native DEM resolution when local terrain slopes are
 large, and adds a modest 1.5 empirical margin to its proxy.
 This is **provisional calibration**, not a universal bound.
 
-In the final tested version (with the 1.5 margin), the selected
-mountain mesh remained `gs1=30 m, R1=4005 m, gs2=242.727 m`.
-Predicted maximum was `0.03759 mGal`, actual maximum
-`0.00767 mGal` across two stations. With the coast entirely outside
-R1 and R1 constrained to 2 km, the chosen
-`gs1=120 m, R1=2100 m, gs2=247.059 m` predicted
-`0.03971 mGal` and showed `0.03368 mGal` actual mismatch.
+The latest **integer-only mesh** benchmark chooses
+`gs1=30 m, R1=4125 m, gs2=250 m, R2=167125 m` for the
+synthetic mountain: maximum predicted mismatch `0.03759 mGal`,
+measured mismatch `0.00800 mGal` against the 12.5 m reference.
+For coast/bathymetry with `R1` explicitly requested at 2000 m,
+the chosen compatible integer mesh is
+`gs1=240 m, R1=2040 m, gs2=240 m, R2=167160 m`.
+The error proxy reports `0.05282 mGal` (above the target and so
+correctly emits a RuntimeWarning), whereas the measured mismatch
+in this particular case is `0.03431 mGal` across two stations.
+These are the results of the 1 November 2026 integer-only benchmark,
+not universal numerical bounds.
 These are four synthetic station cases, not a general calibration
 proof. The `tests/benchmark_bgc_full_topography.py` script now
 includes numerical regression assertions at 0.05 mGal for these
 two supported geometries. The incompatible mixed-density R1 crossing
 remains explicitly reported instead of being silently accepted.
 
-Before the 1.5 margin, the corrected optimizer chose `gs1=30 m,
-R1=4005 m, gs2=242.727 m` for the synthetic mountain. Maximum
-mismatch at two stations was `0.00767 mGal`, well below the
-requested 0.05 mGal, versus `0.00520 mGal` maximum reference
-difference between 25 and 12.5 m meshes.
+Before integer-only alignment, the same mountain test used a
+fractional far step of 242.727 m and gave a 0.00767 mGal mismatch.
+That configuration is now invalid under the integer-metre contract;
+the new exactly aligned geometry is used in the regression assertions.
 
-For a coast/bathymetry synthetic surface with `R1` explicitly held
-at 2 km and all R1-adjacent material on land, the optimizer can
-choose the other parameters once for both stations. The direct
-gravity discrepancy was `0.03368 mGal` (reference convergence
-`0.00163 mGal`), with the sea density contrast present beyond R1.
+For the coast/bathymetry synthetic surface with `R1` requested
+at 2 km and all R1-adjacent material on land, the optimizer chooses
+the other parameters once for both stations, and aligns the actual
+boundary slightly upward to 2040 m. Direct gravity mismatch is
+`0.03431 mGal` (reference convergence `0.00163 mGal`),
+with a sea density contrast beyond R1.
 
 If the coast intersects R1, `_transition_polyhedral_gz` currently
 rejects mixed land/water density transition faces with a ValueError
