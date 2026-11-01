@@ -497,8 +497,8 @@ def _transition_polyhedral_gz(far_cells, far_density, near_prisms,
     Where land/sea classification changes, keep the original far
     polyhedron completely unchanged: do not split coastal cells, invent
     mixed-density volumes, or force non-manifold transition facets.
-    Those material-boundary faces need not be conformal; the affected
-    original cells are reported with a RuntimeWarning.
+    Material boundaries retain their pre-existing representation; no
+    diagnostic counts or coastline warnings are generated here.
     """
     far = np.asarray(far_cells,float).reshape(-1,6)
     fd = np.asarray(far_density,float).ravel()
@@ -510,7 +510,6 @@ def _transition_polyhedral_gz(far_cells, far_density, near_prisms,
     total=0.
     ordinary=[]
     ordinary_density=[]
-    skipped_coastal = 0
     for cell,density in zip(far,fd):
         w,e,s,n=cell[:4]
         mx,my=(w+e)/2,(s+n)/2
@@ -544,7 +543,6 @@ def _transition_polyhedral_gz(far_cells, far_density, near_prisms,
                             nd[overlapping],density,rtol=0,atol=1e-8))):
                     ordinary.append(cell)
                     ordinary_density.append(density)
-                    skipped_coastal += 1
                     continue
                 vertices,facets=_bridge_mesh(
                     cell,near[overlapping],side,radius,tol)
@@ -563,7 +561,6 @@ def _transition_polyhedral_gz(far_cells, far_density, near_prisms,
                             nd[select][0],density,rtol=0,atol=1e-8)):
                     ordinary.append(cell)
                     ordinary_density.append(density)
-                    skipped_coastal += 1
                     continue
                 vertices,facets=_corner_mesh(cell,near[select],radius,R1,tol)
             total+=gm.polydron_grav(
@@ -572,13 +569,6 @@ def _transition_polyhedral_gz(far_cells, far_density, near_prisms,
         else:
             ordinary.append(cell)
             ordinary_density.append(density)
-    if skipped_coastal:
-        warnings.warn(
-            f"R1: {skipped_coastal} far cell(s) kept with their original "
-            "GDAL land/sea classification and unmodified spherical "
-            "polyhedron. No coastal cell is subdivided; the near/far "
-            "faces at these material boundaries are not forced to "
-            "match geometrically.", RuntimeWarning, stacklevel=2)
     return total, np.asarray(ordinary,float).reshape(-1,6), np.asarray(
         ordinary_density,float)
 
