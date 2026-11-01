@@ -173,6 +173,56 @@ Reproduce with `python -u tests/benchmark_single_tesseroid.py`.
 Harmonica remains an optional **benchmark-only** dependency; the
 processing module does not import it.
 
+## Verification priorities before production
+
+**Primary benchmark**: `tests/benchmark_spherical_reference.py` computes
+the gravitational effect by direct independent spherical volume quadrature.
+It does not import Harmonica. Its CI step checks quadrature stability and
+convergence to <0.1 microgal at 128x128 cells, for one uniform angular wedge
+with 20-m observation clearance. The legacy single-tesseroid benchmark remains
+available only as an auxiliary diagnostic.
+
+Priority P0:
+- Test the full high-level `te()` path on at least one real DTM (GDAL warp,
+  georeferencing, elevation datums, nodata and output) with known results.
+- Replace the approximate near-prism / far-polyhedron interface at `R1` or
+  bound the full perimeter-wide gravity mismatch. Near prisms have a constant
+  curvature shift whereas curved cells expand radially with height.
+- Verify `R` handling: the caller-specified radius is overwritten inside
+  `st_loop` by `utl.local_sph_raduis(yg)`, while prior raster projection
+  uses the caller's `R`. Choose one consistent reference model.
+- Verify the complete Bouguer effect using variable-thickness synthetic
+  topography with a converged independent spherical reference, including
+  negative height contrasts, density signs, surface and seabed stations.
+
+Priority P1:
+- Replace/tune empirical selection of `R1`, `R2`, `gs2` and the `R3`
+  point-mass approximation with verified error-budget criteria.
+- Benchmark the original `gravicalc2_full` / surface quadrature switching
+  criterion and surface-face quadrature on near-singular geometries,
+  demanding a smooth and stable gravity response.
+- Validate projected vs geographic DTM pixel sizes; the default `gs1`
+  currently uses `rt.raster_res(dtm1)` as a metric step without a CRS-unit
+  check. Include tests for input height reference and spherical vs
+  orthometric elevations.
+- Check multiple stations, parallel execution, output correctness and
+  performance. Current `st_loop` workers append to the same output path,
+  even though the caller later rewrites the full result.
+
+Priority P2:
+- Define a public documented numerical API, with explicit output sign,
+  gravitational *mass effect* versus *Bouguer correction* conventions,
+  density units, station classification, and uncertainty diagnostics.
+- Remove `eval()` from the CLI and replace it with typed parsing; clean
+  up legacy parameter branches and test deterministic, reliable I/O.
+- Provide regression test fixtures and notebooks for representative
+  mountain, coastal and sea-floor DTM cases.
+
+**Target proposal**, not a general validation claim: numerical kernel error
+<0.1 microgal in controlled reference cases and total algorithmic error
+<1 microgal over an agreed range of operational scenarios. These tolerances
+must be evaluated separately from DTM elevation and rock-density uncertainty.
+
 ## Still to validate before scientific use
 
 
