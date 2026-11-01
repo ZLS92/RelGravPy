@@ -1,8 +1,8 @@
 """Independent spherical benchmark for R1 near/far resolution transition.
 
-Near field uses narrow spherical polyhedral cells, far field coarse
-polyhedral cells. Coarse R1 boundary cells are subdivided tangentially to
-align the *entire seam boundary-node grid*. Compare with the converged
+Near field uses horizontal centre-shifted Nagy prisms. The first ring
+of coarse spherical far cells is joined to the actual outer prism vertices.
+Boundary cells are subdivided tangentially at near prism nodes. Compare with the converged
 uniform spherical-volume Gauss-Legendre integral (not Harmonica).
 
 Run: PYTHONPATH=tests:. python -u tests/benchmark_r1_transition.py
@@ -79,12 +79,19 @@ def run_case(near_n=80, far_n=64, R1=5000.0,
         near, fine_dense, far_edges, far_edges, R1
     )
 
-    # The new seam: all near cells spherical, and BOTH sides of R1
-    # subdivided at the union of fine and coarse horizontal grid knots.
-    near_g = BC._polyhedral_gz(
-        conformed_near,conformed_near_den,observation,RADIUS
+    # Actual method: HORIZONTAL Nagy prisms with centres on the sphere.
+    # The first far polyhedra have their INNER faces attached exactly to the
+    # outer face of the corresponding centre-shifted near prism.
+    shifted_near = near.copy()
+    cx=(near[:,0]+near[:,1])/2
+    cy=(near[:,2]+near[:,3])/2
+    sag = RADIUS - np.sqrt(RADIUS**2 - cx**2 - cy**2)
+    shifted_near[:,4:] -= sag[:,None]
+    near_g = float(GM.nagy([observation],shifted_near,fine_dense).gz()[0])
+    far_g = BC._transition_polyhedral_gz(
+        refined,refined_density,shifted_near,fine_dense,
+        observation,RADIUS,R1
     )
-    far_g = BC._polyhedral_gz(refined,refined_density,observation,RADIUS)
     unrefined_far = BC._polyhedral_gz(far,far_dense,observation,RADIUS)
 
     # Legacy prism approximation: near-field cell shifted by the farthest
@@ -109,7 +116,7 @@ def run_case(near_n=80, far_n=64, R1=5000.0,
         "far_top_m":far_top,
         "station_height_m":station_height,
         "near_cells_original":len(near),
-        "near_cells_refined":len(conformed_near),
+        "near_cells_refined":len(shifted_near),
         "far_cells_original":len(far),
         "far_cells_refined":len(refined),
         "near_cell_width_m":2*R1/near_n,
@@ -117,10 +124,10 @@ def run_case(near_n=80, far_n=64, R1=5000.0,
         "reference_mGal":exact,
         "new_combined_mGal":near_g+far_g,
         "legacy_combined_mGal":near_nagy+unrefined_far,
-        "uncorrected_spherical_combined_mGal":near_g+unrefined_far,
+        "unjoined_prism_spherical_mGal":near_g+unrefined_far,
         "new_error_uGal":1000*(near_g+far_g-exact),
         "legacy_error_uGal":1000*(near_nagy+unrefined_far-exact),
-        "coarse_interface_difference_uGal":1000*(far_g-unrefined_far)
+        "transition_wedge_effect_uGal":1000*(far_g-unrefined_far)
     }
     print("R1_BENCHMARK",json.dumps(data),flush=True)
     assert abs(data["new_error_uGal"]) < 1.0, data
