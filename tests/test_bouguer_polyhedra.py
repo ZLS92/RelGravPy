@@ -6,6 +6,7 @@ during continuous integration. This follows the existing min-curvature tests.
 import ast
 from pathlib import Path
 import types
+import warnings
 
 import numpy as np
 import pytest
@@ -31,6 +32,8 @@ def _load_numerical_subset(path, function_names, class_names=(), gm=None):
     )
     module = types.ModuleType("_isolated_polyhedral_test")
     module.np = np
+    module.warnings = warnings
+    module.R_wgs84 = 6371000.
     if gm is not None:
         module.gm = gm
     else:
@@ -53,7 +56,9 @@ BC = _load_numerical_subset(
      "_polyhedral_gz", "_outward_triangle_winding", "_bridge_mesh",
      "_corner_mesh", "_transition_polyhedral_gz",
      "_point_mass_gz", "_ring_polyhedral_effect",
-     "adj_mesh", "_refine_interface_cells", "_refine_far_interface",
+     "adj_mesh", "_bgc_terrain_features", "_bgc_station_terrain_features",
+     "_bgc_mesh_error_proxy", "optimize_bgc_mesh",
+     "_refine_interface_cells", "_refine_far_interface",
      "_refine_near_interface"},
     gm=GM,
 )
