@@ -339,6 +339,66 @@ first coarse cell, so it changes the physical mass model relative
 to a sharp elevation discontinuity. Full end-to-end GDAL and
 multi-station validation with real geographic data remains open.
 
+## 1 November 2026: lightweight survey-wide auto-mesh (experimental)
+
+The public function `optimize_bgc_mesh()` now selects **one** set of
+near/far mesh parameters for **all input stations**. It is called by
+`bgc()` exactly once before preprocessing the input DTM, and only when
+at least one of `gs1`, `R1`, or `gs2` is `None`. When all three
+are provided explicitly, the optimizer is completely bypassed and
+`target_error` is ignored.
+
+Nominal `R2=167000 m` by default, **not** optimized.
+As before, `adj_mesh()` may enlarge R1/R2 slightly to align grid
+boundaries and adjust gs2 by at most 5%. The existing `R3=50000 m`
+point-mass option affects the runtime-cost estimate, not the R2 default.
+
+Example:
+
+```python
+bgc(
+    x, y, dtm1, dtm2=dtm2,
+    gs1=None, R1=None, gs2=None,
+    R2=167000., target_error=0.05
+)
+```
+
+`target_error` is measured in mGal and is the **maximum** allowed
+*estimated* error across all stations: `max(error_proxy[station])`,
+not the average. A positive tolerance is required only if some mesh
+parameter is automatic. The estimated error is derived from a
+fixed-cost, multiscale analysis of two small source-DTM windows
+(33 × 33 and 25 × 25 output pixels) at **each** input station. The
+optimizer then compares at most 4 × 4 × 5 = 80 candidate meshes using
+only cheap scalar arithmetic. It does not perform a full gravity
+calculation during tuning, create a 167-km optimization raster, or
+invoke a trial calculation once per candidate.
+
+The station features capture gradients, high-frequency residual
+topography, relief and absolute topographic thickness; the
+heuristic gravity proxy models smoothing, first-ring far quadrature
+and spherical curvature. The selection minimizes estimated runtime
+among candidates meeting the requested maximum estimated error.
+If none meet the target, the least-error candidate is used and a
+`RuntimeWarning` is emitted, **without preventing the Bouguer
+computation**. Missing DTM preview windows use deliberately rough
+fallback features and trigger a separate warning.
+
+**Research limitation: `target_error=0.05` is NOT a certified
+bound on the actual discrepancy from a converged gravity model.**
+The fast error proxy is provisional and needs calibration on
+topographically complex mountain and coastal bathymetry test
+cases. Both the constants in the proxy and its effectiveness as an
+error predictor must be checked against real numerical error maps,
+especially near cliffs and steep submarine slopes, before treating
+the target as a guaranteed accuracy constraint.
+
+`Radi1()`, `GrdStep2()` and `Radi2()` remain in the source for
+comparison but are no longer invoked by the automatic branch of
+`bgc()`. Legacy `errg` is retained in the signatures for backwards
+compatibility but does not affect the new optimizer. Do not remove
+these functions until the optimizer has been calibrated.
+
 ## Verification priorities before production
 
 **Primary benchmark**: `tests/benchmark_spherical_reference.py` computes
