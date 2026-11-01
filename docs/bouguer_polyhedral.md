@@ -49,11 +49,13 @@ strictly tangent planes. All sides are triangulated with a **canonical
 diagonal direction** so opposite cells generate the identical shared facet
 when endpoints and top/bottom elevations coincide.
 
-The outer vertical faces of the Nagy prisms anchor the *inner* faces of
-the new transition wedges. `_refine_far_interface` subdivides the first
-far row tangentially at near-prism edge nodes, while retaining the
-original near prisms. A separate, optional fully spherical near-field
-comparison mode keeps the two-sided spherical refinement.
+The outer faces of the Nagy prisms anchor the **arbitrary-facet inner
+mosaic** of the new first-row bridge. The coarse far cells are **not
+subdivided**: their outer four vertices and two outer triangles are
+identical to those of the ordinary far polyhedron in the next ring.
+Special corner bridge cells ensure identical shared triangles at all
+four square R1 corners. The optional fully spherical near-field mode
+retains its separate two-sided refinement.
 
 ## API
 
@@ -204,14 +206,14 @@ the specified hybrid geometry. The production-intended default now uses:
    `zshift = R - sqrt(R**2 - xc**2 - yc**2)`. Previously the implementation
    used the *farthest* cell corner, which is not the requested geometry.
    This is implemented in both `mesh_ls` and `mesh_sb`.
-2. **Transition at R1:** first far row uses special hexahedral polyhedra.
-   Their *inner* vertical faces (all four vertices) match the actual
-   outward planar faces of the translated near Nagy prisms.
-   Their outer faces follow the spherical reference geometry.
-3. **Beyond the first far row:** ordinary curvature-following polyhedra.
-   The far cells are subdivided tangentially to match near-prism edge nodes.
-   The original near prisms are **not** subdivided, retaining exactly the
-   intended Nagy discretisation.
+2. **Transition at R1:** one arbitrary-facet polyhedron per original
+   coarse far cell, with an exact triangulated mosaic of Nagy prism
+   exterior rectangles on its inner side. The mesh accommodates
+   independent height steps without rotating or altering Nagy prisms.
+3. **Beyond the first far row:** ordinary spherical eight-vertex
+   polyhedra, without any split or extra mesh nodes. The outer face of
+   each transition polyhedron retains the original coarse two-triangle
+   face. Four separately triangulated corner cells close the junction.
 4. `near_geometry="spherical"` still provides the old fully spherical
    experimental comparison mode, but no longer is the default.
    `near_geometry="auto"` or `"prism"` use the Nagy+bridge hybrid.
@@ -231,8 +233,8 @@ step 312.5 m, density 2670 kg/m³, reference sphere radius 6371 km:
 
 | Case | Direct spherical sharp-boundary reference (mGal) | Actual Nagy+bridge output (mGal) | Independent bridge volume mass effect (µGal) | Residual from geometry-adjusted reference (µGal) |
 |---|---:|---:|---:|---:|
-| Uniform 300 m; station at 320 m | 33.104457071 | 33.104428895 | +0.008398 | -0.036575 |
-| 350 m inside R1 / 250 m outside; station at 370 m | 38.457963610 | 38.463243977 | +5.328069 | -0.047702 |
+| Uniform 300 m; station at 320 m | 33.104457071 | 33.104429241 | +0.008360 | -0.036190 |
+| 350 m inside R1 / 250 m outside; station at 370 m | 38.457963610 | 38.463290145 | +5.373918 | -0.047383 |
 
 The **second case is not the same geometry as a discontinuous spherical
 height-step reference**: the joined wedges add sloping material. Comparing
@@ -255,9 +257,12 @@ end-to-end accuracy guarantee for arbitrary DEMs.
 - Independent raster inputs and their density compartments can be mismatched
   along R1. The current implementation checks for one compatible prism
   on the boundary and fails early if matching is ambiguous or impossible.
-- At the *outer* face of the transition strip, the tangential grid may
-  still have hanging nodes relative to the next unrefined far-field ring.
-  Global watertightness of arbitrary 3D meshes is not yet demonstrated.
+- The **outer** face of the transition strip now has exactly matching
+  triangular facets with the next far ring (0 unmatched in the uniform
+  benchmark). All individual transition polyhedra have closed oriented
+  triangular surfaces; tests also confirm the four bridge/corner joints.
+  The complete multi-cell 3D union still needs a rigorous global
+  geometry check for variable real-DTM heights and compartment steps.
 - Real DTM / sea / seabed / multi-station GDAL paths still require
   end-to-end tests. The station loop now consistently retains the
   radius supplied to `bgc()` for projection, prism shift and polyhedra;
@@ -298,22 +303,40 @@ alignment. If `gs2` is supplied explicitly, the near DTM crop also
 uses the aligned radius. If `gs2` is estimated later, extra initial
 raster coverage is reserved and insufficient coverage is rejected.
 
-**Outer boundary of the transition strip is NOT yet watertight.**
-A separate diagnostic, `tests/diagnose_r1_outer_seam.py`, detects
-**78 hanging vertices** in the example just given, where finely split
-first-ring polyhedra meet the unsplit second far-field ring. The
-maximum discrepancy between a spherical child vertex and the
-neighbouring parent's straight edge was **1.84 mm** in this controlled
-uniform-height example. The current method does not yet guarantee
-identical 3D faces along that outer boundary. The small geometrical
-deviation is not, by itself, a certified gravity-error estimate.
+**The previous outer-seam defect has been resolved.** The original
+refinement created 78 hanging vertices (1.84 mm maximum offset)
+in a synthetic 5 km test. It has been replaced by
+`relgravpy/_bouguer_transition.py`: each original coarse far cell
+is now a single closed polyhedron with an arbitrary number of facets
+on its prism-facing inner boundary and exactly the two *original*
+triangles on its outer boundary. Adjacent corner cells use diagonals
+matching both incoming side bridges. On the adjusted example above,
+the new diagnostic finds 132 side-transition parent cells, 4 corner
+cells and **zero unmatched outer triangles**, without modifying
+the next coarse far ring.
 
-Next engineering step: design a single *coarsening/stitching ring*
-that accepts the fine tangential face nodes on its inner boundary,
-but exposes only original gs2 parent nodes on its outer boundary.
-Its arbitrary polygonal faces can be triangulated consistently
-and evaluated with the existing surface-integral kernel. This
-avoids propagating fine-grid subdivisions across the entire far field.
+The latest geometry check includes 5 independent 3D direct-volume
+integrals (one per side and a corner) with maximum discrepancy
+**0.00000499 µGal** against the surface-integral implementation.
+The full 20 km-wide synthetic R1 benchmark returns
+**-0.0362 µGal** residual for uniform 300 m terrain and
+**-0.0474 µGal** for a 350/250 m height contrast, after adding
+the independently integrated mass of the sloping bridge geometry.
+
+The updated `polydron_grav` solver preserves consistent outward
+facet winding on concave step geometries, rather than individually
+flipping normals relative to the centroid. The first-ring
+point-mass reduction is blocked when `R3 <= R1 + gs2`.
+
+### Limitations and verification still required
+
+The far/near DTM and density compartments must be compatible along
+R1. Unsupported water/land layer changes or missing near cells
+trigger explicit errors instead of silently creating disconnected
+material. The transition interpolates two DEM surfaces across the
+first coarse cell, so it changes the physical mass model relative
+to a sharp elevation discontinuity. Full end-to-end GDAL and
+multi-station validation with real geographic data remains open.
 
 ## Verification priorities before production
 
@@ -329,7 +352,7 @@ Priority P0:
   georeferencing, elevation datums, nodata and output) with known results.
 - Verify real-DEM height/density differences across R1 (including sea/land);
   choose and validate the width of the prism-anchored sloping bridge,
-  and resolve any hanging nodes in the following far-field row.
+  and verify whole-domain face and mass continuity for real DEMs.
 - The radius-propagation inconsistency has been corrected: `st_loop` now
   uses the caller's reference `R` consistently. Geodetic datum and
   height-reference conventions still require end-to-end validation.
@@ -375,7 +398,7 @@ must be evaluated separately from DTM elevation and rock-density uncertainty.
 2. **R1 seam:** default now keeps near Nagy prisms centre-shifted onto
    the spherical reference and anchors special far polyhedra to their
    outer faces. Verify the transitional volume geometry and any
-   hanging-node interfaces for real DTMs; separate physical smoothing
+   real-DTM surface and density interfaces; separate physical smoothing
    effects from numerical integration errors.
 3. **Geometry convergence:** synthetic flat/rugged refinement shows residuals
    falling with cell width; repeat with exactly identical geographic
