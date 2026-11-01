@@ -6,8 +6,10 @@ on:
       - feat/bouguer-polyhedral-curvature
     paths:
       - 'relgravpy/_bouguer_correction.py'
+      - 'relgravpy/_bouguer_transition.py'
       - 'relgravpy/grav_modelling.py'
       - 'tests/test_bouguer_polyhedra.py'
+      - 'tests/test_bouguer_transition.py'
       - 'tests/test_polygrav_nagy.py'
       - 'tests/benchmark_polygrav_nagy.py'
       - 'tests/benchmark_spherical_reference.py'
@@ -17,8 +19,10 @@ on:
   pull_request:
     paths:
       - 'relgravpy/_bouguer_correction.py'
+      - 'relgravpy/_bouguer_transition.py'
       - 'relgravpy/grav_modelling.py'
       - 'tests/test_bouguer_polyhedra.py'
+      - 'tests/test_bouguer_transition.py'
       - 'tests/test_polygrav_nagy.py'
       - 'tests/benchmark_polygrav_nagy.py'
       - 'tests/benchmark_spherical_reference.py'
@@ -41,8 +45,9 @@ jobs:
         run: |
           python -m py_compile relgravpy/grav_modelling.py
           python -m py_compile relgravpy/_bouguer_correction.py
+          python -m py_compile relgravpy/_bouguer_transition.py
       - name: Validate polydron_grav against prism_grav and check geometry
-        run: PYTHONPATH=tests:. python -m pytest -v tests/test_bouguer_polyhedra.py tests/test_polygrav_nagy.py
+        run: PYTHONPATH=tests:. python -m pytest -v tests/test_bouguer_polyhedra.py tests/test_polygrav_nagy.py tests/test_bouguer_transition.py
       - name: Quantify polydron_grav versus prism_grav error
         run: PYTHONPATH=tests:. python -u tests/benchmark_polygrav_nagy.py
       - name: Verify primary independent spherical reference and mesh convergence
