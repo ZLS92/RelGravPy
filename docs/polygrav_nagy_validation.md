@@ -1,4 +1,4 @@
-# Polygrav and Nagy: the single-solver gravimetric API
+# prism_grav and polydron_grav: the gravimetric API
 
 The research implementation lives on
 `feat/bouguer-polyhedral-curvature`. Do **not** merge into `main`
@@ -6,10 +6,9 @@ without end-to-end DEM/land-sea validation.
 
 ## Public gravity solvers in `relgravpy/grav_modelling.py`
 
-- `Nagy(coordinates, prism, density).compute_gz()`: exact rectangular
-  prism formula with the original `.gz()` method retained. Legacy
-  `nagy` is an alias for the same class (not a duplicate implementation).
-- `Polygrav(corners, faces, density).compute_gz(observations)`: one
+- `prism_grav(coordinates, prism, density).compute_gz()`: analytic rectangular
+  prism formula (Nagy) with the original `.gz()` method also retained.
+- `polydron_grav(corners, faces, density).compute_gz(observations)`: one
   general polyhedral class. `corners` is shape `(n_vertices,3)`,
   `faces` contains arbitrary planar polygons in historical
   `[n, vertex_id_0, ..., vertex_id_(n-1)]` format (0-based indices).
@@ -20,15 +19,17 @@ Units: coordinates and heights in metres; density in kg/m³;
 gravitational attraction `gz` in mGal **positive downward**, with
 `G=6.6743e-11` SI in both solvers.
 
-The Polygrav backend selects a corrected deterministic
+The polydron_grav backend selects a corrected deterministic
 Goetze–Lahmeyer/MATLAB line-solid-angle implementation for near
 observations (`distance <= 5 * maximum body span`) and a
 seven-point outward-triangle surface integral for distant bodies.
 The private `method="analytic"` and `method="surface"` switches
 are exposed for benchmarking. The edge-integral cache is now
 recreated for each observation; it is **not** reused between stations.
-Old duplicate `PolyGrav`, `GotzeGrav` and the top-level
-`gravicalc2_full` have been removed from this branch.
+The older `Nagy`, `nagy`, `Polygrav`, `PolyGrav`, `GotzeGrav`, and top-level
+`gravicalc2_full` names are no longer exposed on this experimental branch.
+The two supported solver class names are exactly `prism_grav` and
+`polydron_grav`; the underlying numerical methods are unchanged by the rename.
 
 The constructor checks finite coordinates/density, face indices,
 nondegenerate polygons and that each undirected edge occurs twice.
@@ -64,7 +65,7 @@ shallow prisms by up to 12% in some cases. The automatic transition
 between analytic and numerical kernels was moved from 1.75 to
 5 times maximum body span. It was **not** resolved by relaxing tests.
 
-The Bouguer curvature routine now uses `Polygrav` for its near
+The Bouguer curvature routine now uses `polydron_grav` for its near
 spherical-polyhedron fallback. Efficient vectorized batches are
 still retained for ordinary distant spherical polyhedral cells;
 the default within R1 remains the horizontally translated Nagy prism.
