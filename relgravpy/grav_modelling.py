@@ -198,7 +198,7 @@ def prism_to_corners_faces(prism):
     return corners, faces
 
 # =============================================================================
-class Nagy:
+class prism_grav:
 
     def __init__( self, coordinates, prism, density ) :
 
@@ -220,7 +220,7 @@ class Nagy:
 
     # -------------------------------------------------------------------------
     def compute_gz(self):
-        """Consistent named method; equivalent to legacy nagy.gz()."""
+        """Compute down-positive vertical gravity (mGal); matches gz()."""
         return self.gz()
 
     def gz( self ) :
@@ -339,20 +339,16 @@ def build_edge_table(corners, faces):
 
 
 
-# Legacy lowercase class access remains valid without duplicating the solver.
-nagy = Nagy
-
-
-class Polygrav:
+class polydron_grav:
     """Gravitational attraction of one homogeneous closed polyhedron.
 
     Coordinates are Cartesian East/North/Up in metres; density is kg/m^3.
     The public compute_gz returns DOWN-positive gravitational attraction
-    in mGal, matching Nagy. It accepts one (3,) observation or (n,3)
+    in mGal, matching the prism_grav kernel. It accepts one (3,) observation or (n,3)
     observations. Arbitrary face sizes are supported with the historical
     0-based MATLAB format: [n_vertices, vertex_id_1, ..., vertex_id_n].
 
-    The single public solver selects the analytic edge/solid-angle kernel
+    The polydron_grav solver selects the analytic edge/solid-angle kernel
     when the observation is close to the polyhedron and a stable 7-point
     triangular surface integral when it is sufficiently distant. Both
     kernels use the same gravitational constant and geometry.
