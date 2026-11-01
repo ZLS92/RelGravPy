@@ -44,7 +44,7 @@ def test_terrain_features_mountain_and_bathymetry_nonnegative():
 
 def test_bgc_optimizer_manual_parameters_bypass_target_entirely():
     x,y=stations(3)
-    with pytest.warns(None) if False else _no_warnings():
+    with _no_warnings():
         result=BC.optimize_bgc_mesh(
             x,y,None,gs1=25.,R1=5000.,gs2=500.,
             target_error=-999, R2=167000.)
@@ -144,3 +144,50 @@ def test_invalid_tolerance_rejected_only_when_tuning():
     out=BC.optimize_bgc_mesh(x,y,None,gs1=25.,R1=5000.,gs2=400.,
                              target_error=-1.)
     assert out["optimized"] is False
+
+
+
+def test_station_preview_reads_only_two_small_windows_per_station(monkeypatch):
+    """No full gravity loop, no country-scale rewarping, no station subsample."""
+    from types import SimpleNamespace
+    class FakeBand:
+        def __init__(self, array):
+            self.array=array
+            self.calls=0
+        def GetNoDataValue(self):
+            return None
+        def ReadAsArray(self,xoff,yoff,win_xsize,win_ysize,
+                        buf_xsize,buf_ysize):
+            self.calls+=1
+            assert win_xsize<=257 and win_ysize<=257
+            a=self.array[yoff:yoff+win_ysize,xoff:xoff+win_xsize]
+            ix=np.linspace(0,len(a[0])-1,buf_xsize).astype(int)
+            iy=np.linspace(0,len(a)-1,buf_ysize).astype(int)
+            return a[np.ix_(iy,ix)]
+    class FakeDtm:
+        def __init__(self,array):
+            self.band=FakeBand(array)
+            self.RasterXSize=array.shape[1]
+            self.RasterYSize=array.shape[0]
+        def GetRasterBand(self,i):
+            assert i==1
+            return self.band
+        def GetGeoTransform(self):
+            return (0.,30.,0.,0.,0.,-30.)
+        def GetProjection(self):
+            return "EPSG:32633"
+    yy,xx=np.indices((520,520))
+    mountain=1000.+350.*np.sin(xx/20)*np.cos(yy/17)
+    dtm=FakeDtm(mountain)
+    monkeypatch.setattr(BC,"utl",SimpleNamespace(
+        prjxy=lambda src,dst,x,y:(np.asarray(x),np.asarray(y))),
+        raising=False)
+    x=np.array([3900.,7800.,10200.])
+    y=np.array([-3300.,-6600.,-9300.])
+    features,resolution=BC._bgc_station_terrain_features(
+        dtm,x,y,"EPSG:32633","EPSG:32633")
+    assert features.shape==(3,4)
+    assert resolution==pytest.approx(30.)
+    assert dtm.band.calls==2*len(x)
+    assert np.all(np.isfinite(features))
+    assert np.all(features[:,2]>0)
