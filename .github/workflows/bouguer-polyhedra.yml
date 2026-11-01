@@ -10,6 +10,7 @@ on:
       - 'tests/test_bouguer_polyhedra.py'
       - 'tests/test_bouguer_mesh_optimizer.py'
       - 'tests/benchmark_bgc_optimizer.py'
+      - 'tests/benchmark_bgc_full_topography.py'
       - 'tests/test_bouguer_transition.py'
       - 'tests/benchmark_r1_conformal.py'
       - 'tests/test_polygrav_nagy.py'
@@ -25,6 +26,7 @@ on:
       - 'tests/test_bouguer_polyhedra.py'
       - 'tests/test_bouguer_mesh_optimizer.py'
       - 'tests/benchmark_bgc_optimizer.py'
+      - 'tests/benchmark_bgc_full_topography.py'
       - 'tests/test_bouguer_transition.py'
       - 'tests/benchmark_r1_conformal.py'
       - 'tests/test_polygrav_nagy.py'
@@ -37,7 +39,7 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -55,6 +57,8 @@ jobs:
         run: PYTHONPATH=tests:. python -u tests/benchmark_bgc_optimizer.py
       - name: Quantify polydron_grav versus prism_grav error
         run: PYTHONPATH=tests:. python -u tests/benchmark_polygrav_nagy.py
+      - name: Compare selected mesh with 50m and 100m full synthetic DEM gravity
+        run: PYTHONPATH=tests:. python -u tests/benchmark_bgc_full_topography.py
       - name: Verify primary independent spherical reference and mesh convergence
         run: PYTHONPATH=tests:. python -u tests/benchmark_spherical_reference.py
       - name: Validate two-resolution R1 interface against spherical volume integral
