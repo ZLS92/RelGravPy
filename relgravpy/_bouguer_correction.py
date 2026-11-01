@@ -730,11 +730,12 @@ def mesh_ls( Mx, My, Zc, msk=None, R1=None, R=R_wgs84, dc=2670, dw=1030, z_shift
     
     # z_shift (curvature correction for prisms) -------------------------------
     if z_shift == True:
-        Mxb, Myb = np.copy(Mxc), np.copy(Myc)
-        Mxb[Mxb<0], Myb[Myb<0] = Mxb[Mxb<0]-dhx, Myb[Myb<0]-dhy
-        Mxb[Mxb>0], Myb[Myb>0] = Mxb[Mxb>0]+dhx, Myb[Myb>0]+dhy
-        Mxy2 = Mxb**2 + Myb**2
-        Zsh = Mxy2 / ( 2 * R )
+        # Preserve horizontal Nagy prisms; their base centre follows
+        # the spherical reference surface (not the outermost corner).
+        radial = R**2 - Mxc**2 - Myc**2
+        if np.any(radial < 0):
+            raise ValueError("Prism centre lies outside reference hemisphere.")
+        Zsh = R - np.sqrt(radial)
         MbA, MtA = MbA-Zsh, MtA-Zsh
         MbB, MtB = MbB-Zsh, MtB-Zsh
         
@@ -835,11 +836,12 @@ def mesh_sb(Mx, My, Zc, hst, msk=None, R1=None, dc=2670, dw=1030, z_shift=True, 
     
     # z_shift (curvature correction of prisms) --------------------------------
     if z_shift==True:
-        Mxb, Myb = np.copy( Mxc ), np.copy( Myc )
-        Mxb[Mxb<0], Myb[Myb<0] = Mxb[Mxb<0] - dhx, Myb[Myb<0] - dhy
-        Mxb[Mxb>0], Myb[Myb>0] = Mxb[Mxb>0] + dhx, Myb[Myb>0] + dhy
-        Mxy2 = Mxb**2 + Myb**2
-        Zsh = Mxy2 / ( 2 * R )
+        # Preserve horizontal Nagy prisms; align each base centre
+        # with the exact spherical reference surface.
+        radial = R**2 - Mxc**2 - Myc**2
+        if np.any(radial < 0):
+            raise ValueError("Prism centre lies outside reference hemisphere.")
+        Zsh = R - np.sqrt(radial)
         MbA, MtA = MbA - Zsh, MtA - Zsh
         MbB1, MtB1 = MbB1 - Zsh, MtB1 - Zsh
         MbB2, MtB2 = MbB2 - Zsh, MtB2 - Zsh
@@ -922,7 +924,7 @@ def st_loop( constant_arg, iterable_arg ) :
         
     # Model both sides of R1 with the same spherical geometry by default.
     # The legacy Nagy-prism near mode remains available for comparison.
-    spherical_near = curved and near_geometry in ("auto", "spherical")
+    spherical_near = curved and near_geometry == "spherical"
     
     if ( st_type == 0 ) or ( st_type == 1 ) :
         pr1 = mesh_ls( Mx[0], My[0], Zc[0], msk[0], R=R, dc=dc, dw=dw,
@@ -975,9 +977,12 @@ def st_loop( constant_arg, iterable_arg ) :
     # shp.write_points( x=xpt, y=ypt, prj_code=prjcode_m, name='orhto_prism', path=mdir )
 
     if curved is True:
-        # Far-field spherical polyhedra in the station-centred local frame.
-        # Heights remain relative to the reference sphere (no z_shift here).
-        bgc_far = _polyhedral_gz(pr2[0], pr2[1], st, R)
+        # Build the R1 transition from the *external prism vertices*.
+        if refine_interface and not spherical_near:
+            bgc_far = _transition_polyhedral_gz(
+                pr2[0], pr2[1], pr1[0], pr1[1], st, R, R1)
+        else:
+            bgc_far = _polyhedral_gz(pr2[0], pr2[1], st, R)
 
     else :
         nag_far = gm.nagy( st, pr2[0], density=pr2[1] )
@@ -1051,14 +1056,12 @@ def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
     to measured gravity to remove this modeled contribution has opposite sign.
     This function alone does not compute a complete Bouguer anomaly.
     Set curved=False to use the far-field prism approximation.
-    With curved=True, near_geometry="auto" (or "spherical") also represents
-    the near-field cells as spherical polyhedra, removing the old cell-wise
-    vertical-shift mismatch at R1. Set near_geometry="prism" to reproduce
-    the legacy Nagy near field. refine_interface=True subdivides the first
-    row of far-field cells and the outer row of near-field cells at the
-    UNION of fine- and coarse-grid edge positions. Shared interfaces use
-    identical side-facet diagonals when height intervals also agree.
-    Distinct near/far DTM heights still require a separate continuity check.
+    Default near_geometry="auto" retains HORIZONTAL Nagy prisms within R1,
+    shifted vertically to align each base centre with the spherical surface.
+    The first far polyhedral row joins their actual exterior prism vertices.
+    refine_interface=True subdivides far-side boundary faces tangentially
+    at fine grid nodes. near_geometry="spherical" remains available only
+    as an explicit experimental comparison mode.
     
     INPUT:
     x,y,z ----->  coordinates of computational points (z can be as x,y or just a sigle value or z='dtm')
