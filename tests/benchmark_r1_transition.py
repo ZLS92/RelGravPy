@@ -2,7 +2,7 @@
 
 Near field uses horizontal centre-shifted Nagy prisms. The first ring
 of coarse spherical far cells is joined to the actual outer prism vertices.
-Boundary cells are subdivided tangentially at near prism nodes. Compare with the converged
+The far cells are not subdivided; their inner faces have arbitrary facets. Compare with the converged
 uniform spherical-volume Gauss-Legendre integral (not Harmonica).
 
 Run: PYTHONPATH=tests:. python -u tests/benchmark_r1_transition.py
@@ -55,7 +55,7 @@ def spherical_wedge_reference(horizontal_half_width, rbottom, rtop,
     return BC.gm.G*DENSITY*1e5*float(total)
 
 
-def independent_polyhedron_volume_gz(vertices, density, observation, order=4):
+def independent_polyhedron_volume_gz(vertices, density, observation, order=4, faces=None):
     """Independent 3-D volume integral over tetrahedra of an eight-vertex cell.
 
     Decompose each face triangle with the internal centroid and apply a
@@ -65,11 +65,9 @@ def independent_polyhedron_volume_gz(vertices, density, observation, order=4):
     """
     v = np.asarray(vertices, float)
     centre = v.mean(axis=0)
-    faces = np.array([
-        [3,2,1],[3,1,0],[4,5,6],[4,6,7],
-        [0,1,5],[0,5,4],[1,2,6],[1,6,5],
-        [2,3,6],[3,7,6],[3,0,7],[0,4,7]
-    ],dtype=int)
+    if faces is None:
+        faces=[list(f) for f in BC._CURVED_FACES]
+    faces=np.asarray([face[1:] for face in faces],dtype=int)
     nodes, weights = np.polynomial.legendre.leggauss(order)
     nodes=(nodes+1)/2
     weights=weights/2
@@ -81,7 +79,7 @@ def independent_polyhedron_volume_gz(vertices, density, observation, order=4):
     integral=0.
     for a,b,c in faces:
         e1,e2,e3 = v[a]-centre,v[b]-centre,v[c]-centre
-        jac=abs(np.linalg.det(np.stack((e1,e2,e3),axis=1)))
+        jac=np.linalg.det(np.stack((e1,e2,e3),axis=1))
         xyz=(centre[None,:]+u[:,None]*e1
              +((1-u)*vp)[:,None]*e2
              +((1-u)*(1-vp)*w)[:,None]*e3)
@@ -91,34 +89,39 @@ def independent_polyhedron_volume_gz(vertices, density, observation, order=4):
     return float(BC.gm.G*1e5*density*integral)
 
 
-def independent_bridge_mass_difference(refined, near, observation, R1):
-    """Independent 3D volume correction: bridged vs non-bridged far cells."""
+def independent_bridge_mass_difference(far_cells, near, observation, R1):
+    """Independent 3D bridge volume correction for CURRENT coarse parents.
+
+    Each bridge is integrated as a general triangular surface via signed
+    tetrahedra. In contrast to the legacy implementation, far parent
+    cells remain unsplit, and the four corner polyhedra also bridge.
+    """
+    from test_bouguer_transition import TR
     near=np.asarray(near,float)
-    tol=1e-6
     delta=0.
-    for far in refined:
-        x0,x1,y0,y1=far[:4]
-        midx,midy=(x0+x1)/2,(y0+y1)/2
-        if abs(x0-R1)<tol and abs(midy)<R1:
-            candidates=(abs(near[:,1]-R1)<tol) & (near[:,2]<=y0+tol) & (near[:,3]>=y1-tol)
-            side="east"
-        elif abs(x1+R1)<tol and abs(midy)<R1:
-            candidates=(abs(near[:,0]+R1)<tol) & (near[:,2]<=y0+tol) & (near[:,3]>=y1-tol)
-            side="west"
-        elif abs(y0-R1)<tol and abs(midx)<R1:
-            candidates=(abs(near[:,3]-R1)<tol) & (near[:,0]<=x0+tol) & (near[:,1]>=x1-tol)
-            side="north"
-        elif abs(y1+R1)<tol and abs(midx)<R1:
-            candidates=(abs(near[:,2]+R1)<tol) & (near[:,0]<=x0+tol) & (near[:,1]>=x1-tol)
-            side="south"
+    tol=1e-6
+    spherical_faces=[list(f) for f in BC._CURVED_FACES]
+    for cell in far_cells:
+        w,e,s,n=cell[:4]
+        mx,my=(w+e)/2,(s+n)/2
+        side=None
+        if abs(w-R1)<tol and -R1<my<R1:side="east"
+        elif abs(e+R1)<tol and -R1<my<R1:side="west"
+        elif abs(s-R1)<tol and -R1<mx<R1:side="north"
+        elif abs(n+R1)<tol and -R1<mx<R1:side="south"
+        corner=(abs(w-R1)<tol or abs(e+R1)<tol) and (
+            abs(s-R1)<tol or abs(n+R1)<tol)
+        if side:
+            bridge,faces=TR._bridge_mesh(cell,near,side,RADIUS)
+        elif corner:
+            bridge,faces=TR._corner_mesh(cell,near,RADIUS,R1)
         else:
             continue
-        match=near[candidates]
-        assert len(match)==1
-        bridge=BC._transition_cell_vertices(far,match[0],RADIUS,side)
-        sphere=BC._curved_cell_vertices(far,RADIUS)
-        delta+=independent_polyhedron_volume_gz(bridge,DENSITY,observation)
-        delta-=independent_polyhedron_volume_gz(sphere,DENSITY,observation)
+        sphere=BC._curved_cell_vertices(cell,RADIUS)
+        delta+=independent_polyhedron_volume_gz(
+            bridge,DENSITY,observation,faces=faces)
+        delta-=independent_polyhedron_volume_gz(
+            sphere,DENSITY,observation,faces=spherical_faces)
     return delta
 
 
@@ -139,12 +142,6 @@ def run_case(near_n=80, far_n=64, R1=5000.0,
     observation=[0,0,station_height]
     far_dense = np.full(len(far),DENSITY)
     fine_dense = np.full(len(near),DENSITY)
-    refined, refined_density = BC._refine_far_interface(
-        far, far_dense, near_edges,near_edges,R1
-    )
-    conformed_near, conformed_near_den = BC._refine_near_interface(
-        near, fine_dense, far_edges, far_edges, R1
-    )
 
     # Actual method: HORIZONTAL Nagy prisms with centres on the sphere.
     # The first far polyhedra have their INNER faces attached exactly to the
@@ -155,10 +152,11 @@ def run_case(near_n=80, far_n=64, R1=5000.0,
     sag = RADIUS - np.sqrt(RADIUS**2 - cx**2 - cy**2)
     shifted_near[:,4:] -= sag[:,None]
     near_g = float(GM.prism_grav([observation],shifted_near,fine_dense).gz()[0])
-    far_g = BC._transition_polyhedral_gz(
-        refined,refined_density,shifted_near,fine_dense,
-        observation,RADIUS,R1
-    )
+    from test_bouguer_transition import TR
+    bridge_g,ordinary,ordinary_density=TR._transition_polyhedral_gz(
+        far,far_dense,shifted_near,fine_dense,observation,RADIUS,R1)
+    far_g=bridge_g+BC._polyhedral_gz(
+        ordinary,ordinary_density,observation,RADIUS)
     unrefined_far = BC._polyhedral_gz(far,far_dense,observation,RADIUS)
 
     # Legacy prism approximation: near-field cell shifted by the farthest
@@ -181,7 +179,7 @@ def run_case(near_n=80, far_n=64, R1=5000.0,
     # prism-anchored bridge when near/far DEM heights differ. Evaluate the
     # bridge's additional mass independently with direct 3D volume cubature.
     bridge_delta=independent_bridge_mass_difference(
-        refined,shifted_near,observation,R1)
+        far,shifted_near,observation,R1)
     hybrid_reference=exact+bridge_delta
     data = {
         "R1_m":R1,
@@ -191,7 +189,8 @@ def run_case(near_n=80, far_n=64, R1=5000.0,
         "near_cells_original":len(near),
         "near_cells_refined":len(shifted_near),
         "far_cells_original":len(far),
-        "far_cells_refined":len(refined),
+        "far_cells_refined":len(far),
+        "bridge_parent_cells":len(far)-len(ordinary),
         "near_cell_width_m":2*R1/near_n,
         "far_cell_width_m":DOMAIN/far_n,
         "sharp_step_reference_mGal":exact,
