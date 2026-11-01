@@ -50,7 +50,8 @@ BC = _load_numerical_subset(
     ROOT / "relgravpy" / "_bouguer_correction.py",
     {"_curved_cell_vertices", "_surface_integral_polyhedral_gz",
      "_polyhedral_gz", "_point_mass_gz", "_ring_polyhedral_effect",
-     "_refine_far_interface"},
+     "_refine_interface_cells", "_refine_far_interface",
+     "_refine_near_interface"},
     gm=GM,
 )
 
@@ -229,3 +230,44 @@ def test_curved_near_switch_exposes_nagy_fallback():
     assert '"auto"' in src
     assert "spherical_near = curved and near_geometry" in src
     assert "pr1[0][finite_mass]" in src
+
+
+
+def test_r1_both_sides_share_full_triangulated_interface():
+    """Non-commensurate 250-m / 375-m grids share same radial triangles."""
+    radius = 6_371_000.
+    near_edges = np.arange(-1000., 1000.1, 250.)
+    far_edges = np.array([-1000., -625., -250., 125., 500., 875., 1250.])
+    near = np.array([
+        [750, 1000, -1000, -750, 0, 300],
+        [750, 1000, -750, -500, 0, 300],
+    ],float)
+    far = np.array([
+        [1000, 1500, -1000, -625, 0, 300],
+        [1000, 1500, -625, -250, 0, 300],
+    ],float)
+    a, ad = BC._refine_near_interface(near,[2670,2670],far_edges,far_edges,1000)
+    b, bd = BC._refine_far_interface(far,[2670,2670],near_edges,near_edges,1000)
+    # Only compare portions covered by BOTH sources: y=-1000 to -500.
+    near_intervals = sorted((round(p[2],8),round(p[3],8)) for p in a)
+    far_intervals = sorted((round(p[2],8),round(p[3],8)) for p in b
+                           if p[3]<=-500.+1e-9)
+    assert near_intervals == far_intervals
+    assert len(near_intervals)>2
+    for na, fa in zip(sorted(a,key=lambda p:p[2]),
+                      sorted((p for p in b if p[3]<=-500.+1e-9),
+                             key=lambda p:p[2])):
+        vn = BC._curved_cell_vertices(na,radius)
+        vf = BC._curved_cell_vertices(fa,radius)
+        np.testing.assert_allclose(vn[[1,2,5,6]],vf[[0,3,4,7]],atol=1e-9,rtol=0)
+        # Canonical east/west diagonals are the same 3-D segment.
+        np.testing.assert_allclose(vn[[1,6]],vf[[0,7]],atol=1e-9,rtol=0)
+
+
+def test_r1_corner_near_cell_splits_on_both_axes():
+    near = [[750,1000,750,1000,0,300]]
+    far_knots = np.array([800,900.])
+    cells,_=BC._refine_near_interface(near,[2670],far_knots,far_knots,1000.)
+    assert len(cells)==9
+    assert np.isclose(sum((p[1]-p[0])*(p[3]-p[2]) for p in cells),
+                      250.**2)
