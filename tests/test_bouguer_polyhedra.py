@@ -138,3 +138,35 @@ def test_surface_quadrature_matches_nagy_at_large_radius():
     surf = BC._surface_integral_polyhedral_gz(
         np.array(prism), np.array([2670.0]), obs, 1e10)
     np.testing.assert_allclose(surf, nagy, rtol=3e-4, atol=2e-7)
+
+
+def test_bgc_public_api_names_and_output_columns():
+    """Experimental Bouguer correction API must be internally consistent."""
+    path = ROOT / "relgravpy" / "_bouguer_correction.py"
+    src = path.read_text(encoding="utf-8")
+    tree = ast.parse(src, filename=str(path))
+    names = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
+    assert {"bgc", "run_bgc", "load_bgc"}.issubset(names)
+    assert not {"te", "run_te", "load_te"}.intersection(names)
+    assert "bgc(" in src
+    assert "result = load_bgc(" in src
+    for field in ("bgc_near", "bgc_far", "bgc_tot"):
+        assert field in src
+    assert "'te_near'" not in src
+    assert "'te_far'" not in src
+    assert "'te_tot'" not in src
+    assert "'Bouguer_correction'" in src
+    assert "'Te_correction'" not in src
+
+
+def test_bgc_cli_entrypoint_calls_correct_function():
+    path = ROOT / "relgravpy" / "_bouguer_correction.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    main_blocks = [node for node in tree.body if isinstance(node, ast.If)
+                   and isinstance(node.test, ast.Compare)]
+    assert main_blocks
+    main = main_blocks[-1]
+    calls = [n.func.id for n in ast.walk(main)
+             if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)]
+    assert "bgc" in calls
+    assert "te" not in calls
