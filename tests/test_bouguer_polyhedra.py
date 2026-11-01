@@ -362,3 +362,13 @@ def test_nagy_prism_centre_base_intersects_spherical_reference():
     spherical_base = np.sqrt(6371000.**2 - xc**2 - yc**2) - 6371000.
     np.testing.assert_allclose(cells[0,4], spherical_base, atol=1e-9)
     np.testing.assert_allclose(cells[0,5] - cells[0,4], 300., atol=1e-10)
+
+
+def test_station_uses_caller_reference_radius_for_transition():
+    src=(ROOT/"relgravpy"/"_bouguer_correction.py").read_text()
+    tree=ast.parse(src)
+    fn=next(n for n in tree.body
+            if isinstance(n,ast.FunctionDef) and n.name=="st_loop")
+    body=ast.get_source_segment(src,fn)
+    assert "R = float(R)" in body
+    assert "R = utl.local_sph_raduis(yg)" not in body
