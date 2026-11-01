@@ -378,7 +378,6 @@ def test_station_uses_caller_reference_radius_for_transition():
     (25., 2000., 500., 167000.),
     (125., 5000., 312.5, 10000.),
     (25., 3000., 1000., 166735.),
-    (7000., 42000., 25000., 167000.),
     (50., 8000., 2000., 167000.),
 ])
 def test_adj_mesh_minimal_upward_radii_and_small_step_adjustment(gs1,r1,gs2,r2):
@@ -418,3 +417,15 @@ def test_adj_mesh_rejects_bad_steps_and_tolerances():
             BC.adj_mesh(*args)
     with pytest.raises(ValueError):
         BC.adj_mesh(25,2000,500,167000,max_gs2_change=-0.01)
+
+
+def test_adj_mesh_avoids_excessive_r1_growth_on_extreme_coarse_input():
+    with pytest.raises(ValueError, match="No aligned R1/gs2"):
+        BC.adj_mesh(7000.,42000.,25000.,167000.)
+    # Relaxation is explicit, never a silent 17.5 km R1 expansion.
+    a,R1,b,R2=BC.adj_mesh(7000.,42000.,25000.,167000.,
+                          max_R1_increase=25000.)
+    assert a==7000.
+    assert R1>=42000.
+    assert R2>=167000.
+    assert abs(b/25000.-1)<0.05
