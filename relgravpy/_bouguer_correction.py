@@ -12,6 +12,7 @@ from . import utils as utl
 from . import shp_tools as shp
 from . import raster_tools as rt
 from . import grav_modelling as gm
+from . import _bouguer_transition as tr
 
 import multiprocessing as mpr
 import argparse
@@ -1125,12 +1126,15 @@ def st_loop( constant_arg, iterable_arg ) :
             pr2 = mesh_sb( Mx[1], My[1], Zc[1], hst=z, msk=msk[1], R1=R1, R=R, dc=dc, dw=dw, 
                 z_shift=False ) 
        
-    if curved and refine_interface:
+    # In default hybrid mode keep coarse far parent cells UNSPLIT. Their
+    # entire R1-facing boundary is triangulated against the fine Nagy
+    # prisms; the outer face preserves exactly the ordinary far-cell nodes.
+    # No hanging nodes propagate into the second coarse ring.
+    if curved and refine_interface and spherical_near:
         pr2 = _refine_far_interface(pr2[0], pr2[1], Mx[0][0, :],
                                     My[0][:, 0], R1)
-        if spherical_near:
-            pr1 = _refine_near_interface(pr1[0], pr1[1], Mx[1][0, :],
-                                         My[1][:, 0], R1)
+        pr1 = _refine_near_interface(pr1[0], pr1[1], Mx[1][0, :],
+                                     My[1][:, 0], R1)
 
     if R3 != None :
         pr2, pr3 = mesh_R3( pr2, R3 )
@@ -1160,8 +1164,10 @@ def st_loop( constant_arg, iterable_arg ) :
     if curved is True:
         # Build the R1 transition from the *external prism vertices*.
         if refine_interface and not spherical_near:
-            bgc_far = _transition_polyhedral_gz(
+            bridge_gz, ordinary, ordinary_density = tr._transition_polyhedral_gz(
                 pr2[0], pr2[1], pr1[0], pr1[1], st, R, R1)
+            bgc_far = bridge_gz + _polyhedral_gz(
+                ordinary, ordinary_density, st, R)
         else:
             bgc_far = _polyhedral_gz(pr2[0], pr2[1], st, R)
 
