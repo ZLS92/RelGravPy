@@ -312,7 +312,9 @@ def test_r1_transition_preserves_discontinuous_gdal_density():
     far = np.array([[1000,1375,-125,125,0,300]])
     observation = [0, 0, 320]
     sea_contrast = 1030 - 2670
-    with pytest.warns(RuntimeWarning, match="GDAL land/sea"):
+    # Coastal material changes should not generate diagnostics/warnings.
+    with warnings.catch_warnings():
+        warnings.simplefilter("error", RuntimeWarning)
         result, ordinary, densities = BC._transition_polyhedral_gz(
             far, [sea_contrast], near, [2670],
             observation, 6371000, 1000)
