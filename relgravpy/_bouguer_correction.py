@@ -105,22 +105,52 @@ def _curved_cell_vertices(prism, radius):
     return np.vstack((surface(bottom), surface(top)))
 
 
-def _surface_integral_polyhedral_gz(prisms, densities, observation, radius):
-    """Stable, vectorised polyhedron gravity via the boundary integral.
+def _curved_cell_vertices_batch(prisms, radius):
+    """Vectorized eight-vertex representation of spherical DEM cells."""
+    prisms = np.asarray(prisms, dtype=float).reshape(-1, 6)
+    if len(prisms) == 0:
+        return np.empty((0, 8, 3), dtype=float)
+    w, e, south, north, bottom, top = prisms.T
+    xy = np.stack((
+        np.stack((w, south), axis=-1),
+        np.stack((e, south), axis=-1),
+        np.stack((e, north), axis=-1),
+        np.stack((w, north), axis=-1),
+    ), axis=1)
+    radicand = radius**2 - np.sum(xy**2, axis=-1)
+    if np.any(radicand <= 0):
+        raise ValueError("Orthographic cell lies outside reference hemisphere.")
+    radial_z = np.sqrt(radicand)
+    scale_b = 1 + bottom[:, None]/radius
+    scale_t = 1 + top[:, None]/radius
+    vb = np.concatenate((xy*scale_b[..., None],
+                         (radial_z*scale_b-radius)[..., None]), axis=-1)
+    vt = np.concatenate((xy*scale_t[..., None],
+                         (radial_z*scale_t-radius)[..., None]), axis=-1)
+    return np.concatenate((vb, vt), axis=1)
 
-    For a constant-density closed polyhedron, the local *down-positive*
-    component is G*rho*integral(n_z/|source-observer|) dS over outward faces.
-    The planar triangles are integrated with 7-point Dunavant degree-5
-    quadrature. Works best for cells at several cell widths from the station,
-    i.e. precisely the far-field regime in which the old solver suffers
-    from cancellation of near-equal terms.
+
+def _surface_integral_vertices_gz(vertices, densities, observation):
+    """Numerically stable gz for arbitrary closed 8-vertex cells.
+
+    Use a 7-point Dunavant rule on the outward-oriented triangular faces.
+    The same triangulation is used for ordinary spherical polyhedra and
+    for the transition polyhedra anchored to outer Nagy prism faces.
     """
-    # Outward-oriented facets: two bottom, two top, two per radial side.
-    triangles = np.array([
+    vertices = np.asarray(vertices, dtype=float).reshape(-1, 8, 3)
+    densities = np.asarray(densities, dtype=float).ravel()
+    if len(vertices) != len(densities):
+        raise ValueError("Expected one density per polyhedron.")
+    if not len(vertices):
+        return 0.0
+    faces_indices = np.array([
         [3, 2, 1], [3, 1, 0], [4, 5, 6], [4, 6, 7],
         [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5],
-        [2, 3, 6], [3, 7, 6], [3, 0, 7], [0, 4, 7]
+        [2, 3, 6], [3, 7, 6], [3, 0, 7], [0, 4, 7],
     ], dtype=int)
+    faces = vertices[:, faces_indices, :]
+    z_area = np.cross(faces[:, :, 1]-faces[:, :, 0],
+                      faces[:, :, 2]-faces[:, :, 0])[:, :, 2]/2
     a = 0.059715871789770
     b = 0.470142064105115
     c = 0.797426985353087
@@ -128,45 +158,26 @@ def _surface_integral_polyhedral_gz(prisms, densities, observation, radius):
     bary = np.array([
         [1/3, 1/3, 1/3],
         [a, b, b], [b, a, b], [b, b, a],
-        [c, d, d], [d, c, d], [d, d, c]
+        [c, d, d], [d, c, d], [d, d, c],
     ])
-    weights = np.array(
-        [0.225] + [0.132394152788506]*3 + [0.125939180544827]*3
-    )
-
-    # N x 4 x 2 horizontal orthographic vertices (SW, SE, NE, NW).
-    w, e, south, north, bottom, top = prisms.T
-    xy = np.stack([
-        np.stack((w, south), axis=-1),
-        np.stack((e, south), axis=-1),
-        np.stack((e, north), axis=-1),
-        np.stack((w, north), axis=-1),
-    ], axis=1)
-    radial_sq = radius**2 - np.sum(xy**2, axis=-1)
-    if np.any(radial_sq <= 0):
-        raise ValueError("Orthographic cell lies outside reference hemisphere.")
-    local_z = np.sqrt(radial_sq)
-    scale_b = 1 + bottom[:, None] / radius
-    scale_t = 1 + top[:, None] / radius
-    bottom_vertices = np.concatenate(
-        (xy*scale_b[:, :, None],
-         (local_z*scale_b - radius)[:, :, None]), axis=-1)
-    top_vertices = np.concatenate(
-        (xy*scale_t[:, :, None],
-         (local_z*scale_t - radius)[:, :, None]), axis=-1)
-    vertices = np.concatenate((bottom_vertices, top_vertices), axis=1)
-    faces = vertices[:, triangles, :]  # N x 12 x 3 x 3
-    area_z = np.cross(faces[:,:,1] - faces[:,:,0],
-                      faces[:,:,2] - faces[:,:,0])[:,:,2] / 2
-    # Coordinates of the 7 weighted Gaussian sample points per triangle.
+    weights = np.array([0.225]+[0.132394152788506]*3
+                       +[0.125939180544827]*3)
     samples = np.einsum("qc,ntcj->ntqj", bary, faces)
-    distances = np.linalg.norm(
-        samples - np.asarray(observation, dtype=float).reshape(1,1,1,3),
+    distance = np.linalg.norm(
+        samples-np.asarray(observation, dtype=float).reshape(1, 1, 1, 3),
         axis=-1)
-    if np.any(distances == 0):
-        raise ValueError("Observation lies on a surface integration node.")
-    mean_inv_dist = np.sum(weights[None,None,:]/distances, axis=-1)
-    return float(gm.G*1e5*np.sum(densities[:,None]*area_z*mean_inv_dist))
+    if np.any(distance == 0):
+        raise ValueError("Observation is on a quadrature node.")
+    return float(gm.G*1e5*np.sum(
+        densities[:, None]*z_area*
+        np.sum(weights[None, None, :]/distance, axis=-1)
+    ))
+
+
+def _surface_integral_polyhedral_gz(prisms, densities, observation, radius):
+    """Stable far-field spherical polyhedra, down-positive in mGal."""
+    vertices = _curved_cell_vertices_batch(prisms, radius)
+    return _surface_integral_vertices_gz(vertices, densities, observation)
 
 
 def _polyhedral_gz(prisms, densities, observation, radius):
