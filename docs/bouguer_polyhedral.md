@@ -1,4 +1,4 @@
-# Bouguer terrain effect: curvature-following polyhedra
+# Bouguer correction: curvature-following polyhedra
 
 This module is a research implementation on
 `feat/bouguer-polyhedral-curvature`. It replaces
@@ -18,9 +18,13 @@ Therefore `_polyhedral_gz` reverses its sign and also scales by
 `grav_modelling.G / 6.6732e-11` to match the gravitational constant used in
 `grav_modelling.nagy`.
 
-**Important:** `te()` still returns a modelled topographic mass effect. It
-does not by itself calculate a complete Bouguer gravity anomaly; that requires
-the other chosen anomaly corrections and a consistent sign convention.
+**Important:** `bgc()` is the Bouguer-correction modelling entry point.
+Its outputs (`bgc_near`, `bgc_far`, `bgc_tot`) are the modelled gravitational
+mass contributions in mGal (**positive downward**). When removing this
+modelled gravitational attraction from observed gravity, apply the opposite
+sign. This function does not compute a complete Bouguer gravity anomaly:
+the complete anomaly also depends on the other corrections and on the
+chosen gravity sign convention.
 
 ## Geometry and kernels
 
@@ -47,14 +51,21 @@ vertices, and the approximation converges as the DEM mesh is refined.
 
 ## API
 
-Existing function names `te`, `run_te`, `load_te` are preserved for now.
-The former `tess=True` keyword is renamed to `curved=True`.
+The main function is now **`bgc()`**, with corresponding wrappers
+`run_bgc()` and `load_bgc()`. The former `te()`, `run_te()` and `load_te()`
+names are intentionally not exposed on this experimental branch. The
+former `tess=True` keyword has been replaced by `curved=True`.
+Output file columns and loader dictionary keys are now `bgc_near`,
+`bgc_far` and `bgc_tot` (formerly `te_near`, `te_far`, `te_tot`).
+The default output name is `Bouguer_correction`; legacy files and
+downstream code require migration. This rename does **not** change any
+gravity sign or numerical algorithm.
 
 ```python
 from relgravpy import _bouguer_correction as bc
 
 # Existing data/DTM arguments apply.
-# bc.te(..., curved=True, R3=50_000)
+# bc.bgc(..., curved=True, R3=50_000)
 ```
 
 `curved=False` retains the old prism-only far-field alternative without
@@ -183,7 +194,7 @@ with 20-m observation clearance. The legacy single-tesseroid benchmark remains
 available only as an auxiliary diagnostic.
 
 Priority P0:
-- Test the full high-level `te()` path on at least one real DTM (GDAL warp,
+- Test the full high-level `bgc()` path on at least one real DTM (GDAL warp,
   georeferencing, elevation datums, nodata and output) with known results.
 - Replace the approximate near-prism / far-polyhedron interface at `R1` or
   bound the full perimeter-wide gravity mismatch. Near prisms have a constant
