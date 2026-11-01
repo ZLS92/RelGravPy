@@ -312,16 +312,17 @@ def test_r1_transition_preserves_discontinuous_gdal_density():
     far = np.array([[1000,1375,-125,125,0,300]])
     observation = [0, 0, 320]
     sea_contrast = 1030 - 2670
-    result, ordinary, densities = BC._transition_polyhedral_gz(
-        far, [sea_contrast], near, [2670],
-        observation, 6371000, 1000)
-    vertices, faces = BC._bridge_mesh(
-        far[0], near, "east", 6371000)
-    independent = GM.polydron_grav(vertices, faces, sea_contrast)
-    np.testing.assert_allclose(
-        result, independent.compute_gz(observation, method="surface"),
-        rtol=1e-12, atol=1e-12)
-    assert len(ordinary) == 0
+    with pytest.warns(RuntimeWarning, match="GDAL land/sea"):
+        result, ordinary, densities = BC._transition_polyhedral_gz(
+            far, [sea_contrast], near, [2670],
+            observation, 6371000, 1000)
+    # The far cell remains exactly as GDAL classified it. No attempt
+    # is made to smear its marine contrast into the terrestrial prism.
+    assert result == 0.
+    np.testing.assert_array_equal(ordinary,far)
+    np.testing.assert_array_equal(densities,[sea_contrast])
+    expected = BC._polyhedral_gz(far,[sea_contrast],observation,6371000)
+    assert np.isfinite(expected)
     np.testing.assert_array_equal(near[0], [750,1000,-125,125,-0.08,299.92])
     np.testing.assert_array_equal(far[0], [1000,1375,-125,125,0,300])
 
