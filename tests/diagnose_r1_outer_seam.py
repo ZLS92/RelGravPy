@@ -1,15 +1,17 @@
-"""Quantify the remaining T-junctions at the OUTER edge of the R1 strip.
+"""Verify the exact mesh interface between the new R1 ring and normal far cells.
 
-Run without GDAL:
-PYTHONPATH=tests:. python -u tests/diagnose_r1_outer_seam.py
-
-This is a diagnostic, not a closure-certifying test. It should explicitly
-report nonconforming vertices until a coarsening / transition cell is built.
+A conformal arbitrary-facet bridge uses the original four vertices and
+two triangles on the outer face of every coarse far parent cell; no new
+coarse-ring nodes occur. This replaces the former 78-hanging-node result
+from subdividing the first ring.
 """
 import json
 import numpy as np
 
 from test_bouguer_polyhedra import BC
+from test_bouguer_transition import TR
+
+RADIUS=6371000.
 
 
 def square_cells(edges, top=300.):
@@ -19,56 +21,88 @@ def square_cells(edges, top=300.):
                             np.zeros(w.size),np.full(w.size,top)))
 
 
+def expected_spherical_face(cell, side):
+    """Four vertices and exact two standard triangles on an outer face."""
+    v=BC._curved_cell_vertices(cell,RADIUS)
+    if side=="east":
+        tris=((1,2,6),(1,6,5))
+    elif side=="west":
+        tris=((3,0,7),(0,4,7))
+    elif side=="north":
+        tris=((2,3,6),(3,7,6))
+    elif side=="south":
+        tris=((0,1,5),(0,5,4))
+    return [v[list(t)] for t in tris]
+
+
+def close_triangle(a,b,tol=2e-8):
+    return all(any(np.linalg.norm(vertex-candidate)<tol
+                   for candidate in b) for vertex in a)
+
+
 def diagnose(gs1=125., R1_requested=5000., gs2_requested=312.5,
-             R2_requested=10000., radius=6371000.):
-    gs1,R1,gs2,R2 = BC.adj_mesh(gs1,R1_requested,gs2_requested,R2_requested)
-    fine = np.linspace(-R1,R1,int(round(2*R1/gs1))+1)
+             R2_requested=10000.):
+    gs1,R1,gs2,R2=BC.adj_mesh(
+        gs1,R1_requested,gs2_requested,R2_requested)
+    fine=np.linspace(-R1,R1,int(round(2*R1/gs1))+1)
     coarse=np.linspace(-R2,R2,int(round(2*R2/gs2))+1)
     near=square_cells(fine)
-    far_all=square_cells(coarse)
-    cx=(far_all[:,0]+far_all[:,1])/2
-    cy=(far_all[:,2]+far_all[:,3])/2
-    far=far_all[(abs(cx)>=R1) | (abs(cy)>=R1)]
-    refined,_=BC._refine_far_interface(far,np.ones(len(far)),fine,fine,R1)
-    # East-facing portion of the outer seam x=R1+gs2, y between +/-R1.
-    x_outer=R1+gs2
-    tol=1e-6
-    transitional=refined[(abs(refined[:,0]-R1)<tol)&
-                          (abs(refined[:,1]-x_outer)<tol)&
-                          ((refined[:,2]+refined[:,3])/2 <R1)&
-                          ((refined[:,2]+refined[:,3])/2 >-R1)]
-    next_ring=far[(abs(far[:,0]-x_outer)<tol)&
-                  (abs((far[:,2]+far[:,3])/2)<R1)]
-    child_nodes=np.unique(np.r_[transitional[:,2],transitional[:,3]])
-    parent_nodes=np.unique(np.r_[next_ring[:,2],next_ring[:,3]])
-    unmatched=np.array([t for t in child_nodes
-                        if np.min(abs(parent_nodes-t))>tol])
-    largest_offset=0.
-    for y in unmatched:
-        match=next_ring[(next_ring[:,2]<y)&(y<next_ring[:,3])]
-        if not len(match):
+    xc=(near[:,0]+near[:,1])/2
+    yc=(near[:,2]+near[:,3])/2
+    shift=RADIUS-np.sqrt(RADIUS**2-xc**2-yc**2)
+    near[:,4:]-=shift[:,None]
+    all_far=square_cells(coarse)
+    x=(all_far[:,0]+all_far[:,1])/2
+    y=(all_far[:,2]+all_far[:,3])/2
+    far=all_far[(abs(x)>=R1)|(abs(y)>=R1)]
+    errors=0
+    bridges=0
+    corners=0
+    total_triangles=0
+    for cell in far:
+        w,e,s,n=cell[:4]
+        mx,my=(w+e)/2,(s+n)/2
+        side=None
+        if abs(w-R1)<1e-6 and -R1<my<R1:side="east"
+        elif abs(e+R1)<1e-6 and -R1<my<R1:side="west"
+        elif abs(s-R1)<1e-6 and -R1<mx<R1:side="north"
+        elif abs(n+R1)<1e-6 and -R1<mx<R1:side="south"
+        corner=(abs(w-R1)<1e-6 or abs(e+R1)<1e-6) and (
+            abs(s-R1)<1e-6 or abs(n+R1)<1e-6)
+        if side is None and not corner:
             continue
-        parent=match[0]
-        v=BC._curved_cell_vertices(parent,radius)
-        fraction=(y-parent[2])/(parent[3]-parent[2])
-        # Parent's west face (inner side) bottom edge is a straight segment;
-        # refined child has a curved-sphere vertex at precisely (x_outer,y).
-        chord=(1-fraction)*v[0]+fraction*v[3]
-        source=BC._curved_cell_vertices(
-            [x_outer,x_outer+gs2,y,y+gs1,0,300],radius)[0]
-        largest_offset=max(largest_offset,float(np.linalg.norm(source-chord)))
-    report=dict(
+        if corner:
+            corners+=1
+            vertices,faces=TR._corner_mesh(cell,near,RADIUS,R1)
+        else:
+            bridges+=1
+            vertices,faces=TR._bridge_mesh(cell,near,side,RADIUS)
+        triangles=[vertices[np.asarray(f[1:],dtype=int)] for f in faces]
+        total_triangles+=len(triangles)
+        outward=("east","west","north","south") if corner else (side,)
+        for exterior in outward:
+            if corner:
+                # For corner cells two of the four faces are truly outer.
+                if exterior=="east" and abs(e-R1-gs2)>1e-5:continue
+                if exterior=="west" and abs(w+R1+gs2)>1e-5:continue
+                if exterior=="north" and abs(n-R1-gs2)>1e-5:continue
+                if exterior=="south" and abs(s+R1+gs2)>1e-5:continue
+            for expected in expected_spherical_face(cell,exterior):
+                if not any(close_triangle(expected,tri) for tri in triangles):
+                    errors+=1
+    result=dict(
         requested=dict(gs1_m=gs1,R1_m=R1_requested,
                        gs2_m=gs2_requested,R2_m=R2_requested),
         adjusted=dict(gs1_m=gs1,R1_m=R1,gs2_m=gs2,R2_m=R2),
-        transitional_outer_segments=len(transitional),
-        next_ring_segments=len(next_ring),
-        unmatched_outer_vertices=len(unmatched),
-        maximum_chord_mismatch_mm=1000*largest_offset,
-        certified_watertight=(len(unmatched)==0 and largest_offset<1e-9),
+        transition_parent_cells=bridges,
+        corner_parent_cells=corners,
+        total_transition_triangles=total_triangles,
+        unmatched_outer_triangles=errors,
+        external_boundary_conformal=(errors==0),
     )
-    print("R1_OUTER_SEAM",json.dumps(report),flush=True)
-    return report
+    print("R1_OUTER_SEAM",json.dumps(result),flush=True)
+    assert bridges>0 and corners==4 and errors==0
+    return result
 
 
 if __name__=="__main__":
