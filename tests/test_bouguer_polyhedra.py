@@ -273,3 +273,25 @@ def test_r1_corner_near_cell_splits_on_both_axes():
     assert len(cells)==9
     assert np.isclose(sum((p[1]-p[0])*(p[3]-p[2]) for p in cells),
                       250.**2)
+
+
+
+@pytest.mark.parametrize("station_height", [300., 320., 250.])
+def test_spherical_near_cell_at_surface_above_and_inside(station_height):
+    """Avoid singular/incorrect near-cell gravity at realistic station heights."""
+    prism = np.array([[-50., 50., -50., 50., 0., 300.]])
+    station = np.array([0., 0., station_height])
+    curved = BC._polyhedral_gz(prism, [2670.], station, 6_371_000.)
+    planar = GM.nagy([station], prism, [2670.]).gz()[0]
+    assert np.isfinite(curved)
+    np.testing.assert_allclose(curved, planar, rtol=1e-3, atol=1e-4)
+
+
+def test_r1_north_south_radial_faces_share_diagonal():
+    radius=6_371_000.
+    southern=BC._curved_cell_vertices([-100,100,750,1000,0,300],radius)
+    northern=BC._curved_cell_vertices([-100,100,1000,1250,0,300],radius)
+    # Northern side of southern cell: left bottom idx3 -> right top idx6
+    # Southern side of northern cell: left bottom idx0 -> right top idx5
+    np.testing.assert_allclose(southern[[3,6]],northern[[0,5]],
+                               atol=1e-9,rtol=0)
