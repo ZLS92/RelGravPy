@@ -1414,6 +1414,15 @@ def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
             R2 = R1
         dtmmax = None   
     
+    # Re-apply the exact alignment when gs2 was estimated from the DTM.
+    # The function is idempotent when invoked earlier with explicit gs2.
+    gs1, R1, gs2, R2 = adj_mesh(gs1, R1, gs2, R2)
+    if R1+gs1 > near_crop_radius+1e-6:
+        raise ValueError(
+            "Estimated gs2 requires R1 to expand beyond the initial near "
+            "DTM crop. Pass gs2 explicitly, or increase the near-DTM "
+            "preprocessing buffer instead of sampling missing elevations.")
+
     # Create dtm2 ------------------------------------------------------------- 
     if ( os.path.isfile( ndir + os.sep + 'dtm2' + os.sep + 'dtm2.tif' ) is False ) or \
        ( new_dtm is True ) : 
@@ -1462,14 +1471,6 @@ def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
     bgc_far = np.zeros( np.size (xg ) ) #(2)
     bgc = np.zeros( np.size( xg ) ) #(3) 
     
-    # Re-apply the exact alignment when gs2 was estimated from the DTM.
-    # The function is idempotent when invoked earlier with explicit gs2.
-    gs1, R1, gs2, R2 = adj_mesh(gs1, R1, gs2, R2)
-    if R1+gs1 > near_crop_radius+1e-6:
-        raise ValueError(
-            "Estimated gs2 requires R1 to expand beyond the initial near "
-            "DTM crop. Pass gs2 explicitly, or increase the near-DTM "
-            "preprocessing buffer instead of sampling missing elevations.")
     print( 'Computational Parameters, gs1 gs2 R1 R2 :' )
     print( round(gs1), round(gs2), round(R1), round(R2) )
     
