@@ -99,3 +99,37 @@ def test_polygrav_invalid_open_mesh_rejected():
     v,f=GM.prism_to_corners_faces([-100,100,-100,100,-100,0])
     with pytest.raises(ValueError,match="not closed"):
         GM.Polygrav(v,f[:-1],2670)
+
+
+
+@pytest.mark.parametrize("station", [
+    [0.,0.,80.], [25.,40.,-70.], [30.,-20.,-220.],
+    [20.,70.,-10.], [400.,-50.,-100.], [1000.,0.,-300.]
+])
+def test_polygrav_inside_and_below_body_vs_nagy(station):
+    prism=np.array([[-150.,150.,-120.,120.,-260.,0.]])
+    vertices,faces=GM.prism_to_corners_faces(prism[0])
+    actual=GM.Polygrav(vertices,faces,2670.).compute_gz(
+        station,method="analytic")
+    reference=float(GM.nagy([station],prism,2670.).gz()[0])
+    np.testing.assert_allclose(actual,reference,rtol=1e-4,atol=2e-6)
+
+
+def test_nagy_new_compute_gz_method_matches_existing_gz():
+    prism=np.array([[-100.,100.,-100.,100.,-200.,0.]])
+    model=GM.nagy([[0,0,50.],[200,0,30.]],prism,2670.)
+    np.testing.assert_allclose(model.compute_gz(),model.gz(),rtol=0,atol=0)
+
+
+def test_polygrav_far_field_point_mass_limit():
+    prism=[-20.,20.,-30.,30.,-40.,0.]
+    density=2670.
+    v,f=GM.prism_to_corners_faces(prism)
+    model=GM.Polygrav(v,f,density)
+    obs=[120000.,-90000.,60000.]
+    actual=model.compute_gz(obs)
+    xyz=np.array([0.,0.,-20.])
+    diff=np.asarray(obs)-xyz
+    reference=(GM.G*density*(40*60*40)*1e5*
+               diff[2]/np.linalg.norm(diff)**3)
+    np.testing.assert_allclose(actual,reference,rtol=5e-7,atol=1e-13)
