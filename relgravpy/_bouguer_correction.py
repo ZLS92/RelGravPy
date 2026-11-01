@@ -756,7 +756,10 @@ def _bgc_mesh_error_proxy(features, gs1, R1, gs2, density, radius,
             raise ValueError("native_resolution must be positive.")
         excess = max(gs1/native-1., 0.)
         alias = k*0.06*np.maximum(slope-0.25, 0.)*native*excess**2
-    return near+far+curvature+alias
+    # Small uncertainty margin calibrated against controlled synthetic
+    # mountain/coastal forward comparisons. This does NOT make the
+    # predictor an analytical upper bound.
+    return 1.5*(near+far+curvature+alias)
 
 
 def optimize_bgc_mesh(x, y, dtm1, gs1=None, R1=None, gs2=None,
