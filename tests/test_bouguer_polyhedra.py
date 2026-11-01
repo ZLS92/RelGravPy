@@ -49,7 +49,8 @@ GM = _load_numerical_subset(
 BC = _load_numerical_subset(
     ROOT / "relgravpy" / "_bouguer_correction.py",
     {"_curved_cell_vertices", "_surface_integral_polyhedral_gz",
-     "_polyhedral_gz", "_point_mass_gz", "_ring_polyhedral_effect"},
+     "_polyhedral_gz", "_point_mass_gz", "_ring_polyhedral_effect",
+     "_refine_far_interface"},
     gm=GM,
 )
 
@@ -170,3 +171,61 @@ def test_bgc_cli_entrypoint_calls_correct_function():
              if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)]
     assert "bgc" in calls
     assert "te" not in calls
+
+
+
+def test_r1_interface_splits_coarse_face_at_near_grid_nodes():
+    radius = 6_371_000.
+    near_x = np.arange(-1000., 1000.1, 250.)
+    near_y = np.arange(-1000., 1000.1, 250.)
+    far = np.array([
+        [1000., 1500., -1000., -500., 0., 300.],
+        [1000., 1500., -500., 0., 0., 300.],
+        [1000., 1500., 1000., 1500., 0., 300.],  # corner only
+        [-500., 0., 1000., 1500., 0., 300.],     # north, split x
+    ])
+    density = np.array([2670., 2670., 2670., -1300.])
+    new, dens = BC._refine_far_interface(far, density, near_x, near_y, 1000.)
+    # Two east seam cells -> 4; north seam cell -> 2; corner -> 1.
+    assert len(new) == 7
+    assert len(dens) == 7
+    np.testing.assert_allclose(
+        np.sum(np.prod(new[:, [1,3,5]]-new[:, [0,2,4]], axis=1) * dens),
+        np.sum(np.prod(far[:, [1,3,5]]-far[:, [0,2,4]], axis=1) * density),
+        rtol=1e-12
+    )
+    right = new[
+        (np.abs(new[:,0]-1000) < 1e-9) &
+        (np.abs(new[:,2]+1000) < 1e-9) &
+        (np.abs(new[:,3]+750) < 1e-9)
+    ][0]
+    left = np.array([750.,1000.,-1000.,-750.,0.,300.])
+    vnear = BC._curved_cell_vertices(left, radius)
+    vfar = BC._curved_cell_vertices(right, radius)
+    np.testing.assert_allclose(
+        vnear[[1,2,5,6]], vfar[[0,3,4,7]], rtol=0, atol=1e-9
+    )
+
+
+def test_r1_interface_subdivision_is_idempotent():
+    far = np.array([[1000., 1500., 0., 500., 0., 300.]])
+    edge = np.linspace(-1000,1000,9)
+    once, den1 = BC._refine_far_interface(far,[2670],edge,edge,1000)
+    twice, den2 = BC._refine_far_interface(once,den1,edge,edge,1000)
+    np.testing.assert_allclose(once,twice)
+    np.testing.assert_allclose(den1,den2)
+
+
+def test_curved_near_switch_exposes_nagy_fallback():
+    path = ROOT / "relgravpy" / "_bouguer_correction.py"
+    src = path.read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    bgc_fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef)
+                  and n.name == "bgc")
+    args = {arg.arg: default for arg, default in zip(
+        bgc_fn.args.args[-len(bgc_fn.args.defaults):], bgc_fn.args.defaults)}
+    assert "near_geometry" in args
+    assert "refine_interface" in args
+    assert '"auto"' in src
+    assert "spherical_near = curved and near_geometry" in src
+    assert "pr1[0][finite_mass]" in src
