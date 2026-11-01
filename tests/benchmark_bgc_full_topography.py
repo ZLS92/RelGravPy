@@ -59,8 +59,16 @@ def patch_features(station,kind):
 def mesh_from_step(station,step,extent):
     """Station-centred odd cell mesh, restricted to compact source."""
     x,y=station
-    n=int(np.ceil(extent/step))+2
-    edges=(np.arange(-n,n+1)+.5)*step
+    if extent == ROOT:
+        n=int(np.ceil(extent/step))+2
+        edges=(np.arange(-n,n+2)-.5)*step
+    else:
+        # The near grid MUST terminate exactly at ±R1; an additional
+        # near cell would overlap the R1 transition ring.
+        count=int(round(2.*extent/step))
+        if count % 2 != 1:
+            raise ValueError("Near-grid cell count must be odd.")
+        edges=np.linspace(-extent,extent,count+1)
     w,s=np.meshgrid(edges[:-1],edges[:-1])
     e,north=np.meshgrid(edges[1:],edges[1:])
     cell=np.column_stack((w.ravel(),e.ravel(),s.ravel(),north.ravel()))
