@@ -37,8 +37,6 @@ def _load_numerical_subset(path, function_names, class_names=(), gm=None):
         module.G = 6.6743e-11
     exec(compile(ast.Module(body=nodes, type_ignores=[]), str(path), "exec"),
          module.__dict__)
-    if "Nagy" in class_names:
-        module.nagy = module.Nagy  # compatibility alias used by Bouguer tests
     return module
 
 
@@ -46,7 +44,7 @@ GM = _load_numerical_subset(
     ROOT / "relgravpy" / "grav_modelling.py",
     {"anglegravi_exact", "build_edge_table", "prism_to_corners_faces",
      "nagy_fz", "nagy_gz"},
-    class_names={"Nagy", "Polygrav"},
+    class_names={"prism_grav", "polydron_grav"},
 )
 BC = _load_numerical_subset(
     ROOT / "relgravpy" / "_bouguer_correction.py",
@@ -87,7 +85,7 @@ def test_large_radius_polyhedron_agrees_with_nagy(observation):
     prism = np.array([[-100, 100, -100, 100, -100, 0]], dtype=float)
     density = 2670.0
     obs = np.array(observation, float)
-    rectangular = GM.nagy([obs], prism, density).gz()[0]
+    rectangular = GM.prism_grav([obs], prism, density).gz()[0]
     curved = BC._polyhedral_gz(prism, [density], obs, 1.0e10)
     np.testing.assert_allclose(curved, rectangular, rtol=2e-5, atol=2e-5)
     assert curved > 0  # Down-positive field for mass below the observation
@@ -129,7 +127,7 @@ def test_small_far_cell_no_longer_suffers_cancellation():
     sag = (8000**2 + 125**2)/(2*radius)
     shifted = prism.copy()
     shifted[:,4:] -= sag
-    nagy = GM.nagy([obs], shifted, 2670.0).gz()[0]
+    nagy = GM.prism_grav([obs], shifted, 2670.0).gz()[0]
     curved = BC._polyhedral_gz(prism, [2670.0], obs, radius)
     assert nagy > 0.0002
     assert curved > 0.0002
@@ -140,7 +138,7 @@ def test_surface_quadrature_matches_nagy_at_large_radius():
     """Ensure numerical surface integration gives a stable distant field."""
     prism = [[7750, 8000, -125, 125, 0, 300.0]]
     obs = [0, 0, 700.0]
-    nagy = GM.nagy([obs], np.array(prism), 2670.0).gz()[0]
+    nagy = GM.prism_grav([obs], np.array(prism), 2670.0).gz()[0]
     surf = BC._surface_integral_polyhedral_gz(
         np.array(prism), np.array([2670.0]), obs, 1e10)
     np.testing.assert_allclose(surf, nagy, rtol=3e-4, atol=2e-7)
@@ -286,7 +284,7 @@ def test_spherical_near_cell_at_surface_above_and_inside(station_height):
     prism = np.array([[-50., 50., -50., 50., 0., 300.]])
     station = np.array([0., 0., station_height])
     curved = BC._polyhedral_gz(prism, [2670.], station, 6_371_000.)
-    planar = GM.nagy([station], prism, [2670.]).gz()[0]
+    planar = GM.prism_grav([station], prism, [2670.]).gz()[0]
     assert np.isfinite(curved)
     np.testing.assert_allclose(curved, planar, rtol=1e-3, atol=1e-4)
 
