@@ -399,6 +399,54 @@ comparison but are no longer invoked by the automatic branch of
 compatibility but does not affect the new optimizer. Do not remove
 these functions until the optimizer has been calibrated.
 
+
+### Full synthetic DEM validation against refined gravity
+
+`tests/benchmark_bgc_full_topography.py` runs actual near-prism, conformal
+R1 bridge and far spherical-polyhedron gravity, using full synthetic
+mountain and coastal/bathymetric surfaces, with separate stations.
+An independent centre-shifted Nagy prism reference is integrated at
+100, 50, 25 and **12.5 m** spacing over the compact source support.
+The synthetic mass contrast is identically zero outside that support,
+so the nominal 167 km R2 introduces no omitted mass for this benchmark.
+The reference itself has finite discretisation and slight planar-vs-
+spherical geometry differences; it is **not exact potential truth**.
+
+The first optimizer version selected `gs1=60 m` in steep mountains:
+estimated maximum `0.0382 mGal`, actual mismatch `0.1261 mGal`.
+The 25-to-12.5 m reference difference was <=`0.0053 mGal`.
+This falsified the original proxy's claim to predict the requested
+0.05 mGal maximum. The optimizer now penalizes near-grid sampling
+coarser than native DEM resolution when local terrain slopes are
+large, and adds a modest 1.5 empirical margin to its proxy.
+This is **provisional calibration**, not a universal bound.
+
+Before the 1.5 margin, the corrected optimizer chose `gs1=30 m,
+R1=4005 m, gs2=242.727 m` for the synthetic mountain. Maximum
+mismatch at two stations was `0.00767 mGal`, well below the
+requested 0.05 mGal, versus `0.00520 mGal` maximum reference
+difference between 25 and 12.5 m meshes.
+
+For a coast/bathymetry synthetic surface with `R1` explicitly held
+at 2 km and all R1-adjacent material on land, the optimizer can
+choose the other parameters once for both stations. The direct
+gravity discrepancy was `0.03368 mGal` (reference convergence
+`0.00163 mGal`), with the sea density contrast present beyond R1.
+
+If the coast intersects R1, `_transition_polyhedral_gz` currently
+rejects mixed land/water density transition faces with a ValueError
+rather than pretending the shared mass mesh is conformal.
+**Do not use this auto-mesh as an accuracy guarantee for mixed-density
+coastal interfaces** until that volumetric bridge is implemented and
+validated.
+
+The 0.05 mGal tests above cover a few specific synthetic morphologies
+and station locations. Further independent rugged/high-relief, sharp
+cliff, marine layer and real-DEM trials are required to establish a
+generally conservative error predictor. The tuner remains intentionally
+lightweight; the expensive independent forward-model comparison runs
+only as an offline validation benchmark, not inside `bgc()`.
+
 ## Verification priorities before production
 
 **Primary benchmark**: `tests/benchmark_spherical_reference.py` computes
