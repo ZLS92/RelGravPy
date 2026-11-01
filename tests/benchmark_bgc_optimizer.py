@@ -25,9 +25,11 @@ def source_features(kind, scale):
     else:
         # Land/ocean break, shallow shelf and underwater canyon.
         fine=(280*np.tanh(4*xf)-420
-              -170*np.exp(-((yf+.4)**2)/.06))
+              -170*np.exp(-((yf+.4)**2)/.06)
+              +60*np.sin(scale*yf)*np.cos(2*xf))
         broad=(300*np.tanh(2*xb)-450
-               -350*np.exp(-((yb+.5)**2)/.15))
+               -350*np.exp(-((yb+.5)**2)/.15)
+               +90*np.sin(scale*yb/2)*np.cos(xb))
     return BC._bgc_terrain_features((fine,broad),25.,200.)
 
 
