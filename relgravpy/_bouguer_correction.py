@@ -486,10 +486,12 @@ def _corner_mesh(cell, near_prisms, radius, R1, tol=1e-6):
 
 def _transition_polyhedral_gz(far_cells, far_density, near_prisms,
                               near_density, observation, radius, R1):
-    """Sum coarse uncut far cells plus arbitrary-facet R1 bridge polyhedra.
+    """Sum coarse far cells and R1 bridge polyhedra without reclassifying.
 
-    Density mismatch at the near/far interface remains an explicit error.
-    The fast ordinary far-field kernel is provided by the caller.
+    Land/sea membership and density come exclusively from the existing
+    GDAL-derived meshes. The complete far parent cell (including its R1
+    transition) retains its original far density, even where neighbouring
+    Nagy prisms have a different density. A material interface is allowed.
     """
     far = np.asarray(far_cells,float).reshape(-1,6)
     fd = np.asarray(far_density,float).ravel()
@@ -524,25 +526,30 @@ def _transition_polyhedral_gz(far_cells, far_density, near_prisms,
                              else abs(near[:,2]+R1)<tol)
                     lo,hi=near[:,0],near[:,1]
                 overlapping=on_edge & (lo<b-tol) & (hi>a+tol)
-                if not np.any(overlapping) or not np.all(
-                    np.isclose(nd[overlapping],density,rtol=0,atol=1e-8)):
+                if not np.any(overlapping):
                     raise ValueError(
-                        "R1 bridge has no matching Nagy prism density "
-                        "for far cell; reconcile coastal compartments.")
+                        "R1 bridge has no near prism geometry covering "
+                        "this side; missing surface data is not a density "
+                        "classification error.")
+                # No density equality check: near and far cells retain
+                # the independent land/sea assignment produced by GDAL.
+                # The far cell's density also applies to its bridge.
                 vertices,facets=_bridge_mesh(
                     cell,near[overlapping],side,radius,tol)
             else:
-                # The corner density should match that of the adjoining
-                # near prism. A unique near rectangle may carry multiple
-                # density compartments; reject this for now.
+                # A corner uses the near rectangle only for geometry.
+                # Its material is whatever GDAL assigned to the far cell.
+                # Multiple vertically stacked near compartments remain a
+                # separate geometric case.
                 x=R1 if w>=R1-tol else -R1
                 y=R1 if s>=R1-tol else -R1
                 select=(
                     (abs(near[:,1]-x)<tol if x>0 else abs(near[:,0]-x)<tol)
                     & (abs(near[:,3]-y)<tol if y>0 else abs(near[:,2]-y)<tol))
-                if len(near[select])!=1 or not np.isclose(
-                        nd[select][0],density,rtol=0,atol=1e-8):
-                    raise ValueError("R1 corner lacks matching Nagy density.")
+                if len(near[select])!=1:
+                    raise ValueError(
+                        "R1 corner requires exactly one near prism "
+                        "geometry; density mismatch is allowed.")
                 vertices,facets=_corner_mesh(cell,near[select],radius,R1,tol)
             total+=gm.polydron_grav(
                 vertices,facets,density).compute_gz(
