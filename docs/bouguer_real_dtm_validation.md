@@ -83,6 +83,28 @@ above the user target (0.05 mGal): the intended `RuntimeWarning`
 was emitted and the lowest-proxy-error candidate was used.
 The run completed and produced two gravity results.
 
+The matching **two-station Ligurian coastal campaign**, containing
+one seabed station and one terrestrial station, also completed in
+automatic mode. The optimizer chose integer parameters
+`gs1=144 m, R1=12600 m, gs2=1008 m, R2=167832 m` and estimated
+a survey maximum of **0.041712 mGal**, below the nominal 0.05 mGal
+threshold. The modeled gravitational mass effects were
+**−4.182746 mGal** (seabed) and **+32.384498 mGal** (land).
+The processing took approximately **0.75 s** for both stations
+once the DEMs were downloaded. No dedicated coastline or
+material-boundary warnings were emitted.
+
+The original GDAL source rasters are SHA-256 identical before and
+after **all four** complete test invocations (manual/automatic for
+each geographic region), with production-default `R3=50000 m`.
+The run is verified at
+`https://github.com/ZLS92/RelGravPy/actions/runs/41355050866`.
+
+The explicit and automatic meshes are different numerical models,
+and their gravity outputs can differ by more than 0.05 mGal.
+Neither set should be treated as the true reference without
+separately verifying mesh convergence and consistent vertical data.
+
 The proxy is **not a certified maximum difference** against
 a converged physical reference. There is currently no independent
 high-resolution full-extent reference for these particular real DEMs,
