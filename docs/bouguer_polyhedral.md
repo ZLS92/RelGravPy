@@ -264,6 +264,58 @@ end-to-end accuracy guarantee for arbitrary DEMs.
   radius supplied to `bgc()` for projection, prism shift and polyhedra;
   validating the geodetic reference and the height datum remains open.
 
+## 1 November 2026: conservative `adj_mesh` strategy and outer-seam check
+
+The original `adj_mesh` adjusted the far-grid step to fit a common
+near/far boundary. It has now been revised to make the constraints
+explicit and predictable.
+
+With user-supplied `gs1, R1, gs2, R2`:
+- preserve `gs1` **exactly**;
+- increase `R1` to the *first permissible* near-field cell boundary
+  for which the far-field grid can also share that same boundary;
+- choose the closest compatible `gs2`, allowing at most **5%** relative
+  change by default;
+- increase `R2` to the first far-grid boundary beyond both the input
+  `R2` and the first entire far cell beyond `R1`;
+- never decrease either radius; keep the central cell aligned with the
+  station and an **odd number of cells** across each complete domain;
+- default maximum R1 enlargement is `max(gs1, gs2/2)`. Raise a
+  descriptive error rather than silently increasing R1 further;
+  `adj_mesh` exposes explicit `max_gs2_change` and
+  `max_R1_increase` override arguments.
+
+Mathematically:
+`2*R1 = (2*n+1)*gs1 = (2*m+1)*gs2_adjusted` and
+`R2 = R1 + k*gs2_adjusted` for a positive integer k.
+The correction is idempotent, so repeated calls do not drift.
+
+**Example**: input `gs1=125 m, R1=5000 m, gs2=312.5 m, R2=10000 m`
+produces `gs1=125 m, R1=5062.5 m, gs2=306.8181818 m,
+R2=10278.4090909 m`. Thus the near step is preserved,
+the near radius grows 62.5 m, the far step changes by -1.82%, and
+the far radius grows 278.4 m. The far DTM crop now happens after
+alignment. If `gs2` is supplied explicitly, the near DTM crop also
+uses the aligned radius. If `gs2` is estimated later, extra initial
+raster coverage is reserved and insufficient coverage is rejected.
+
+**Outer boundary of the transition strip is NOT yet watertight.**
+A separate diagnostic, `tests/diagnose_r1_outer_seam.py`, detects
+**78 hanging vertices** in the example just given, where finely split
+first-ring polyhedra meet the unsplit second far-field ring. The
+maximum discrepancy between a spherical child vertex and the
+neighbouring parent's straight edge was **1.84 mm** in this controlled
+uniform-height example. The current method does not yet guarantee
+identical 3D faces along that outer boundary. The small geometrical
+deviation is not, by itself, a certified gravity-error estimate.
+
+Next engineering step: design a single *coarsening/stitching ring*
+that accepts the fine tangential face nodes on its inner boundary,
+but exposes only original gs2 parent nodes on its outer boundary.
+Its arbitrary polygonal faces can be triangulated consistently
+and evaluated with the existing surface-integral kernel. This
+avoids propagating fine-grid subdivisions across the entire far field.
+
 ## Verification priorities before production
 
 **Primary benchmark**: `tests/benchmark_spherical_reference.py` computes
