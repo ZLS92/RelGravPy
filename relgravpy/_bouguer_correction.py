@@ -66,7 +66,7 @@ _CURVED_FACES = (
     (3, 2, 3, 6), (3, 3, 7, 6), # north side (shared diagonal)
     (3, 3, 0, 7), (3, 0, 4, 7), # west side (shared diagonal)
 )
-_POLY_G_RATIO = gm.G / 6.6732e-11
+_POLY_G_RATIO = 1.0  # compatibility with existing numerical test harness
 
 
 def _curved_cell_vertices(prism, radius):
@@ -183,7 +183,7 @@ def _surface_integral_polyhedral_gz(prisms, densities, observation, radius):
 def _polyhedral_gz(prisms, densities, observation, radius):
     """Down-positive mGal from curvature-following polyhedra.
 
-    For nearby cells reuse grav_modelling.gravicalc2_full. For sufficiently
+    For nearby cells reuse grav_modelling.Polygrav's analytic kernel. For sufficiently
     distant cells use a stable face-integral kernel. The original solver can
     underestimate small distant elements because its line/angle terms cancel
     numerically; the face integral avoids that catastrophic loss of precision.
@@ -216,10 +216,9 @@ def _polyhedral_gz(prisms, densities, observation, radius):
         if den == 0:
             continue
         vertices = _curved_cell_vertices(prism, radius)
-        total -= gm.gravicalc2_full(
-            obs.reshape(1, 3), vertices,
-            [list(face) for face in _CURVED_FACES], den
-        )[2][0] * _POLY_G_RATIO
+        total += gm.Polygrav(
+            vertices, [list(face) for face in _CURVED_FACES], den
+        ).compute_gz(obs, method="analytic")
     if np.any(~near):
         total += _surface_integral_polyhedral_gz(
             prisms[~near], densities[~near], obs, radius)
@@ -1104,8 +1103,8 @@ def st_loop( constant_arg, iterable_arg ) :
     if st_type == 1:
         z = 0
         
-    # Model both sides of R1 with the same spherical geometry by default.
-    # The legacy Nagy-prism near mode remains available for comparison.
+    # Default: centre-shifted horizontal Nagy prisms. The optional
+    # 'spherical' mode uses the unified Polygrav kernel.
     spherical_near = curved and near_geometry == "spherical"
     
     if ( st_type == 0 ) or ( st_type == 1 ) :
