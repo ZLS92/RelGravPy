@@ -192,6 +192,40 @@ def run():
             out.append(result)
             print("BGC_FULL_STATION",json.dumps(
                 dict(scenario=kind,**result)),flush=True)
+        # Probe the numeric feasibility of the stated 0.05 mGal target
+        # with a few finer choices rather than trusting the proxy alone.
+        # This is a test-only calibration check, not part of the cheap
+        # production optimizer.
+        probes=[]
+        if kind=="mountain":
+            for gs1,R1,gs2 in ((30.,4000.,250.),
+                               (30.,8000.,250.),
+                               (30.,12000.,250.),
+                               (60.,12000.,250.)):
+                try:
+                    a,b,c,d=BC.adj_mesh(gs1,R1,gs2,167000.)
+                except ValueError:
+                    continue
+                trial=dict(gs1=a,R1=b,gs2=c,R2=d)
+                errors=[]
+                for station,previous in zip(stations,out):
+                    val=grav_candidate(
+                        station,previous["obs_z_m"],kind,trial)
+                    errors.append(
+                        val["gravity_mGal"]-
+                        previous["reference_12p5m"]["value_mGal"]
+                        if val["status"]=="ok" else None)
+                probes.append(dict(gs1=a,R1=b,gs2=c,
+                                   deviations_mGal=errors,
+                                   max_abs_error_mGal=(
+                                       max(abs(v) for v in errors)
+                                       if all(v is not None for v in errors)
+                                       else None),
+                                   predicted_max_mGal=float(np.max(
+                                       BC._bgc_mesh_error_proxy(
+                                           features,a,b,c,DC,R)))))
+            print("BGC_FULL_MOUNTAIN_PROBES",
+                  json.dumps(probes),flush=True)
         valid=[s for s in out if s["status"]=="ok"]
         summary=dict(
             scenario=kind,chosen=dict(
