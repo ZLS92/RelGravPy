@@ -491,10 +491,14 @@ def _transition_polyhedral_gz(far_cells, far_density, near_prisms,
                               near_density, observation, radius, R1):
     """Sum coarse far cells and R1 bridge polyhedra without reclassifying.
 
-    Land/sea membership and density come exclusively from the existing
-    GDAL-derived meshes. The complete far parent cell (including its R1
-    transition) retains its original far density, even where neighbouring
-    Nagy prisms have a different density. A material interface is allowed.
+    Land/sea assignment and density come exclusively from the existing
+    GDAL-derived meshes. Join fine-to-coarse geometry only where adjacent
+    near prisms represent the SAME density as the original far cell.
+    Where land/sea classification changes, keep the original far
+    polyhedron completely unchanged: do not split coastal cells, invent
+    mixed-density volumes, or force non-manifold transition facets.
+    Those material-boundary faces need not be conformal; the affected
+    original cells are reported with a RuntimeWarning.
     """
     far = np.asarray(far_cells,float).reshape(-1,6)
     fd = np.asarray(far_density,float).ravel()
@@ -506,6 +510,7 @@ def _transition_polyhedral_gz(far_cells, far_density, near_prisms,
     total=0.
     ordinary=[]
     ordinary_density=[]
+    skipped_coastal = 0
     for cell,density in zip(far,fd):
         w,e,s,n=cell[:4]
         mx,my=(w+e)/2,(s+n)/2
@@ -529,14 +534,18 @@ def _transition_polyhedral_gz(far_cells, far_density, near_prisms,
                              else abs(near[:,2]+R1)<tol)
                     lo,hi=near[:,0],near[:,1]
                 overlapping=on_edge & (lo<b-tol) & (hi>a+tol)
-                if not np.any(overlapping):
-                    raise ValueError(
-                        "R1 bridge has no near prism geometry covering "
-                        "this side; missing surface data is not a density "
-                        "classification error.")
-                # No density equality check: near and far cells retain
-                # the independent land/sea assignment produced by GDAL.
-                # The far cell's density also applies to its bridge.
+                # Crossing a GDAL land/sea boundary is NOT a reason to
+                # change the density or split the original coarse cell.
+                # The original far cell is retained and integrated by
+                # the standard polyhedron solver instead of forcing a
+                # bridge that would smear one material into the other.
+                if (not np.any(overlapping) or
+                        not np.all(np.isclose(
+                            nd[overlapping],density,rtol=0,atol=1e-8))):
+                    ordinary.append(cell)
+                    ordinary_density.append(density)
+                    skipped_coastal += 1
+                    continue
                 vertices,facets=_bridge_mesh(
                     cell,near[overlapping],side,radius,tol)
             else:
@@ -549,10 +558,13 @@ def _transition_polyhedral_gz(far_cells, far_density, near_prisms,
                 select=(
                     (abs(near[:,1]-x)<tol if x>0 else abs(near[:,0]-x)<tol)
                     & (abs(near[:,3]-y)<tol if y>0 else abs(near[:,2]-y)<tol))
-                if len(near[select])!=1:
-                    raise ValueError(
-                        "R1 corner requires exactly one near prism "
-                        "geometry; density mismatch is allowed.")
+                if (len(near[select])!=1 or
+                        not np.isclose(
+                            nd[select][0],density,rtol=0,atol=1e-8)):
+                    ordinary.append(cell)
+                    ordinary_density.append(density)
+                    skipped_coastal += 1
+                    continue
                 vertices,facets=_corner_mesh(cell,near[select],radius,R1,tol)
             total+=gm.polydron_grav(
                 vertices,facets,density).compute_gz(
@@ -560,6 +572,13 @@ def _transition_polyhedral_gz(far_cells, far_density, near_prisms,
         else:
             ordinary.append(cell)
             ordinary_density.append(density)
+    if skipped_coastal:
+        warnings.warn(
+            f"R1: {skipped_coastal} far cell(s) kept with their original "
+            "GDAL land/sea classification and unmodified spherical "
+            "polyhedron. No coastal cell is subdivided; the near/far "
+            "faces at these material boundaries are not forced to "
+            "match geometrically.", RuntimeWarning, stacklevel=2)
     return total, np.asarray(ordinary,float).reshape(-1,6), np.asarray(
         ordinary_density,float)
 
