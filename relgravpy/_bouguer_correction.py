@@ -1017,82 +1017,98 @@ def Radi2(R1, h, errg, gs=100, Rmax=166735, R=R_wgs84, dc=2670,
 # -----------------------------------------------------------------------------  
 def adj_mesh(gs1, R1, gs2, R2, max_gs2_change=0.05,
              max_R1_increase=None):
-    """Align near/far square grids with minimal *upward* radius changes.
+    """Exactly align two station-centred square grids using INTEGER metres.
 
-    The near and far grids are station-centred, with an odd number of
-    cells per side. Shared boundary R1 requires:
+    Both grids have an odd number of cells per side, centred on a cell.
+    Their inner / outer common boundary obeys
 
-        2*R1 = (2*n+1)*gs1 = (2*m+1)*gs2.
+        2*R1 = (2*n+1)*gs1 = (2*m+1)*gs2,
+        R2 = R1 + k*gs2, k >= 1.
 
-    gs1 is kept EXACTLY as supplied. Increase R1 in gs1 increments
-    starting at the first legal boundary >= the requested R1. At each
-    candidate, select the closest compatible gs2. Take the first R1
-    satisfying abs(gs2_adjusted/gs2_requested - 1) <= max_gs2_change.
-    R2 is then increased to the first compatible far-grid boundary,
-    preserving >= one full far cell outside R1. By default the R1
-    expansion is capped at max(gs1, gs2/2) to avoid excessive changes
-    when unrealistically coarse input meshes cannot be matched.
+    An INTEGER R1 therefore requires an EVEN gs1 and gs2. gs1 is
+    unchanged; odd gs1 or any noninteger input is rejected explicitly.
+    The supplied integer gs2 is a target and may change by at most
+    max_gs2_change to another EVEN integer. R1 and R2 grow only as
+    needed to make all the identities hold exactly. No float rounding
+    of a fractionally-aligned mesh is ever performed.
 
-    A significant discrepancy between requested gs1/gs2 and a very
-    small R1 may make a small gs2 adjustment impossible. In that case
-    fail explicitly instead of silently changing cell size by >5%.
-
-    The output is idempotent (safe for the mesh_xyz second call).
+    By default R1 may increase by at most max(gs1, gs2/2);
+    max_R1_increase may be explicitly enlarged. All four outputs are
+    Python ints and the operation is idempotent.
     """
     requested = np.asarray([gs1, R1, gs2, R2], dtype=float)
     if not np.all(np.isfinite(requested)) or np.any(requested <= 0):
         raise ValueError("gs1, R1, gs2, R2 must be finite and positive.")
-    gs1, R1, gs2, R2 = map(float, requested)
+    if np.any(np.abs(requested-np.rint(requested)) > 1e-8):
+        raise ValueError(
+            "gs1, R1, gs2 and R2 must all be integer numbers of metres; "
+            "fractional values cannot preserve the shared grid interface.")
+    gs1, R1, gs2, R2 = (int(v) for v in np.rint(requested))
+    if gs1 % 2:
+        raise ValueError(
+            "gs1 must be EVEN to obtain integer R1 with an odd number "
+            "of station-centred cells. Supply an even near-grid step.")
     if not np.isfinite(max_gs2_change) or max_gs2_change < 0:
         raise ValueError("max_gs2_change must be finite and nonnegative.")
-
-    tol = 1e-11
     if max_R1_increase is None:
         max_R1_increase = max(gs1, 0.5*gs2)
     if not np.isfinite(max_R1_increase) or max_R1_increase < 0:
         raise ValueError("max_R1_increase must be finite and nonnegative.")
-    # R1 sits on a near-grid boundary, not a cell centre. Each side
-    # must contain an odd count to keep a centre cell at the station.
-    n1_first = max(0, int(np.ceil(R1/gs1 - 0.5 - tol)))
-    # Search at most two nominal far grid steps outward. Typically
-    # far fewer iterations are required because gs1 << gs2.
-    n_extra = max(2, int(np.ceil(max_R1_increase/gs1)) + 2)
-    result = None
+    if R1 < gs1//2:
+        raise ValueError("R1 must include at least one near-grid cell.")
+
+    # Enumerate only a few possible near boundaries in nondecreasing R1.
+    # A near boundary is (2*n+1)*gs1//2, always exactly integral.
+    first = max(0, int(np.ceil((2.*R1/gs1-1.)/2.-1e-12)))
+    last_radius = R1+max_R1_increase
     best = None
-    for n1 in range(n1_first, n1_first+n_extra+1):
-        boundary = (n1+0.5)*gs1
-        if boundary > R1+max_R1_increase + max(1e-8, gs1*tol):
+    result = None
+    for n in range(first, int(np.floor(last_radius/gs1+1.5))+2):
+        boundary = (2*n+1)*(gs1//2)
+        if boundary < R1:
+            continue
+        if boundary > last_radius+1e-9:
             break
-        target_count = 2.0*boundary/gs2
-        near_odd = max(1, 2*int(np.floor((target_count-1)/2))+1)
-        for n_cells2 in (near_odd, near_odd+2):
-            candidate = 2.0*boundary/n_cells2
-            err = abs(candidate/gs2-1.0)
-            if best is None or err < best[0]:
-                best = (err, boundary, candidate)
-            if err <= max_gs2_change+tol:
-                if result is None or err < result[1]:
-                    result = (boundary, err, candidate)
-        if result is not None:
+        total_width = 2*boundary
+        # Range of possible far-grid ODD cell counts whose integer
+        # steps lie within the requested relative tolerance.
+        lower_step = max(2, int(np.ceil(
+            gs2*(1.-max_gs2_change)-1e-10)))
+        upper_step = int(np.floor(
+            gs2*(1.+max_gs2_change)+1e-10))
+        if upper_step < lower_step:
+            continue
+        m_min = max(1, (total_width+upper_step-1)//upper_step)
+        m_max = total_width//lower_step
+        if m_min % 2 == 0:
+            m_min += 1
+        if m_max % 2 == 0:
+            m_max -= 1
+        nearest = None
+        for far_cells in range(m_min,m_max+1,2):
+            if total_width % far_cells:
+                continue
+            candidate = total_width//far_cells
+            if candidate % 2 or not (lower_step <= candidate <= upper_step):
+                continue
+            err = abs(candidate/gs2-1.)
+            if nearest is None or err < nearest[0]:
+                nearest = (err,candidate)
+        if nearest is not None:
+            result = (boundary,nearest[1])
             break
 
     if result is None:
-        if best is None:
-            raise ValueError("No near-grid boundary within max_R1_increase.")
         raise ValueError(
-            "No aligned R1/gs2 found within the allowed gs2 change "
-            f"({100*max_gs2_change:.1f}%). Best candidate: "
-            f"R1={best[1]:.3f} m, gs2={best[2]:.3f} m "
-            f"({100*best[0]:.2f}%). Increase max_gs2_change, "
-            "max_R1_increase, or reduce the far grid step."
-        )
-    R1_new, _, gs2_new = result
-    # Because R1 is an exact far boundary, the next outer boundary is
-    # at integer gs2 intervals from R1.
-    n2_extra = max(1, int(np.ceil(
-        (max(R2,R1_new+gs2_new)-R1_new)/gs2_new-tol)))
-    R2_new = R1_new+n2_extra*gs2_new
-    return gs1, R1_new, gs2_new, R2_new
+            "No EXACT integer-metre aligned R1/gs2 within the allowed "
+            f"gs2 change ({100*max_gs2_change:.1f}%) and R1 increase "
+            f"({max_R1_increase:g} m). Station-centred odd-cell grids "
+            "require even integer gs1/gs2 and exact common boundaries. "
+            "Try another even gs1/gs2 or increase max_R1_increase.")
+    r1_new,g2_new = result
+    steps = max(1, (max(R2,r1_new+g2_new)-r1_new+g2_new-1)//g2_new)
+    r2_new = r1_new+steps*g2_new
+    return gs1, r1_new, g2_new, r2_new
 
 
 def _refine_interface_cells(prisms, densities, opposite_x, opposite_y,
