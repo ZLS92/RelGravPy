@@ -77,7 +77,7 @@ def test_optimizer_one_shared_mesh_and_maximum_all_stations():
         gs1=None,R1=None,gs2=None,target_error=20.)
     expected=BC._bgc_mesh_error_proxy(
         feat,result["gs1"],result["R1"],result["gs2"],
-        2670.,R)
+        2670.,R,native_resolution=25.)
     assert result["optimized"] is True
     assert result["meets_target"] is True
     assert result["critical_station_index"]==int(np.argmax(expected))
