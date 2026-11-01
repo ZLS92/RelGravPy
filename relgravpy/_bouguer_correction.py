@@ -14,6 +14,7 @@ from . import raster_tools as rt
 from . import grav_modelling as gm
 
 import multiprocessing as mpr
+import warnings
 import argparse
 import functools
 import platform
@@ -585,6 +586,277 @@ def _ring_polyhedral_effect(ring_bounds, densities, radius, height):
     cells[:, 4:] -= radius
     return _polyhedral_gz(cells, densities, [0.0, 0.0, height], radius)
 
+
+# =============================================================================
+# LIGHTWEIGHT SURVEY-WIDE BOUGUER MESH OPTIMIZER
+# -----------------------------------------------------------------------------
+# This is a fast, morphology-based ERROR ESTIMATOR, not a numerical proof of
+# convergence to the true Bouguer correction. It examines EVERY station, but
+# only samples a tiny local raster window and tests a small candidate grid.
+# No full gravity forward calculations or 167-km rasters are generated.
+# =============================================================================
+
+def _bgc_terrain_features(patches, fine_spacing, broad_spacing):
+    """Extract (slope, roughness, relief, mean_abs_height) from DTM windows.
+
+    patches : pair of equally-sized 2D arrays, fine and broader scales.
+    Spacings are in metres per output pixel. Output is a conservative,
+    dimensional predictor for tuning, *not* a certified gravity error.
+    """
+    fine, broad = [np.asarray(a, dtype=float) for a in patches]
+    if (fine.ndim != 2 or broad.ndim != 2 or
+            min(fine.shape) < 3 or min(broad.shape) < 3):
+        raise ValueError("DTM terrain previews must be at least 3x3 arrays.")
+    if fine_spacing <= 0 or broad_spacing <= 0:
+        raise ValueError("DTM preview spacings must be positive.")
+    def valid(a):
+        if np.count_nonzero(np.isfinite(a)) < 9:
+            raise ValueError("Insufficient valid topographic preview pixels.")
+        return np.where(np.isfinite(a), a, np.nanmedian(a))
+    fine, broad = valid(fine), valid(broad)
+    dx = np.abs(np.diff(fine, axis=1)) / fine_spacing
+    dy = np.abs(np.diff(fine, axis=0)) / fine_spacing
+    dx_b = np.abs(np.diff(broad, axis=1)) / broad_spacing
+    dy_b = np.abs(np.diff(broad, axis=0)) / broad_spacing
+    slope = max(float(np.percentile(dx, 90)),
+                float(np.percentile(dy, 90)),
+                float(np.percentile(dx_b, 90)),
+                float(np.percentile(dy_b, 90)))
+    detail = fine[1:-1, 1:-1] - 0.25*(
+        fine[1:-1, :-2] + fine[1:-1, 2:] +
+        fine[:-2, 1:-1] + fine[2:, 1:-1])
+    roughness = float(np.sqrt(np.mean(detail**2)))
+    relief = float(np.percentile(broad, 95)-np.percentile(broad, 5))
+    thickness = float(np.mean(np.abs(broad)))
+    return np.array([slope, roughness, relief, thickness])
+
+
+def _bgc_station_terrain_features(dtm, x, y, prjcode_in,
+                                  prjcode_m=None):
+    """Sample two small GDAL raster windows for EVERY input station.
+
+    A native-resolution 33x33 window detects short-scale roughness;
+    a 256-pixel window reduced to 25x25 captures broad relief. Raster
+    reads are bounded in size, independent of R2 and candidate count.
+    Geographic DEM pixel sizes are measured after coordinate projection.
+    """
+    xy = np.column_stack((np.asarray(x, float).ravel(),
+                          np.asarray(y, float).ravel()))
+    if not len(xy) or not np.all(np.isfinite(xy)):
+        raise ValueError("At least one finite station coordinate is required.")
+    gt = dtm.GetGeoTransform()
+    prj = dtm.GetProjection()
+    if not prj:
+        raise ValueError("DTM must have a defined coordinate reference system.")
+    if prjcode_m is None:
+        cx, cy = np.mean(xy, axis=0)
+        gx, gy = utl.prjxy(prjcode_in, 4326, cx, cy)
+        prjcode_m = (
+            f"+proj=aeqd +lat_0={gy} +lon_0={gx} "
+            "+datum=WGS84 +units=m")
+    src_x, src_y = utl.prjxy(prjcode_in, prj, xy[:, 0], xy[:, 1])
+    src_x, src_y = np.asarray(src_x), np.asarray(src_y)
+    # Metres per source raster pixel in the survey's metric projection.
+    a0, b0 = utl.prjxy(prj, prjcode_m, src_x, src_y)
+    a1, b1 = utl.prjxy(prj, prjcode_m,
+                        src_x+gt[1], src_y+gt[4])
+    a2, b2 = utl.prjxy(prj, prjcode_m,
+                        src_x+gt[2], src_y+gt[5])
+    resolution = np.maximum(
+        np.hypot(np.asarray(a1)-a0, np.asarray(b1)-b0),
+        np.hypot(np.asarray(a2)-a0, np.asarray(b2)-b0))
+    linear = np.array([[gt[1], gt[2]], [gt[4], gt[5]]], dtype=float)
+    pixels = np.linalg.solve(
+        linear, np.vstack((src_x-gt[0], src_y-gt[3]))).T
+    band = dtm.GetRasterBand(1)
+    nodata = band.GetNoDataValue()
+    results = []
+    degraded = 0
+    for (px, py), pitch in zip(pixels, resolution):
+        if not np.isfinite(pitch) or pitch <= 0:
+            raise ValueError("Invalid projected raster pixel dimensions.")
+        windows = []
+        for radius_pixels, output_pixels in ((16, 33), (128, 25)):
+            centre_x, centre_y = int(np.floor(px)), int(np.floor(py))
+            x0 = max(0, centre_x-radius_pixels)
+            y0 = max(0, centre_y-radius_pixels)
+            x1 = min(dtm.RasterXSize, centre_x+radius_pixels+1)
+            y1 = min(dtm.RasterYSize, centre_y+radius_pixels+1)
+            if x1-x0 < 3 or y1-y0 < 3:
+                windows = []
+                break
+            arr = band.ReadAsArray(
+                xoff=x0, yoff=y0, win_xsize=x1-x0,
+                win_ysize=y1-y0, buf_xsize=output_pixels,
+                buf_ysize=output_pixels)
+            if arr is None:
+                windows = []
+                break
+            arr = np.asarray(arr, float)
+            if nodata is not None:
+                arr[np.isclose(arr, nodata)] = np.nan
+            arr[~np.isfinite(arr)] = np.nan
+            actual_pitch = pitch * max(
+                (x1-x0)/max(1, output_pixels-1),
+                (y1-y0)/max(1, output_pixels-1))
+            windows.append((arr, actual_pitch))
+        if len(windows) == 2:
+            try:
+                results.append(_bgc_terrain_features(
+                    (windows[0][0], windows[1][0]),
+                    windows[0][1], windows[1][1]))
+                continue
+            except ValueError:
+                pass
+        # A missing preview must never be interpreted as flat terrain.
+        # Assign a deliberately rugged fallback so the optimizer moves
+        # towards fine meshes and clearly warns the user.
+        degraded += 1
+        results.append([1.5, 25.0, 1500.0, 1000.0])
+    if degraded:
+        warnings.warn(
+            f"{degraded} station(s) lack valid DTM previews; "
+            "conservative rugged-terrain proxies were used. "
+            "The target error is NOT certified.", RuntimeWarning,
+            stacklevel=2)
+    return np.asarray(results, float), float(np.min(resolution))
+
+
+def _bgc_mesh_error_proxy(features, gs1, R1, gs2, density, radius):
+    """Estimate error (mGal) for EACH station with cheap terrain features.
+
+    Terms model fine-grid smoothing and far-field quadrature / relief
+    attenuation. Coefficients are heuristic; independent DEM validation
+    is required before interpreting them as error bounds.
+    """
+    features = np.asarray(features, float)
+    if features.ndim != 2 or features.shape[1] != 4:
+        raise ValueError("Features must have four columns.")
+    slope, roughness, relief, thickness = features.T
+    k = 2*np.pi*gm.G*abs(density)*1e5
+    near = k*(0.004*slope*gs1
+              + 0.010*roughness
+              + 0.005*thickness*(gs1/max(R1,1.))**2)
+    far = k*0.015*(thickness+0.20*relief)*(
+        gs2/max(R1,gs2,1.))**2
+    curvature = k*0.002*thickness*(R1/radius)**2
+    return near+far+curvature
+
+
+def optimize_bgc_mesh(x, y, dtm1, gs1=None, R1=None, gs2=None,
+                      R2=167000., target_error=0.05, herr=5.,
+                      dc=2670., dw=1030., R=R_wgs84, R3=50000.,
+                      prjcode_in=4326, prjcode_m=None,
+                      terrain_features=None, raster_resolution=None):
+    """Cheap one-time mesh selection for all stations in a campaign.
+
+    Only gs1, R1, gs2 set to None are searched; user-supplied parameters
+    remain nominally fixed (adj_mesh may move radii upward slightly and
+    gs2 by <=5% for geometric compatibility). The nominal R2 DEFAULT is
+    167 km, never optimized; adj_mesh can raise it slightly to an aligned
+    grid boundary.
+
+    target_error is the MAXIMUM allowed *estimated* error in mGal
+    across ALL input stations, never an average. This is a lightweight
+    morphology-based estimator, not a rigorous error certificate.
+    No full gravity modelling is done during tuning.
+    If no candidate is estimated to meet target_error, a RuntimeWarning
+    is issued and the least-error candidate is returned nonetheless.
+
+    Returns a dictionary including gs1, R1, gs2, R2, estimated_error_mgal,
+    meets_target, estimated_cost, critical_station_index, and candidates.
+    """
+    xs, ys = np.asarray(x, float).ravel(), np.asarray(y, float).ravel()
+    if len(xs) != len(ys) or not len(xs):
+        raise ValueError("x and y must have the same nonzero station count.")
+    auto = (gs1 is None or R1 is None or gs2 is None)
+    R2 = 167000. if R2 is None else float(R2)
+    if not np.isfinite(R2) or R2 <= 0:
+        raise ValueError("R2 must be finite and positive.")
+    if not auto:
+        return {"gs1": float(gs1), "R1": float(R1), "gs2": float(gs2),
+                "R2": R2, "optimized": False,
+                "estimated_error_mgal": None, "meets_target": None,
+                "candidates": 0}
+    if not np.isfinite(target_error) or target_error <= 0:
+        raise ValueError("target_error must be positive and finite (mGal).")
+    if terrain_features is None:
+        if dtm1 is None:
+            raise ValueError("A DTM or terrain_features is required.")
+        features, native = _bgc_station_terrain_features(
+            dtm1, xs, ys, prjcode_in, prjcode_m)
+    else:
+        features = np.asarray(terrain_features, float)
+        native = (30. if raster_resolution is None else
+                  float(raster_resolution))
+    if (features.shape != (len(xs), 4) or
+            np.any(~np.isfinite(features)) or np.any(features < 0)):
+        raise ValueError("Need four finite nonnegative features per station.")
+    if not np.isfinite(native) or native <= 0:
+        raise ValueError("raster_resolution must be finite and positive.")
+    # Small bounded Cartesian search; cheap scalar operations only. R1
+    # candidates are informed by the geometric sagitta estimate (herr).
+    g1_base = max(5., float(native))
+    g1_values = ([max(g1_base, g1_base*f) for f in (1., 2., 4., 8.)]
+                 if gs1 is None else [float(gs1)])
+    r_base = max(500., np.sqrt(2.*R*max(float(herr), 0.1)))
+    r1_values = ([max(4.*g1_base, r_base*f)
+                  for f in (0.25, 0.5, 1., 1.5)]
+                 if R1 is None else [float(R1)])
+    g2_values = ([max(2.*g1_base, g) for g in
+                  (250., 500., 1000., 2000., 4000.)]
+                 if gs2 is None else [float(gs2)])
+    # A conservative density factor for terrestrial and marine contrasts.
+    rho = max(abs(float(dc)), abs(float(dw-float(dc))),
+              abs(float(dw)))
+    scores = []
+    for near_step in sorted(set(g1_values)):
+        for radius1 in sorted(set(r1_values)):
+            for far_step in sorted(set(g2_values)):
+                if far_step < near_step:
+                    continue
+                try:
+                    a, b, c, d = adj_mesh(
+                        near_step, radius1, far_step, R2)
+                except ValueError:
+                    continue
+                if b + c >= min(R2, max(float(R3), b+c)):
+                    # A full polyhedral transition ring must fit inside R3
+                    # if the far-field point-mass option is active.
+                    if R3 is not None and float(R3) <= b+c:
+                        continue
+                errors = _bgc_mesh_error_proxy(features,a,b,c,rho,R)
+                worst = float(np.max(errors))
+                # Proxy wall-clock cost: far-polyhedron work is batched,
+                # near Nagy prisms and seam facets cost more per element.
+                far_limit = min(d,float(R3)) if R3 is not None else d
+                near_count = 4.*(b/a)**2
+                far_count = 4.*max(0.,far_limit**2-b**2)/c**2
+                seam_count = 4.*b/a
+                work = near_count + 0.35*far_count + 2.*seam_count
+                scores.append((worst,work,a,b,c,d,int(np.argmax(errors))))
+    if not scores:
+        # This is a geometry incompatibility, NOT a target error failure:
+        # no valid parameters can be passed safely to the modelling code.
+        raise ValueError("No geometrically compatible mesh candidates.")
+    acceptable = [item for item in scores if item[0] <= target_error]
+    if acceptable:
+        # Cheapest admissible result; tie-break by smaller error.
+        best = min(acceptable, key=lambda p: (p[1],p[0]))
+    else:
+        best = min(scores, key=lambda p: (p[0],p[1]))
+        warnings.warn(
+            "No mesh candidate reached the requested MAXIMUM estimated "
+            f"error {target_error:.6g} mGal across all stations; "
+            f"using the least-error candidate ({best[0]:.6g} mGal). "
+            "These are morphology-based estimates, NOT certified bounds.",
+            RuntimeWarning, stacklevel=2)
+    worst,work,a,b,c,d,critical = best
+    return {"gs1":a, "R1":b, "gs2":c, "R2":d,
+            "estimated_error_mgal":worst, "meets_target":bool(acceptable),
+            "estimated_cost":work, "critical_station_index":critical,
+            "candidates":len(scores), "optimized":True,
+            "error_type":"morphology_proxy_not_certified"}
 
 # -----------------------------------------------------------------------------
 def Radi1( herr=5, R=R_wgs84 ): 
