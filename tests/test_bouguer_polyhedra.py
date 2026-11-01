@@ -249,12 +249,14 @@ def test_r1_both_sides_share_full_triangulated_interface():
     a, ad = BC._refine_near_interface(near,[2670,2670],far_edges,far_edges,1000)
     b, bd = BC._refine_far_interface(far,[2670,2670],near_edges,near_edges,1000)
     # Only compare portions covered by BOTH sources: y=-1000 to -500.
-    near_intervals = sorted((round(p[2],8),round(p[3],8)) for p in a)
+    near_intervals = sorted((round(p[2],8),round(p[3],8)) for p in a
+                            if abs(p[1]-1000.) < 1e-9)
     far_intervals = sorted((round(p[2],8),round(p[3],8)) for p in b
                            if p[3]<=-500.+1e-9)
     assert near_intervals == far_intervals
     assert len(near_intervals)>2
-    for na, fa in zip(sorted(a,key=lambda p:p[2]),
+    for na, fa in zip(sorted((p for p in a if abs(p[1]-1000.)<1e-9),
+                             key=lambda p:p[2]),
                       sorted((p for p in b if p[3]<=-500.+1e-9),
                              key=lambda p:p[2])):
         vn = BC._curved_cell_vertices(na,radius)
