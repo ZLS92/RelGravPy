@@ -275,6 +275,10 @@ class nagy() :
             self.density = np.asarray( density )
 
     # -------------------------------------------------------------------------
+    def compute_gz(self):
+        """Consistent named method; equivalent to legacy nagy.gz()."""
+        return self.gz()
+
     def gz( self ) :
 
         np.seterr(divide='ignore', invalid='ignore')
@@ -293,140 +297,6 @@ class nagy() :
         return self.pgz
 
 # =============================================================================
-class PolyGrav:
-    def __init__(self, corners, faces, density):
-        self.corners = np.array(corners)
-        self.faces = faces
-        self.density = density
-
-    def compute_gz(self, obs):
-        cor = self.corners - obs
-        gz = 0.0
-        for face in self.faces:
-            nsides = face[0]
-            indices = face[1:1+nsides]
-            verts = [cor[i] for i in indices]
-            corner_face = [self.corners[i] for i in indices]
-
-            if len(corner_face) < 3:
-                continue
-
-            un = unit_normal(np.array(corner_face))
-            fsign = np.sign(np.dot(un, verts[0]))
-            dp1 = np.dot(un, verts[0])
-
-            # Solid angle
-            W = 0.0
-            for i in range(nsides):
-                p1 = verts[i % nsides]
-                p2 = verts[(i + 1) % nsides]
-                p3 = verts[(i + 2) % nsides]
-                ang, _ = anglegravi(p1, p2, p3, un)
-                W += ang
-            omega = -fsign * (W - (nsides - 2) * np.pi)
-
-            # Line integrals (faithful to MATLAB)
-            PQR = np.zeros(3)
-            for i in range(nsides):
-                p1 = verts[i % nsides]
-                p2 = verts[(i + 1) % nsides]
-                V = p2 - p1
-                L = np.linalg.norm(V)
-                if L < 1e-12:
-                    continue
-                b = 2 * np.dot(V, p1)
-                r1 = np.linalg.norm(p1)
-                b2 = b / (2 * L)
-                denom = r1 + b2
-
-                if denom == 0:
-                    I = 0.0
-                else:
-                    num = np.sqrt(L**2 + b + r1**2) + L + b2
-                    try:
-                        I = (1 / L) * np.log(num / denom)
-                    except:
-                        I = 0.0
-                if r1 + b2 == 0:
-                    V = -V
-                    b = 2 * np.dot(V, p1)
-                    b2 = b / (2 * L + 1e-12)
-                if r1 + b2 != 0:
-                    try:
-                        I = (1 / L) * np.log((np.sqrt(L**2 + b + r1**2) + L + b2) / (r1 + b2))
-                    except:
-                        I = 0.0
-                    PQR += I * V
-
-            l, m, n = un
-            p, q, r = PQR
-
-            gz += -self.density * G * dp1 * (n * omega + m * p - l * q)
-
-        return gz
-
-# =============================================================================
-class GotzeGrav:
-    def __init__(self, corners, faces, density):
-        self.corners = np.array(corners)
-        self.faces = faces
-        self.density = density
-
-    def compute_gz(self, obs):
-        cor = self.corners - obs
-        gz = 0.0
-        for face in self.faces:
-            nsides = face[0]
-            indices = face[1:1+nsides]
-            verts = [cor[i] for i in indices]
-            corner_face = [self.corners[i] for i in indices]
-
-            if len(corner_face) < 3:
-                continue
-
-            un = unit_normal(np.array(corner_face))
-            fsign = np.sign(np.dot(un, verts[0]))
-            dp1 = np.dot(un, verts[0])
-
-            W = 0.0
-            for i in range(nsides):
-                p1 = verts[i % nsides]
-                p2 = verts[(i + 1) % nsides]
-                p3 = verts[(i + 2) % nsides]
-                ang, _ = anglegravi(p1, p2, p3, un)
-                W += ang
-            omega = -fsign * (W - (nsides - 2) * np.pi)
-
-            PQR = np.zeros(3)
-            for i in range(nsides):
-                p1 = verts[i % nsides]
-                p2 = verts[(i + 1) % nsides]
-                V = p2 - p1
-                L = np.linalg.norm(V)
-                if L < 1e-12:
-                    continue
-                b = 2 * np.dot(V, p1)
-                r1 = np.linalg.norm(p1)
-                b2 = b / (2 * L + 1e-12)
-                if r1 + b2 == 0:
-                    V = -V
-                    b = 2 * np.dot(V, p1)
-                    b2 = b / (2 * L + 1e-12)
-                if r1 + b2 != 0:
-                    try:
-                        I = (1 / L) * np.log((np.sqrt(L**2 + b + r1**2) + L + b2) / (r1 + b2))
-                    except:
-                        I = 0.0
-                    PQR += I * V
-
-            l, m, n = un
-            p, q, r = PQR
-
-            gz += -self.density * G * dp1 * (n * omega + m * p - l * q)
-
-        return gz * 1e5  # convert from m/s^2 to mGal
-
-
 def build_edges_and_normals(corners, faces):
     """
     Ricrea la struttura Edge e calcola le normali Un per ogni faccia,
@@ -582,135 +452,267 @@ def build_edge_table(corners, faces):
 
     return edge_table, edge_list
 
-def gravicalc2_full(obs_points, corners, faces, density):
+
+
+class Polygrav:
+    """Gravitational attraction of one homogeneous closed polyhedron.
+
+    Coordinates are Cartesian East/North/Up in metres; density is kg/m^3.
+    The public compute_gz returns DOWN-positive gravitational attraction
+    in mGal, matching Nagy. It accepts one (3,) observation or (n,3)
+    observations. Arbitrary face sizes are supported with the historical
+    0-based MATLAB format: [n_vertices, vertex_id_1, ..., vertex_id_n].
+
+    The single public solver selects the analytic edge/solid-angle kernel
+    when the observation is close to the polyhedron and a stable 7-point
+    triangular surface integral when it is sufficiently distant. Both
+    kernels use the same gravitational constant and geometry.
+
+    Face fans must represent planar non-degenerate polygons. For concave
+    faces, split them into appropriate oriented triangles before calling.
+    Enclosed volume must be single-valued with outward face normals.
     """
-    Riscrittura fedele di gravicalc2.m in Python con edge caching, simmetria e struttura Edge.
-    """
-    G = 6.6732e-11 * 1e5  # in mGal
-    obs_points = np.atleast_2d(obs_points)
-    N_obs = obs_points.shape[0]
 
-    normals = np.zeros((len(faces), 3))
-    for f_idx, face in enumerate(faces):
-        n = face[0]
-        idx = face[1:]
-        ss = np.zeros(3)
-        for i in range(1, n - 1):
-            v1 = corners[idx[i + 1]] - corners[idx[0]]
-            v2 = corners[idx[i]] - corners[idx[0]]
-            ss += np.cross(v2, v1)
-        norm = np.linalg.norm(ss)
-        normals[f_idx] = ss / norm if norm != 0 else ss
+    G = G
+    _BARY = np.array([
+        [1/3,1/3,1/3],
+        [0.059715871789770,0.470142064105115,0.470142064105115],
+        [0.470142064105115,0.059715871789770,0.470142064105115],
+        [0.470142064105115,0.470142064105115,0.059715871789770],
+        [0.797426985353087,0.101286507323456,0.101286507323456],
+        [0.101286507323456,0.797426985353087,0.101286507323456],
+        [0.101286507323456,0.101286507323456,0.797426985353087],
+    ], dtype=float)
+    _WEIGHTS = np.array([
+        0.225,0.132394152788506,0.132394152788506,0.132394152788506,
+        0.125939180544827,0.125939180544827,0.125939180544827
+    ], dtype=float)
 
-    edge_table, edge_list = build_edge_table(corners, faces)
+    def __init__(self, corners, faces, density):
+        self.corners = np.asarray(corners, dtype=float)
+        if self.corners.ndim != 2 or self.corners.shape[1] != 3:
+            raise ValueError("corners must be an (N, 3) Cartesian array.")
+        if len(self.corners) < 4 or not np.all(np.isfinite(self.corners)):
+            raise ValueError("Expected >=4 finite vertices for closed polyhedron.")
+        self.density = float(density)
+        if not np.isfinite(self.density):
+            raise ValueError("density must be finite and expressed in kg/m^3.")
+        self.faces = []
+        self._face_triangles = []
+        interior = np.mean(self.corners, axis=0)
+        edge_counts = {}
+        for face in faces:
+            ids = [int(i) for i in face]
+            if len(ids) < 4 or ids[0] != len(ids)-1:
+                raise ValueError("faces require [n_vertices, i0, ..., i(n-1)].")
+            idx = ids[1:]
+            if min(idx)<0 or max(idx)>=len(self.corners) or len(set(idx))!=len(idx):
+                raise ValueError("Face has invalid or repeated vertex indices.")
+            p=self.corners[idx]
+            normal=np.zeros(3)
+            for j in range(1,len(idx)-1):
+                normal+=np.cross(p[j]-p[0],p[j+1]-p[0])
+            if np.linalg.norm(normal)==0:
+                raise ValueError("Face has zero area.")
+            # Correct orientation for convex/star-shaped cells. Orientation
+            # for general concave polyhedra must be given consistently.
+            if np.dot(normal,p.mean(axis=0)-interior)<0:
+                idx=idx[::-1]
+            self.faces.append([len(idx),*idx])
+            for a,b in zip(idx,idx[1:]+idx[:1]):
+                edge_counts[tuple(sorted((a,b)))] = (
+                    edge_counts.get(tuple(sorted((a,b))),0)+1)
+            for j in range(1,len(idx)-1):
+                self._face_triangles.append([idx[0],idx[j],idx[j+1]])
+        if not self.faces:
+            raise ValueError("A polyhedron needs outward-oriented faces.")
+        if any(n!=2 for n in edge_counts.values()):
+            raise ValueError("Polyhedron is not closed: each edge must belong to two faces.")
+        self._face_triangles=np.asarray(self._face_triangles,dtype=int)
+        box=np.ptp(self.corners,axis=0)
+        self._span=float(np.max(box))
+        self._centre=np.mean(self.corners,axis=0)
 
-    Gx = np.zeros(N_obs)
-    Gy = np.zeros(N_obs)
-    Gz = np.zeros(N_obs)
+    def compute_gz(self, observations, method="auto"):
+        """Calculate down-positive gz in mGal.
 
-    for pr in range(N_obs):
-        gx = gy = gz = 0.0
-        obs = obs_points[pr]
-        cor = corners - obs
+        method='auto' uses stable numerical quadrature at long range and
+        the analytic method nearby. 'analytic' or 'surface' permit direct
+        comparisons. A single (3,) observation returns a float; multiple
+        observations return a (n,) numpy array.
+        """
+        obs=np.asarray(observations,dtype=float)
+        scalar=obs.ndim==1
+        obs=np.atleast_2d(obs)
+        if obs.ndim!=2 or obs.shape[1]!=3 or not np.all(np.isfinite(obs)):
+            raise ValueError("Observations must have shape (3,) or (n,3).")
+        if method not in ("auto","analytic","surface"):
+            raise ValueError("method must be 'auto', 'analytic', or 'surface'.")
+        results=np.zeros(len(obs))
+        if self.density==0:
+            return float(results[0]) if scalar else results
+        distances=np.linalg.norm(obs-self._centre,axis=1)
+        near = distances <= 1.75*self._span
+        if method=="analytic": near[:]=True
+        elif method=="surface": near[:]=False
+        if np.any(near):
+            results[near]=self._analytic_components(obs[near])[2]
+        if np.any(~near):
+            results[~near]=self._surface_gz(obs[~near])
+        return float(results[0]) if scalar else results
 
-        edge_index = 0
+    def _surface_gz(self, observations):
+        """Stable far-field surface integral for any number of triangles."""
+        tri=self.corners[self._face_triangles]
+        area_z=0.5*np.cross(tri[:,1]-tri[:,0],
+                            tri[:,2]-tri[:,0])[:,2]
+        sample=np.einsum("qc,fcj->fqj",self._BARY,tri)
+        result=np.empty(len(observations))
+        for i,obs in enumerate(observations):
+            distances=np.linalg.norm(sample-obs[None,None,:],axis=2)
+            if np.any(distances==0):
+                raise ValueError("Observation coincides with a quadrature node.")
+            result[i]=self.G*self.density*1e5*np.sum(
+                area_z*np.sum(self._WEIGHTS[None,:]/distances,axis=1))
+        return result
+
+    def _analytic_components(self, obs_points):
+        """
+        Riscrittura fedele di gravicalc2.m in Python con edge caching, simmetria e struttura Edge.
+        """
+        # Analytic Goetze/Lahmeyer line/solid-angle expression (mGal).
+        # Cache is local to each station because the edge integrals depend on obs.
+        G = self.G * 1e5
+        corners, faces, density = self.corners, self.faces, self.density
+        obs_points = np.atleast_2d(obs_points)
+        N_obs = obs_points.shape[0]
+    
+        normals = np.zeros((len(faces), 3))
         for f_idx, face in enumerate(faces):
-            nsides = face[0]
+            n = face[0]
             idx = face[1:]
-            indx = idx + [idx[0], idx[1]]
-            crs = [cor[i] for i in idx]
-            un = normals[f_idx]
-            fsign = np.sign(np.dot(un, crs[0]))
-            dp1 = np.dot(crs[0], un)
-            dp = abs(dp1)
-
-            if dp == 0:
-                omega = 0.0
-            else:
-                W = 0.0
+            ss = np.zeros(3)
+            for i in range(1, n - 1):
+                v1 = corners[idx[i + 1]] - corners[idx[0]]
+                v2 = corners[idx[i]] - corners[idx[0]]
+                ss += np.cross(v2, v1)
+            norm = np.linalg.norm(ss)
+            normals[f_idx] = ss / norm if norm != 0 else ss
+    
+        Gx = np.zeros(N_obs)
+        Gy = np.zeros(N_obs)
+        Gz = np.zeros(N_obs)
+    
+        for pr in range(N_obs):
+            gx = gy = gz = 0.0
+            edge_table, edge_list = build_edge_table(corners, faces)
+            obs = obs_points[pr]
+            cor = corners - obs
+    
+            edge_index = 0
+            for f_idx, face in enumerate(faces):
+                nsides = face[0]
+                idx = face[1:]
+                indx = idx + [idx[0], idx[1]]
+                crs = [cor[i] for i in idx]
+                un = normals[f_idx]
+                fsign = np.sign(np.dot(un, crs[0]))
+                dp1 = np.dot(crs[0], un)
+                dp = abs(dp1)
+    
+                if dp == 0:
+                    omega = 0.0
+                else:
+                    W = 0.0
+                    for i in range(nsides):
+                        p1 = cor[indx[i]]
+                        p2 = cor[indx[i+1]]
+                        p3 = cor[indx[i+2]]
+                        ang, _ = anglegravi_exact(p1, p2, p3, un)
+                        W += ang
+                    omega = -fsign * (W - (nsides - 2) * np.pi)
+    
+                PQR = np.zeros(3)
                 for i in range(nsides):
-                    p1 = cor[indx[i]]
-                    p2 = cor[indx[i+1]]
-                    p3 = cor[indx[i+2]]
-                    ang, _ = anglegravi_exact(p1, p2, p3, un)
-                    W += ang
-                omega = -fsign * (W - (nsides - 2) * np.pi)
-
-            PQR = np.zeros(3)
-            for i in range(nsides):
-                a = indx[i]
-                b = indx[i + 1]
-                key = (a, b)
-                rev_key = (b, a)
-
-                p1 = cor[a]
-                p2 = cor[b]
-                V = p2 - p1
-                L = np.linalg.norm(V)
-
-                if L < 1e-12:
-                    continue
-
-                if key in edge_table:
-                    edge = edge_table[key]
-                else:
-                    edge = edge_table[rev_key]
-                    V = -edge['V']  # verso opposto
-
-                if edge['done']:
-                    I = edge['I']
-                else:
-                    chsgn = 1
-                    dot_prod = np.dot(p1, p2) / (np.linalg.norm(p1) * np.linalg.norm(p2))
-                    if np.isclose(dot_prod, 1.0, atol=1e-12) and np.linalg.norm(p1) > np.linalg.norm(p2):
-                        chsgn = -1
-                        p1, p2 = p2, p1
-                        V = -V
-
-                    b_val = 2 * np.dot(V, p1)
-                    r1 = np.linalg.norm(p1)
-                    b2 = b_val / (2 * L)
-                    denom = r1 + b2
-
-                    if denom == 0:
-                        V = -V
-                        b_val = 2 * np.dot(V, p1)
-                        b2 = b_val / (2 * L)
-
-                    if r1 + b2 != 0:
-                        I = (1 / L) * np.log((np.sqrt(L**2 + b_val + r1**2) + L + b2) / (r1 + b2))
+                    a = indx[i]
+                    b = indx[i + 1]
+                    key = (a, b)
+                    rev_key = (b, a)
+    
+                    p1 = cor[a]
+                    p2 = cor[b]
+                    V = p2 - p1
+                    L = np.linalg.norm(V)
+    
+                    if L < 1e-12:
+                        continue
+    
+                    if key in edge_table:
+                        edge = edge_table[key]
                     else:
-                        I = 0.0
-
-                    I *= chsgn
-                    edge['I'] = I
-                    edge['done'] = True
-                    # Salva anche nel verso opposto
-                    if rev_key in edge_table:
-                        edge_table[rev_key]['I'] = I
-                        edge_table[rev_key]['done'] = True
-
-                PQR += I * V
-
-            l, m, n = un
-            p, q, r = PQR
-
-            if dp != 0:
-                gx += -density * G * dp1 * (l * omega + n * q - m * r)
-                gy += -density * G * dp1 * (m * omega + l * r - n * p)
-                gz += -density * G * dp1 * (n * omega + m * p - l * q)
-
-            edge_index += nsides
-
-        Gx[pr] = gx
-        Gy[pr] = gy
-        Gz[pr] = gz
-
-    return Gx, Gy, Gz
-
-
-
-
-
-
-
+                        edge = edge_table[rev_key]
+                        V = -edge['V']  # verso opposto
+    
+                    if edge['done']:
+                        I = edge['I']
+                    else:
+                        chsgn = 1
+                        dot_prod = np.dot(p1, p2) / (np.linalg.norm(p1) * np.linalg.norm(p2))
+                        if np.isclose(dot_prod, 1.0, atol=1e-12) and np.linalg.norm(p1) > np.linalg.norm(p2):
+                            chsgn = -1
+                            p1, p2 = p2, p1
+                            V = -V
+    
+                        b_val = 2 * np.dot(V, p1)
+                        r1 = np.linalg.norm(p1)
+                        b2 = b_val / (2 * L)
+                        denom = r1 + b2
+    
+                        if denom == 0:
+                            V = -V
+                            b_val = 2 * np.dot(V, p1)
+                            b2 = b_val / (2 * L)
+    
+                        if r1 + b2 != 0:
+                            I = (1 / L) * np.log((np.sqrt(L**2 + b_val + r1**2) + L + b2) / (r1 + b2))
+                        else:
+                            I = 0.0
+    
+                        I *= chsgn
+                        edge['I'] = I
+                        edge['done'] = True
+                        # Salva anche nel verso opposto
+                        if rev_key in edge_table:
+                            edge_table[rev_key]['I'] = I
+                            edge_table[rev_key]['done'] = True
+    
+                    PQR += I * V
+    
+                l, m, n = un
+                p, q, r = PQR
+    
+                if dp != 0:
+                    gx += -density * G * dp1 * (l * omega + n * q - m * r)
+                    gy += -density * G * dp1 * (m * omega + l * r - n * p)
+                    gz += -density * G * dp1 * (n * omega + m * p - l * q)
+    
+                edge_index += nsides
+    
+            Gx[pr] = gx
+            Gy[pr] = gy
+            Gz[pr] = gz
+    
+        # Previous MATLAB-inspired code returns up-positive Gz. Public API
+        # is down-positive to agree with Nagy. X and Y also switch convention
+        # to physical attraction in an ENU frame.
+        return -Gx, -Gy, -Gz
+    
+    
+    
+    
+    
+    
+    
+    
+    # Future methods compute_gx/compute_gy and tensor gradients can
+    # reuse the same orientation, triangle geometry and analytic edges.
