@@ -10,7 +10,7 @@ GDAL intermediate rasters and automatic tuning. The source DEMs have
 different resolution/vertical lineage; these are I/O and physical
 sanity tests, not a <0.05mGal external reference validation.
 """
-import json,re,time,warnings
+import hashlib,json,re,time,warnings
 from pathlib import Path
 import numpy as np
 from osgeo import gdal
@@ -73,6 +73,10 @@ def run_case(config,automatic=False):
 
     label=name+("_auto" if automatic else "_manual")
     case_dir=ROOT/label
+    # The original Copernicus/NOAA source GeoTIFFs must remain unchanged.
+    source_hashes={
+        str(p):hashlib.sha256(p.read_bytes()).hexdigest()
+        for p in (near,far)}
     began=time.monotonic()
     with warnings.catch_warnings(record=True) as caught:
         warnings.simplefilter("always")
@@ -83,13 +87,18 @@ def run_case(config,automatic=False):
             R1=None if automatic else 5250,
             gs2=None if automatic else 1500,
             # R2 NOT supplied: the default is 167 km.
-            R3=12000,curved=True,prjcode_in=4326,
+            # R3 also omitted => production default of 50 km.
+            curved=True,prjcode_in=4326,
             cpu=1,new_dtm=True,adjust_dtm=False,
             output_file=str(case_dir),
             near_geometry="auto",refine_interface=True,
             target_error=.05 if automatic else .000001,
         )
     elapsed=time.monotonic()-began
+    assert all(
+        hashlib.sha256(Path(path).read_bytes()).hexdigest()==digest
+        for path,digest in source_hashes.items()
+    ),"BGC preprocessing unexpectedly modified a source GeoTIFF"
     total,near_g,far_g,R1,R2,gs1,gs2,pr1,pr2=result
     assert len(total)==len(near_g)==len(far_g)==len(stations)
     assert np.isfinite(total).all()
@@ -124,6 +133,7 @@ def run_case(config,automatic=False):
         near_grid_cells=(2*R1//gs1)**2,
         far_grid_cells=(2*R2//gs2)**2,
         total_runtime_s=elapsed,warnings=captured,
+        nominal_R3_m=50000,source_rasters_unchanged=True,
         output_text_path=str(out),
         source_provenance=(
             "Copernicus GLO-90 + NOAA NCEI ImageServer"
