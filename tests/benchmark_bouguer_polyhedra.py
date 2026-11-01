@@ -86,7 +86,7 @@ def run_terrain_cases():
             # For a non-curved comparator, use the exact Nagy sum at the
             # same nominal orthographic x-y grid.
             nag_g, nag_s = timed(
-                lambda: float(GM.nagy([[0, 0, OBS_HEIGHT]],
+                lambda: float(GM.prism_grav([[0, 0, OBS_HEIGHT]],
                                       prisms, densities).gz()[0]), repeat=1)
             row = dict(
                 scenario=case,
@@ -140,7 +140,7 @@ def seam_diagnostic():
     near_legacy = near.copy()
     near_legacy[:,4:] -= sag
     obs = [[0, 0, 700]]
-    near_g = float(GM.nagy(obs, near_legacy, [DENSITY]).gz()[0])
+    near_g = float(GM.prism_grav(obs, near_legacy, [DENSITY]).gz()[0])
     far_g = BC._polyhedral_gz(far, [DENSITY], obs[0], R)
     exact_near_g = BC._polyhedral_gz(near, [DENSITY], obs[0], R)
     mismatch_uGal = 1000*(near_g-exact_near_g)
