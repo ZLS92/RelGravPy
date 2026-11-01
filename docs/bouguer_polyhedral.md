@@ -306,7 +306,8 @@ raster coverage is reserved and insufficient coverage is rejected.
 **The previous outer-seam defect has been resolved.** The original
 refinement created 78 hanging vertices (1.84 mm maximum offset)
 in a synthetic 5 km test. It has been replaced by
-`relgravpy/_bouguer_transition.py`: each original coarse far cell
+the **dedicated R1 transition section** of
+`relgravpy/_bouguer_correction.py`: each original coarse far cell
 is now a single closed polyhedron with an arbitrary number of facets
 on its prism-facing inner boundary and exactly the two *original*
 triangles on its outer boundary. Adjacent corner cells use diagonals
