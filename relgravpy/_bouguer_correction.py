@@ -61,10 +61,10 @@ w_wgs84 = utl.w_wgs84
 _CURVED_FACES = (
     (3, 3, 2, 1), (3, 3, 1, 0),   # triangulated lower surface
     (3, 4, 5, 6), (3, 4, 6, 7),   # triangulated upper surface
-    (4, 0, 1, 5, 4),             # south side
-    (4, 1, 2, 6, 5),             # east side
-    (4, 2, 3, 7, 6),             # north side
-    (4, 3, 0, 4, 7),             # west side
+    (3, 0, 1, 5), (3, 0, 5, 4), # south side
+    (3, 1, 2, 6), (3, 1, 6, 5), # east side
+    (3, 2, 3, 6), (3, 3, 7, 6), # north side (shared diagonal)
+    (3, 3, 0, 7), (3, 0, 4, 7), # west side (shared diagonal)
 )
 _POLY_G_RATIO = gm.G / 6.6732e-11
 
@@ -119,7 +119,7 @@ def _surface_integral_polyhedral_gz(prisms, densities, observation, radius):
     triangles = np.array([
         [3, 2, 1], [3, 1, 0], [4, 5, 6], [4, 6, 7],
         [0, 1, 5], [0, 5, 4], [1, 2, 6], [1, 6, 5],
-        [2, 3, 7], [2, 7, 6], [3, 0, 4], [3, 4, 7]
+        [2, 3, 6], [3, 7, 6], [3, 0, 7], [0, 4, 7]
     ], dtype=int)
     a = 0.059715871789770
     b = 0.470142064105115
@@ -405,56 +405,70 @@ def adj_mesh( gs1, R1, gs2, R2 ):
     return gs1, R1n, gs2n, R2n  
 
 
-def _refine_far_interface(prisms, densities, near_x, near_y, R1):
-    """Subdivide far cells adjacent to the near-field square interface.
+def _refine_interface_cells(prisms, densities, opposite_x, opposite_y,
+                            R1, inside):
+    """Conform a square R1 interface to the union of BOTH grids' nodes.
 
-    Split each far cell *tangentially* at every fine-grid boundary it spans
-    along x=+/-R1 or y=+/-R1. This produces the exact same horizontal edge
-    nodes on both sides of R1, even when gs2/gs1 is not an integer.
-    It does not interpolate DEM elevations: distinct near/far top heights
-    may still produce genuine elevation steps and must be validated.
+    The fine near grid and coarser far grid need not have commensurate cell
+    widths. Boundary cells on *both* sides must be split at all opposite-grid
+    knots that fall inside their tangential spans. Corner near cells may
+    require both x- and y-splits.
     """
-    prisms = np.atleast_2d(np.asarray(prisms, dtype=float))
-    densities = np.atleast_1d(np.asarray(densities, dtype=float))
-    if prisms.size == 0:
-        return np.empty((0, 6), dtype=float), densities
-    if prisms.shape[1] != 6 or len(prisms) != len(densities):
-        raise ValueError("Expected one density per far-field cell.")
-    near_x = np.unique(np.asarray(near_x, dtype=float).ravel())
-    near_y = np.unique(np.asarray(near_y, dtype=float).ravel())
+    prisms = np.asarray(prisms, dtype=float).reshape(-1, 6)
+    densities = np.asarray(densities, dtype=float).ravel()
+    if len(prisms) != len(densities):
+        raise ValueError("Expected one density per interface cell.")
+    if not len(prisms):
+        return prisms, densities
+    opposite_x = np.unique(np.asarray(opposite_x, dtype=float).ravel())
+    opposite_y = np.unique(np.asarray(opposite_y, dtype=float).ravel())
     tol = max(1e-7, 1e-11*abs(float(R1)))
-    refined, expanded_density = [], []
+    cells_out, densities_out = [], []
     for cell, density in zip(prisms, densities):
-        w, e, south, north, bottom, top = cell
-        split_axis = -1
-        # Only faces overlapping the near-field square, not corner contacts.
-        overlaps_y = (south < R1 - tol) and (north > -R1 + tol)
-        overlaps_x = (w < R1 - tol) and (e > -R1 + tol)
-        if overlaps_y and (abs(w - R1) < tol or abs(e + R1) < tol):
-            split_axis = 1
-            nodes = near_y[(near_y > south+tol) & (near_y < north-tol)]
-            bounds = [south, *nodes, north]
-        elif overlaps_x and (abs(south - R1) < tol or abs(north + R1) < tol):
-            split_axis = 0
-            nodes = near_x[(near_x > w+tol) & (near_x < e-tol)]
-            bounds = [w, *nodes, e]
-        if split_axis < 0:
-            refined.append(cell.copy())
-            expanded_density.append(density)
-            continue
-        for start, stop in zip(bounds[:-1], bounds[1:]):
-            if stop - start <= tol:
-                continue
-            c = cell.copy()
-            if split_axis == 1:
-                c[2], c[3] = start, stop
-            else:
-                c[0], c[1] = start, stop
-            refined.append(c)
-            expanded_density.append(density)
-    return np.asarray(refined, dtype=float).reshape(-1, 6), np.asarray(
-        expanded_density, dtype=float
-    )
+        west, east, south, north, bottom, top = cell
+        overlaps_y = south < R1-tol and north > -R1+tol
+        overlaps_x = west < R1-tol and east > -R1+tol
+        if inside:
+            on_x = overlaps_y and (
+                abs(east-R1) < tol or abs(west+R1) < tol)
+            on_y = overlaps_x and (
+                abs(north-R1) < tol or abs(south+R1) < tol)
+        else:
+            on_x = overlaps_y and (
+                abs(west-R1) < tol or abs(east+R1) < tol)
+            on_y = overlaps_x and (
+                abs(south-R1) < tol or abs(north+R1) < tol)
+        xs = [west, east]
+        ys = [south, north]
+        if on_y:
+            knots = opposite_x[(opposite_x>west+tol)&(opposite_x<east-tol)]
+            xs = [west, *knots, east]
+        if on_x:
+            knots = opposite_y[(opposite_y>south+tol)&(opposite_y<north-tol)]
+            ys = [south, *knots, north]
+        for x0, x1 in zip(xs[:-1],xs[1:]):
+            for y0, y1 in zip(ys[:-1],ys[1:]):
+                if x1-x0 <= tol or y1-y0 <= tol:
+                    continue
+                c = cell.copy()
+                c[0], c[1] = x0, x1
+                c[2], c[3] = y0, y1
+                cells_out.append(c)
+                densities_out.append(density)
+    return np.asarray(cells_out, dtype=float).reshape(-1, 6), np.asarray(
+        densities_out, dtype=float)
+
+
+def _refine_far_interface(prisms, densities, near_x, near_y, R1):
+    """Refine the far side of R1 to the tangential fine-grid nodes."""
+    return _refine_interface_cells(prisms, densities, near_x, near_y,
+                                   R1, inside=False)
+
+
+def _refine_near_interface(prisms, densities, far_x, far_y, R1):
+    """Refine the near side of R1 to the tangential coarse-grid nodes."""
+    return _refine_interface_cells(prisms, densities, far_x, far_y,
+                                   R1, inside=True)
 
 
 # -----------------------------------------------------------------------------
@@ -920,6 +934,9 @@ def st_loop( constant_arg, iterable_arg ) :
     if curved and refine_interface:
         pr2 = _refine_far_interface(pr2[0], pr2[1], Mx[0][0, :],
                                     My[0][:, 0], R1)
+        if spherical_near:
+            pr1 = _refine_near_interface(pr1[0], pr1[1], Mx[1][0, :],
+                                         My[1][:, 0], R1)
 
     if R3 != None :
         pr2, pr3 = mesh_R3( pr2, R3 )
@@ -1027,9 +1044,10 @@ def bgc( x, y, dtm1, z='dtm', gs1=None, dtm2=None, R1=None, R2=None, gs2=None,
     the near-field cells as spherical polyhedra, removing the old cell-wise
     vertical-shift mismatch at R1. Set near_geometry="prism" to reproduce
     the legacy Nagy near field. refine_interface=True subdivides the first
-    row of far-field cells tangentially at shared fine-grid edge positions.
-    Neither this nor identical curvature guarantees a globally watertight
-    triangulation when near/far DEM heights differ.
+    row of far-field cells and the outer row of near-field cells at the
+    UNION of fine- and coarse-grid edge positions. Shared interfaces use
+    identical side-facet diagonals when height intervals also agree.
+    Distinct near/far DTM heights still require a separate continuity check.
     
     INPUT:
     x,y,z ----->  coordinates of computational points (z can be as x,y or just a sigle value or z='dtm')
