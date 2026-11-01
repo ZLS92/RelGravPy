@@ -10,6 +10,7 @@ on:
       - 'relgravpy/grav_modelling.py'
       - 'tests/test_bouguer_polyhedra.py'
       - 'tests/test_bouguer_transition.py'
+      - 'tests/benchmark_r1_conformal.py'
       - 'tests/test_polygrav_nagy.py'
       - 'tests/benchmark_polygrav_nagy.py'
       - 'tests/benchmark_spherical_reference.py'
@@ -23,6 +24,7 @@ on:
       - 'relgravpy/grav_modelling.py'
       - 'tests/test_bouguer_polyhedra.py'
       - 'tests/test_bouguer_transition.py'
+      - 'tests/benchmark_r1_conformal.py'
       - 'tests/test_polygrav_nagy.py'
       - 'tests/benchmark_polygrav_nagy.py'
       - 'tests/benchmark_spherical_reference.py'
@@ -54,5 +56,7 @@ jobs:
         run: PYTHONPATH=tests:. python -u tests/benchmark_spherical_reference.py
       - name: Validate two-resolution R1 interface against spherical volume integral
         run: PYTHONPATH=tests:. python -u tests/benchmark_r1_transition.py
+      - name: Validate R1 arbitrary-facet gravity against independent 3D volume integration
+        run: PYTHONPATH=tests:. python -u tests/benchmark_r1_conformal.py
       - name: Diagnose outer seam compatibility after mesh adjustment
         run: PYTHONPATH=tests:. python -u tests/diagnose_r1_outer_seam.py
