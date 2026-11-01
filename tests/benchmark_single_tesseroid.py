@@ -1,7 +1,8 @@
 """One-tesseroid reference vs refined curvature-following polyhedral mesh.
 
-A constant-density spherical wedge (a *single* tesseroid) serves as a
-fixed independent reference for every mesh resolution. One station is
+A constant-density spherical wedge is evaluated by independent
+Gauss-Legendre volume quadrature as the PRIMARY reference. A single
+Harmonica tesseroid is retained as a SECONDARY diagnostic comparator. One station is
 located at the geographic centre, exactly 20 m above its top.
 
 Run:
@@ -97,9 +98,10 @@ def independent_spherical_reference(nangles=96, nradial=32):
     return float(BC.gm.G * DENSITY * 1e5 * integral)
 
 
-def tesseroid_vs_mesh():
+def benchmark_direct_spherical_vs_mesh():
     print("CONFIG", json.dumps({
-        "reference": "single_tesseroid",
+        "reference": "independent_spherical_volume_quadrature",
+        "secondary": "single_harmonica_tesseroid",
         "radius_m": R, "density_kg_m3": DENSITY,
         "height_m": HEIGHT, "clearance_m": CLEARANCE,
         "domain_m": DOMAIN,
@@ -114,7 +116,7 @@ def tesseroid_vs_mesh():
                          field="g_z", parallel=False)
     reference, time_tess = compute_tesseroid(radial=False)
     ref_radial, time_radial = compute_tesseroid(radial=True)
-    print("REFERENCE", json.dumps({
+    print("SECONDARY_HARMONICA", json.dumps({
         "g_mGal": reference,
         "g_radial_adapt_mGal": ref_radial,
         "radial_mode_difference_uGal": 1000*(ref_radial-reference),
@@ -123,7 +125,7 @@ def tesseroid_vs_mesh():
 
     high_accuracy = independent_spherical_reference(96, 32)
     cross_check = independent_spherical_reference(64, 24)
-    print("INDEPENDENT_REFERENCE", json.dumps({
+    print("PRIMARY_REFERENCE", json.dumps({
         "spherical_volume_quadrature_mGal": high_accuracy,
         "convergence_check_mGal": cross_check,
         "convergence_difference_uGal": 1000*(high_accuracy-cross_check),
@@ -141,10 +143,12 @@ def tesseroid_vs_mesh():
         result = {
             "n": n, "cells": n*n, "cell_width_m": DOMAIN/n,
             "g_poly_mGal": float(g),
-            "g_one_tess_mGal": float(reference),
-            "difference_uGal": 1000*(g-reference),
+            "g_reference_mGal": float(high_accuracy),
+            "g_harmonica_mGal": float(reference),
+            "difference_uGal": 1000*(g-high_accuracy),
+            "difference_to_harmonica_uGal": 1000*(g-reference),
             "difference_to_direct_uGal": 1000*(g-high_accuracy),
-            "relative_difference_pct": 100*(g-reference)/reference,
+            "relative_difference_pct": 100*(g-high_accuracy)/high_accuracy,
             "elapsed_s": elapsed,
         }
         print("CASE", json.dumps(result), flush=True)
@@ -163,7 +167,8 @@ def tesseroid_vs_mesh():
     # Require sub-0.1-uGal agreement at the finest 128x128 resolution.
     assert abs(output[-1]["difference_to_direct_uGal"]) < 0.1, output[-1]
     print("RESULT_JSON", json.dumps({
-        "reference_mGal": reference,
+        "reference_mGal": high_accuracy,
+        "secondary_harmonica_mGal": reference,
         "independent_reference_mGal": high_accuracy,
         "reference_radial_mGal": ref_radial,
         "rows": output,
@@ -172,4 +177,4 @@ def tesseroid_vs_mesh():
 
 
 if __name__ == "__main__":
-    tesseroid_vs_mesh()
+    benchmark_direct_spherical_vs_mesh()
