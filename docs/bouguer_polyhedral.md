@@ -28,11 +28,9 @@ chosen gravity sign convention.
 
 ## Geometry and kernels
 
-- **Near field** (inside `R1`): by default with `curved=True`,
-  every near cell is also a curvature-following spherical polyhedron. This
-  avoids the legacy per-cell vertical `z_shift` discontinuity at the seam.
-  Use `near_geometry="prism"` to reproduce the original Nagy near model;
-  this reintroduces the approximate curvature shift.
+- **Near field** (inside `R1`): **horizontal Nagy prisms** by default.
+  The centre of each prism's bottom face lies on the spherical reference
+  after an exact vertical `z_shift`. The prisms are not rotated.
 - **Far field** (`R1` to `R2`): for each DEM rectangle, build four
   vertices on the reference sphere at radial height `bottom`, and four
   at radial height `top`. Lower and upper quadrilateral patches are split
@@ -52,12 +50,11 @@ strictly tangent planes. All sides are triangulated with a **canonical
 diagonal direction** so opposite cells generate the identical shared facet
 when endpoints and top/bottom elevations coincide.
 
-To make the square near/far boundary conforming for grids with different,
-possibly incommensurate steps, `_refine_near_interface` and
-`_refine_far_interface` split *both* sets of R1-adjacent cells at the
-**union** of near- and far-grid boundary nodes. This operation conserves
-the sum of prismatic cell volumes and repeats the original density for
-each child. It does not interpolate elevations from either DTM.
+The outer vertical faces of the Nagy prisms anchor the *inner* faces of
+the new transition wedges. `_refine_far_interface` subdivides the first
+far row tangentially at near-prism edge nodes, while retaining the
+original near prisms. A separate, optional fully spherical near-field
+comparison mode keeps the two-sided spherical refinement.
 
 ## API
 
@@ -79,10 +76,11 @@ from relgravpy import _bouguer_correction as bc
 ```
 
 `curved=False` retains the old prism-only far-field alternative without
-Harmonica. For `curved=True`, the new defaults are
-`near_geometry="auto"` and `refine_interface=True`. The auto near
-geometry is spherical; `near_geometry="prism"` is provided for controlled
-legacy comparisons. The new setting is forwarded through `run_bgc()`.
+Harmonica. For `curved=True`, the defaults are `near_geometry="auto"`
+(**centre-shifted Nagy prisms**) and `refine_interface=True`.
+The interface wedges then use the near-prism outer-face vertices.
+`near_geometry="spherical"` is available only for controlled comparisons.
+The new setting is forwarded through `run_bgc()`.
 
 ## Verified so far
 
@@ -197,50 +195,73 @@ Reproduce with `python -u tests/benchmark_single_tesseroid.py`.
 Harmonica remains an optional **benchmark-only** dependency; the
 processing module does not import it.
 
-## 1 November 2026: R1 geometry transition updated and validated
+## 1 November 2026: Nagy-prism-anchored transition at R1
 
-The previous approach used near-field *rectangular* Nagy prisms shifted
-downwards by one cell-wise curvature correction and curved far polyhedra,
-introducing a discontinuity at R1.
+The previous fully spherical *near-field* default has been superseded by
+the specified hybrid geometry. The production-intended default now uses:
 
-The revised experimental default uses spherical polyhedra on **both sides**
-of R1 and subdivides the near/far seam cells in both meshes at the union
-of their grid boundary coordinates. Side facets now use matching diagonal
-triangulations on opposing faces. For a *uniform* spherical shell at matching
-top/bottom elevations, the local seam triangulation is conforming.
+1. **Near R1: horizontal Nagy prisms**, never rotated. Their base is
+   translated to the exact sphere elevation at each **prism centre**:
+   `zshift = R - sqrt(R**2 - xc**2 - yc**2)`. Previously the implementation
+   used the *farthest* cell corner, which is not the requested geometry.
+   This is implemented in both `mesh_ls` and `mesh_sb`.
+2. **Transition at R1:** first far row uses special hexahedral polyhedra.
+   Their *inner* vertical faces (all four vertices) match the actual
+   outward planar faces of the translated near Nagy prisms.
+   Their outer faces follow the spherical reference geometry.
+3. **Beyond the first far row:** ordinary curvature-following polyhedra.
+   The far cells are subdivided tangentially to match near-prism edge nodes.
+   The original near prisms are **not** subdivided, retaining exactly the
+   intended Nagy discretisation.
+4. `near_geometry="spherical"` still provides the old fully spherical
+   experimental comparison mode, but no longer is the default.
+   `near_geometry="auto"` or `"prism"` use the Nagy+bridge hybrid.
 
-The following fixed-domain synthetic tests were run via
-`tests/benchmark_r1_transition.py`, with an independent high-order
-spherical volume integral as the PRIMARY gravity reference:
+The transition is joined to the *actual* shifted-prism outer face, rather
+than joining two independently computed spherical faces. The same
+7-point stable surface integral is applied to the transitional polyhedron,
+and ordinary far polyhedra retain the standard fast kernel.
+When there is no unique matching prism/density on the R1 boundary, the
+code **raises a ValueError** instead of silently creating a discontinuity;
+marine/coastal interfaces need dedicated further handling.
 
-- Earth radius 6,371 km, density 2,670 kg/m³; 20 km x 20 km domain
-- Square near field R1=5 km; near mesh 125 m, far mesh 312.5 m
-- Near cell count 6,400 -> 6,464 after boundary subdivision
-- Far cell count 3,072 -> 3,328 after boundary subdivision
-- Near/far grid steps have a non-integer ratio: 2.5
+### Independent gravimetric verification
 
-| Synthetic shell configuration | Independent reference (mGal) | New joined model (mGal) | New error (µGal) | Legacy error (µGal) |
+Using a 20 x 20 km domain, near square R1=5 km, near step 125 m, far
+step 312.5 m, density 2670 kg/m³, reference sphere radius 6371 km:
+
+| Case | Direct spherical sharp-boundary reference (mGal) | Actual Nagy+bridge output (mGal) | Independent bridge volume mass effect (µGal) | Residual from geometry-adjusted reference (µGal) |
 |---|---:|---:|---:|---:|
-| Uniform thickness 300 m, station 320 m | 33.104457071 | 33.104472985 | +0.01591 | +0.88964 |
-| Step: 350 m near, 250 m far, station 370 m | 38.457963610 | 38.457978045 | +0.01444 | +0.98155 |
+| Uniform 300 m; station at 320 m | 33.104457071 | 33.104428895 | +0.008398 | -0.036575 |
+| 350 m inside R1 / 250 m outside; station at 370 m | 38.457963610 | 38.463243977 | +5.328069 | -0.047702 |
 
-The 3D reference computes spherical longitude/latitude wedges, whereas
-the mesh uses an orthographic square. The two footprints differ slightly
-(sub-centimetre to centimetre near these boundaries). Numerical errors
-therefore include that small systematic geometric difference.
+The **second case is not the same geometry as a discontinuous spherical
+height-step reference**: the joined wedges add sloping material. Comparing
+the output directly to the sharp-boundary reference incorrectly creates
+an apparent +5.28 µGal error. The table explicitly corrects the
+reference by the mass of those wedges, evaluated independently with
+three-dimensional tetrahedral Gauss-Legendre *volume* integration.
 
-**Limitations:** Conforming R1 faces have only been geometrically proven
-by unit tests for matching top/bottom heights. Different near/far DEM
-heights, negative contrasts and multiple water/rock compartments still
-require dedicated three-dimensional closure checks. Splitting cells does
-not by itself reconcile two different DEM representations of the same
-terrain. The numerical comparison does *not* validate the end-to-end
-GDAL-based `bgc()` workflow. Changing the entire near field to spherical
-polyhedra also changes performance and should be profiled on many stations.
+The remaining <0.05 µGal error in these tests includes the geometrical
+approximations of the centre-shifted Nagy prisms and of the orthographic
+grid boundaries, not just kernel quadrature error. This is **not** an
+end-to-end accuracy guarantee for arbitrary DEMs.
 
-The old near-prism mode remains available via
-`bgc(..., curved=True, near_geometry="prism")`; this is not the
-recommended production mode.
+### Remaining limitations
+
+- Distinct near/far DEM heights are joined by a *sloping mass transition*
+  across the first far row. This intentionally changes the physical
+  model with respect to a sharp vertical DTM discrepancy. A configurable
+  transition width and explicit near/far DEM reconciliation are still needed.
+- Independent raster inputs and their density compartments can be mismatched
+  along R1. The current implementation checks for one compatible prism
+  on the boundary and fails early if matching is ambiguous or impossible.
+- At the *outer* face of the transition strip, the tangential grid may
+  still have hanging nodes relative to the next unrefined far-field ring.
+  Global watertightness of arbitrary 3D meshes is not yet demonstrated.
+- Real DTM / sea / seabed / multi-station GDAL paths still require
+  end-to-end tests. The local Earth radius inconsistency remains a
+  separate known issue.
 
 ## Verification priorities before production
 
@@ -254,9 +275,9 @@ available only as an auxiliary diagnostic.
 Priority P0:
 - Test the full high-level `bgc()` path on at least one real DTM (GDAL warp,
   georeferencing, elevation datums, nodata and output) with known results.
-- Verify real-DEM height/density differences across R1 (including sea/land)
-  and measure the full perimeter-wide geometric closure and gravity error.
-  The uniform-shell and sharp synthetic height-step cases already pass.
+- Verify real-DEM height/density differences across R1 (including sea/land);
+  choose and validate the width of the prism-anchored sloping bridge,
+  and resolve any hanging nodes in the following far-field row.
 - Verify `R` handling: the caller-specified radius is overwritten inside
   `st_loop` by `utl.local_sph_raduis(yg)`, while prior raster projection
   uses the caller's `R`. Choose one consistent reference model.
@@ -299,10 +320,11 @@ must be evaluated separately from DTM elevation and rock-density uncertainty.
 1. **Full DEM integration:** compare against the previous Harmonica
    tesseroid implementation at known stations and for land, sea surface,
    and sea-bottom station types.
-2. **R1 seam:** new defaults use curved near/far meshes and matching
-   boundary-face subdivisions; synthetic uniform and 100-m height-step
-   gravity tests pass at ~0.015 microgal. Confirm real-DTM top/density
-   interfaces and perimeter-wide geometric closure before scientific use.
+2. **R1 seam:** default now keeps near Nagy prisms centre-shifted onto
+   the spherical reference and anchors special far polyhedra to their
+   outer faces. Verify the transitional volume geometry and any
+   hanging-node interfaces for real DTMs; separate physical smoothing
+   effects from numerical integration errors.
 3. **Geometry convergence:** synthetic flat/rugged refinement shows residuals
    falling with cell width; repeat with exactly identical geographic
    footprints, different observation heights, latitude and real DEMs.
