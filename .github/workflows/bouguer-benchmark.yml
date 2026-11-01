@@ -6,6 +6,7 @@ on:
       - feat/bouguer-polyhedral-curvature
     paths:
       - 'tests/benchmark_bouguer_polyhedra.py'
+      - 'tests/benchmark_single_tesseroid.py'
       - 'relgravpy/_bouguer_correction.py'
       - 'tests/test_bouguer_polyhedra.py'
       - '.github/workflows/bouguer-benchmark.yml'
@@ -24,3 +25,5 @@ jobs:
         run: python -m pip install "harmonica>=0.7,<0.9" pytest numpy
       - name: Compare Nagy, spherical polyhedra and Harmonica tesseroids
         run: python -u tests/benchmark_bouguer_polyhedra.py
+      - name: Validate single tesseroid against refined polyhedral mesh
+        run: python -u tests/benchmark_single_tesseroid.py
