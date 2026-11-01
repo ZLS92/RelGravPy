@@ -9,6 +9,7 @@ on:
       - 'relgravpy/grav_modelling.py'
       - 'tests/test_bouguer_polyhedra.py'
       - 'tests/test_bouguer_mesh_optimizer.py'
+      - 'tests/benchmark_bgc_optimizer.py'
       - 'tests/test_bouguer_transition.py'
       - 'tests/benchmark_r1_conformal.py'
       - 'tests/test_polygrav_nagy.py'
@@ -23,6 +24,7 @@ on:
       - 'relgravpy/grav_modelling.py'
       - 'tests/test_bouguer_polyhedra.py'
       - 'tests/test_bouguer_mesh_optimizer.py'
+      - 'tests/benchmark_bgc_optimizer.py'
       - 'tests/test_bouguer_transition.py'
       - 'tests/benchmark_r1_conformal.py'
       - 'tests/test_polygrav_nagy.py'
@@ -49,6 +51,8 @@ jobs:
           python -m py_compile relgravpy/_bouguer_correction.py
       - name: Validate polydron_grav against prism_grav and check geometry
         run: PYTHONPATH=tests:. python -m pytest -v tests/test_bouguer_polyhedra.py tests/test_polygrav_nagy.py tests/test_bouguer_transition.py tests/test_bouguer_mesh_optimizer.py
+      - name: Survey-wide auto-mesh speed and proxy diagnostics
+        run: PYTHONPATH=tests:. python -u tests/benchmark_bgc_optimizer.py
       - name: Quantify polydron_grav versus prism_grav error
         run: PYTHONPATH=tests:. python -u tests/benchmark_polygrav_nagy.py
       - name: Verify primary independent spherical reference and mesh convergence
