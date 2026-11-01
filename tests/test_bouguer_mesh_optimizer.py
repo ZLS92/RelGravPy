@@ -46,7 +46,7 @@ def test_bgc_optimizer_manual_parameters_bypass_target_entirely():
     x,y=stations(3)
     with _no_warnings():
         result=BC.optimize_bgc_mesh(
-            x,y,None,gs1=25.,R1=5000.,gs2=500.,
+            x,y,None,gs1=30.,R1=5000.,gs2=500.,
             target_error=-999, R2=167000.)
     assert result["optimized"] is False
     assert result["R2"]==167000.
