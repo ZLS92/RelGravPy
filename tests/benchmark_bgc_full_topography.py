@@ -223,7 +223,8 @@ def run():
                                        else None),
                                    predicted_max_mGal=float(np.max(
                                        BC._bgc_mesh_error_proxy(
-                                           features,a,b,c,DC,R)))))
+                                           features,a,b,c,DC,R,
+                                           native_resolution=30.)))))
             print("BGC_FULL_MOUNTAIN_PROBES",
                   json.dumps(probes),flush=True)
         valid=[s for s in out if s["status"]=="ok"]
