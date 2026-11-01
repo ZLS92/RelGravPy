@@ -41,9 +41,15 @@ def run_case(near_n=80, far_n=64, R1=5000.0):
     refined, refined_density = BC._refine_far_interface(
         far, far_dense, near_edges,near_edges,R1
     )
+    conformed_near, conformed_near_den = BC._refine_near_interface(
+        near, fine_dense, far_edges, far_edges, R1
+    )
 
-    # The new seam: all near cells spherical, including the R1 boundary.
-    near_g = BC._polyhedral_gz(near,fine_dense,[0,0,OBS_Z],RADIUS)
+    # The new seam: all near cells spherical, and BOTH sides of R1
+    # subdivided at the union of fine and coarse horizontal grid knots.
+    near_g = BC._polyhedral_gz(
+        conformed_near,conformed_near_den,[0,0,OBS_Z],RADIUS
+    )
     far_g = BC._polyhedral_gz(refined,refined_density,[0,0,OBS_Z],RADIUS)
     unrefined_far = BC._polyhedral_gz(far,far_dense,[0,0,OBS_Z],RADIUS)
 
@@ -58,7 +64,8 @@ def run_case(near_n=80, far_n=64, R1=5000.0):
     exact = spherical_volume_gravity(96,32)
     data = {
         "R1_m":R1,
-        "near_cells":len(near),
+        "near_cells_original":len(near),
+        "near_cells_refined":len(conformed_near),
         "far_cells_original":len(far),
         "far_cells_refined":len(refined),
         "near_cell_width_m":2*R1/near_n,
