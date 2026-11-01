@@ -6,6 +6,8 @@ import numpy as np
 import pytest
 
 from test_bouguer_polyhedra import GM, BC
+from pathlib import Path
+import ast
 
 # The R1 bridge is internal to _bouguer_correction.py.
 TR = BC
@@ -170,3 +172,18 @@ def test_transition_rejects_missing_near_prism_edge_segments():
     subset=near[near[:,3]<-50]  # excludes several required intervals
     with pytest.raises(ValueError,match="incomplete|missing"):
         TR._bridge_mesh(bridge,subset,"east",R)
+
+
+def test_bridge_is_internal_to_bouguer_correction():
+    """Keep the R1 geometry colocated with Bouguer correction."""
+    root = Path(__file__).resolve().parents[1] / "relgravpy"
+    module = root / "_bouguer_correction.py"
+    assert module.is_file()
+    assert not (root / "_bouguer_transition.py").exists()
+    source = module.read_text(encoding="utf-8")
+    assert "R1 PRISM / SPHERICAL-POLYHEDRON CONFORMAL TRANSITION" in source
+    names = {node.name for node in ast.parse(source).body
+             if isinstance(node, ast.FunctionDef)}
+    assert {"_outward_triangle_winding", "_bridge_mesh",
+            "_corner_mesh", "_transition_polyhedral_gz"}.issubset(names)
+    assert "tr._transition_polyhedral_gz" not in source
