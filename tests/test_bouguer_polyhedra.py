@@ -48,8 +48,10 @@ GM = _load_numerical_subset(
 )
 BC = _load_numerical_subset(
     ROOT / "relgravpy" / "_bouguer_correction.py",
-    {"_curved_cell_vertices", "_surface_integral_polyhedral_gz",
-     "_polyhedral_gz", "_point_mass_gz", "_ring_polyhedral_effect",
+    {"_curved_cell_vertices", "_curved_cell_vertices_batch",
+     "_surface_integral_vertices_gz", "_surface_integral_polyhedral_gz",
+     "_polyhedral_gz", "_transition_cell_vertices", "_transition_polyhedral_gz",
+     "_point_mass_gz", "_ring_polyhedral_effect",
      "_refine_interface_cells", "_refine_far_interface",
      "_refine_near_interface"},
     gm=GM,
@@ -228,7 +230,7 @@ def test_curved_near_switch_exposes_nagy_fallback():
     assert "near_geometry" in args
     assert "refine_interface" in args
     assert '"auto"' in src
-    assert "spherical_near = curved and near_geometry" in src
+    assert 'spherical_near = curved and near_geometry == "spherical"' in src
     assert "pr1[0][finite_mass]" in src
 
 
