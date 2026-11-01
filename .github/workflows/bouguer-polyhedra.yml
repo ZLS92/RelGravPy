@@ -8,12 +8,14 @@ on:
       - 'relgravpy/_bouguer_correction.py'
       - 'relgravpy/grav_modelling.py'
       - 'tests/test_bouguer_polyhedra.py'
+      - 'tests/benchmark_spherical_reference.py'
       - '.github/workflows/bouguer-polyhedra.yml'
   pull_request:
     paths:
       - 'relgravpy/_bouguer_correction.py'
       - 'relgravpy/grav_modelling.py'
       - 'tests/test_bouguer_polyhedra.py'
+      - 'tests/benchmark_spherical_reference.py'
   workflow_dispatch:
 
 jobs:
@@ -33,3 +35,5 @@ jobs:
           python -m py_compile relgravpy/_bouguer_correction.py
       - name: Compare curved polyhedra against Nagy and check geometry
         run: PYTHONPATH=tests:. python -m pytest -v tests/test_bouguer_polyhedra.py
+      - name: Verify primary independent spherical reference and mesh convergence
+        run: PYTHONPATH=tests:. python -u tests/benchmark_spherical_reference.py
