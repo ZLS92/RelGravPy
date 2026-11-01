@@ -421,6 +421,19 @@ coarser than native DEM resolution when local terrain slopes are
 large, and adds a modest 1.5 empirical margin to its proxy.
 This is **provisional calibration**, not a universal bound.
 
+In the final tested version (with the 1.5 margin), the selected
+mountain mesh remained `gs1=30 m, R1=4005 m, gs2=242.727 m`.
+Predicted maximum was `0.03759 mGal`, actual maximum
+`0.00767 mGal` across two stations. With the coast entirely outside
+R1 and R1 constrained to 2 km, the chosen
+`gs1=120 m, R1=2100 m, gs2=247.059 m` predicted
+`0.03971 mGal` and showed `0.03368 mGal` actual mismatch.
+These are four synthetic station cases, not a general calibration
+proof. The `tests/benchmark_bgc_full_topography.py` script now
+includes numerical regression assertions at 0.05 mGal for these
+two supported geometries. The incompatible mixed-density R1 crossing
+remains explicitly reported instead of being silently accepted.
+
 Before the 1.5 margin, the corrected optimizer chose `gs1=30 m,
 R1=4005 m, gs2=242.727 m` for the synthetic mountain. Maximum
 mismatch at two stations was `0.00767 mGal`, well below the
