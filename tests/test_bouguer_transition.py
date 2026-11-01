@@ -2,27 +2,13 @@
 
 Keep the tests GDAL-free by extracting only the tested numerical functions.
 """
-import ast
-from pathlib import Path
-import types
-
 import numpy as np
 import pytest
 
 from test_bouguer_polyhedra import GM, BC
 
-ROOT = Path(__file__).resolve().parents[1]
-tree = ast.parse((ROOT / "relgravpy" / "_bouguer_transition.py").read_text())
-functions = {"_outward_triangle_winding", "_bridge_mesh", "_corner_mesh",
-             "_transition_polyhedral_gz"}
-nodes = [node for node in tree.body
-         if isinstance(node, ast.FunctionDef) and node.name in functions]
-assert len(nodes) == len(functions)
-TR = types.ModuleType("isolated_transition")
-TR.np = np
-TR.gm = GM
-exec(compile(ast.Module(body=nodes, type_ignores=[]),
-             "_bouguer_transition.py","exec"), TR.__dict__)
+# The R1 bridge is internal to _bouguer_correction.py.
+TR = BC
 
 R = 6371000.
 R1 = 1125.
